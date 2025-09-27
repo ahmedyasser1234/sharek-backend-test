@@ -41,6 +41,19 @@ async function bootstrap() {
     .addBearerAuth()
     .build();
 
+
+    AppDataSource.initialize()
+  .then(async () => {
+    console.log('✅ Connected to DB');
+    const queryRunner = AppDataSource.createQueryRunner();
+    const tables = await queryRunner.getTables(['company']);
+    console.log('📦 Tables:', tables);
+  })
+  .catch((err) => {
+    console.error('❌ DB Error:', err);
+  });
+
+
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
 
