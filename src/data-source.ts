@@ -33,5 +33,5 @@ export const AppDataSource = new DataSource({
     PaymentTransaction,
   ],
   migrations: ['src/migrations/*.ts'],
-  synchronize: false,
+  synchronize: true,
 });
