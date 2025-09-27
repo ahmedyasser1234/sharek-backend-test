@@ -1,4 +1,7 @@
 import { DataSource } from 'typeorm';
+import { config } from 'dotenv';
+config();
+
 import { Company } from './company/entities/company.entity';
 import { CompanyToken } from './company/auth/entities/company-token.entity';
 import { CompanyLoginLog } from './company/auth/entities/company-login-log.entity';
@@ -12,11 +15,11 @@ import { PaymentTransaction } from './payment/entities/payment-transaction.entit
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
-  host: 'localhost',
-  port: 5432,
-  username: 'postgres',
-  password: 'Ahmed123',
-  database: 'company_db',
+  host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT),
+  username: process.env.DB_USERNAME,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
   entities: [
     Company,
     CompanyToken,

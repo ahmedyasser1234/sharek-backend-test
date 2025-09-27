@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>الخطط المتاحة</title>
+</head>
+<body>
+  <h2>اختر خطة للاشتراك</h2>
+  <ul>
+    <% plans.forEach(plan => { %>
+      <li>
+        <strong><%= plan.name %></strong><br>
+        السعر: <%= plan.price %> جنيه<br>
+       <form action="/subscribe" method="POST">
+  <input type="hidden" name="companyId" value="<%= companyId %>" />
+  <input type="hidden" name="planId" value="<%= plan.id %>" />
+  <button type="submit">اشترك</button>
+</form>
+
+      </li>
+      <hr>
+    <% }) %>
+  </ul>
+</body>
+</html>
