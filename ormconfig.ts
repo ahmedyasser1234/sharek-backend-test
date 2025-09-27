@@ -13,6 +13,7 @@ import { EmployeeImage } from './src/employee/entities/EmployeeImage.entity';
 import { Visit } from './src/employee/entities/visit.entity';
 import { PaymentTransaction } from './src/payment/entities/payment-transaction.entity';
 
+
 export const AppDataSource = new DataSource({
   type: 'postgres',
   host: process.env.DB_HOST,
@@ -34,4 +35,11 @@ export const AppDataSource = new DataSource({
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: true,
+  ssl: true,
+  extra: {
+    ssl: {
+      rejectUnauthorized: false,
+    },
+  },
 });
+

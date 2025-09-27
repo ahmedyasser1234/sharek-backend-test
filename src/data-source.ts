@@ -1,4 +1,6 @@
-import { DataSource } from 'typeorm'; import { config } from 'dotenv'; config(); 
+import { DataSource } from 'typeorm'; 
+import { config } from 'dotenv'; 
+config(); 
 import { Company } from './company/entities/company.entity'; 
 import { CompanyToken } from './company/auth/entities/company-token.entity'; 
 import { CompanyLoginLog } from './company/auth/entities/company-login-log.entity'; 
@@ -9,6 +11,7 @@ import { Plan } from './plan/entities/plan.entity';
 import { EmployeeImage } from './employee/entities/EmployeeImage.entity'; 
 import { Visit } from './employee/entities/visit.entity'; 
 import { PaymentTransaction } from './payment/entities/payment-transaction.entity';
+
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
