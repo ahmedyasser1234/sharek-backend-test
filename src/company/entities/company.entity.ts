@@ -48,7 +48,7 @@ export class Company {
   isVerified: boolean;
 
   @Column({ type: 'text', nullable: true })
-  verificationToken: string | null;
+  verificationCode: string | null;
 
   @Column({ default: 'email', type: 'text' })
   provider: string;

@@ -3,6 +3,8 @@ import {
   NotFoundException,
   UnauthorizedException,
   Logger,
+  OnModuleInit,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DeepPartial } from 'typeorm';
@@ -18,8 +20,9 @@ import { CompanyLoginLog } from './auth/entities/company-login-log.entity';
 import { v4 as uuid } from 'uuid';
 import { mkdirSync, renameSync } from 'fs';
 import { join } from 'path';
-import { OnModuleInit } from '@nestjs/common';
-
+import * as nodemailer from 'nodemailer';
+import type SMTPTransport from 'nodemailer/lib/smtp-transport';
+import axios from 'axios';
 
 @Injectable()
 export class CompanyService implements OnModuleInit {
@@ -37,50 +40,54 @@ export class CompanyService implements OnModuleInit {
     public readonly jwtService: CompanyJwtService,
   ) {}
 
-async onModuleInit() {
-  await this.seedDefaultCompany();
-}
-
-
-async seedDefaultCompany(): Promise<void> {
-  const email = 'admin2@company.com';
-
-  const exists = await this.companyRepo.findOne({ where: { email } });
-  if (exists) {
-    this.logger.warn(`⚠️ الشركة الافتراضية موجودة بالفعل: ${email}`);
-    return;
+  async onModuleInit() {
+    await this.seedDefaultCompany();
   }
 
-  const hashedPassword = await bcrypt.hash('123456789', 10);
-  const tempId = uuid();
+  async seedDefaultCompany(): Promise<void> {
+    const email = 'admin2@company.com';
+    const exists = await this.companyRepo.findOne({ where: { email } });
+    if (exists) {
+      this.logger.warn(`⚠️ الشركة الافتراضية موجودة بالفعل: ${email}`);
+      return;
+    }
 
-  const companyData: DeepPartial<Company> = {
-    id: tempId,
-    email,
-    name: 'شركة افتراضية',
-    password: hashedPassword,
-    phone: '01012345678',
-    isVerified: true,
-    isActive: true,
-    provider: 'email',
-    fontFamily: 'Cairo, sans-serif',
-    description: 'شركة تم إنشاؤها تلقائيًا عند بدء التشغيل',
-  };
+    const hashedPassword = await bcrypt.hash('123456789', 10);
+    const tempId = uuid();
 
-  const company = this.companyRepo.create(companyData);
-  await this.companyRepo.save(company);
-  this.logger.log(`🌱 تم زرع الشركة الافتراضية: ${email}`);
-}
+    const companyData: DeepPartial<Company> = {
+      id: tempId,
+      email,
+      name: 'شركة افتراضية',
+      password: hashedPassword,
+      phone: '01012345678',
+      isVerified: true,
+      isActive: true,
+      provider: 'email',
+      fontFamily: 'Cairo, sans-serif',
+      description: 'شركة تم إنشاؤها تلقائيًا عند بدء التشغيل',
+    };
+
+    const company = this.companyRepo.create(companyData);
+    await this.companyRepo.save(company);
+    this.logger.log(`🌱 تم زرع الشركة الافتراضية: ${email}`);
+  }
 
   async countEmployees(companyId: string): Promise<number> {
     return this.employeeRepo.count({
       where: { company: { id: companyId } },
     });
   }
-  async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
+
+  async createCompany(
+    dto: CreateCompanyDto,
+    logo?: Express.Multer.File,
+  ): Promise<Company> {
     this.logger.log(`✅ بدء إنشاء شركة جديدة: ${dto.email}`);
     const hashedPassword = await bcrypt.hash(dto.password, 10);
-    const verificationToken = uuid();
+    const verificationCode = Math.floor(
+      100000 + Math.random() * 900000,
+    ).toString();
     const tempId = uuid();
 
     const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
@@ -100,7 +107,7 @@ async seedDefaultCompany(): Promise<void> {
       ...dto,
       password: hashedPassword,
       isVerified: false,
-      verificationToken,
+      verificationCode,
       provider: dto.provider || 'email',
       logoUrl,
       fontFamily: dto.fontFamily ?? undefined,
@@ -110,13 +117,72 @@ async seedDefaultCompany(): Promise<void> {
     const company = this.companyRepo.create(companyData);
     const saved = await this.companyRepo.save(company);
 
+    await this.sendVerificationCode(saved.email);
+
     this.logger.log(`📦 تم حفظ الشركة بنجاح: ${saved.id}`);
     return saved;
   }
 
-  async updateCompany(id: string, dto: UpdateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
-    this.logger.log(`✏️ تحديث بيانات الشركة: ${id}`);
 
+async sendVerificationCode(email: string): Promise<string> {
+  const company = await this.companyRepo.findOne({ where: { email } });
+  if (!company) {
+    throw new NotFoundException('Company not found');
+  }
+
+  const code: string = Math.floor(100000 + Math.random() * 900000).toString();
+  company.verificationCode = code;
+  await this.companyRepo.save(company);
+
+  const transportOptions: SMTPTransport.Options = {
+    service: email.includes('yahoo') ? 'yahoo' : 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER ?? '',
+      pass: process.env.EMAIL_PASS ?? '',
+    },
+  };
+
+  const transporter = nodemailer.createTransport(transportOptions);
+  const mailOptions: nodemailer.SendMailOptions = {
+    from: process.env.EMAIL_USER ?? '',
+    to: email,
+    subject: 'رمز التحقق من البريد الإلكتروني',
+    text: `كود التفعيل الخاص بك هو: ${code}`,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    this.logger.log(`📧 تم إرسال كود التحقق إلى: ${email}`);
+    return 'تم إرسال كود التحقق';
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error';
+    this.logger.error(`❌ فشل إرسال البريد: ${errorMessage}`);
+    throw new BadRequestException('فشل إرسال البريد الإلكتروني');
+  }
+}
+
+  async verifyCode(email: string, code: string): Promise<string> {
+    this.logger.log(`📧 محاولة تفعيل البريد ${email} بالكود ${code}`);
+    const company = await this.companyRepo.findOne({ where: { email } });
+    if (!company) throw new NotFoundException('Company not found');
+    if (company.verificationCode !== code)
+      throw new UnauthorizedException('❌ كود غير صحيح');
+
+    company.isVerified = true;
+    company.verificationCode = null;
+    await this.companyRepo.save(company);
+
+    this.logger.log(`✅ تم تفعيل البريد الإلكتروني للشركة: ${company.id}`);
+    return '✅ تم تفعيل البريد الإلكتروني بنجاح';
+  }
+
+  async updateCompany(
+    id: string,
+    dto: UpdateCompanyDto,
+    logo?: Express.Multer.File,
+  ): Promise<Company> {
+    this.logger.log(`✏️ تحديث بيانات الشركة: ${id}`);
     const company = await this.companyRepo.findOne({ where: { id } });
     if (!company) throw new NotFoundException('Company not found');
 
@@ -147,21 +213,6 @@ async seedDefaultCompany(): Promise<void> {
     return this.findById(id);
   }
 
-  async verifyEmail(token: string): Promise<string> {
-    this.logger.log(`📧 محاولة تفعيل البريد باستخدام التوكن: ${token}`);
-    const company = await this.companyRepo.findOne({
-      where: { verificationToken: token },
-    });
-    if (!company) throw new NotFoundException('Invalid token');
-
-    company.isVerified = true;
-    company.verificationToken = null;
-    await this.companyRepo.save(company);
-
-    this.logger.log(`✅ تم تفعيل البريد الإلكتروني للشركة: ${company.id}`);
-    return '✅ تم تفعيل البريد الإلكتروني بنجاح';
-  }
-
   async findByEmail(email: string): Promise<Company> {
     this.logger.debug(`🔍 البحث عن شركة بالبريد: ${email}`);
     const company = await this.companyRepo.findOne({ where: { email } });
@@ -180,7 +231,6 @@ async seedDefaultCompany(): Promise<void> {
       .getOne();
 
     if (!company) throw new NotFoundException('Company not found');
-
     this.logger.log(`📦 تم جلب بيانات الشركة: ${company.id}`);
     return company;
   }
@@ -197,47 +247,84 @@ async seedDefaultCompany(): Promise<void> {
     ip: string,
   ): Promise<{ accessToken: string; refreshToken: string }> {
     this.logger.log(`🔐 محاولة تسجيل دخول من IP: ${ip} للبريد: ${dto.email}`);
-
     const company = await this.findByEmail(dto.email);
-    if (!company || typeof company !== 'object') {
-      this.logger.warn(`❌ بيانات الشركة غير صالحة`);
-      throw new UnauthorizedException('Invalid company data');
-    }
-
-    if (!company.isActive) {
-      this.logger.warn(`❌ الشركة غير مفعلة: ${dto.email}`);
-      throw new UnauthorizedException('Company is not active');
-    }
-
-    if (!company.isVerified) {
-      this.logger.warn(`❌ البريد الإلكتروني غير مفعل: ${dto.email}`);
+    if (!company) throw new UnauthorizedException('Invalid credentials');
+    if (!company.isActive) throw new UnauthorizedException('Company not active');
+    if (!company.isVerified)
       throw new UnauthorizedException('Email not verified');
-    }
-
-    if (typeof company.comparePassword !== 'function') {
-      this.logger.error(`❌ طريقة مقارنة كلمة المرور غير موجودة`);
-      throw new UnauthorizedException('Password comparison method missing');
-    }
 
     const isMatch = await company.comparePassword(dto.password);
-    if (!isMatch) {
-      this.logger.warn(`❌ كلمة المرور غير صحيحة للبريد: ${dto.email}`);
-      throw new UnauthorizedException('Invalid credentials');
-    }
+    if (!isMatch) throw new UnauthorizedException('Invalid credentials');
 
     const accessToken = this.jwtService.signAccess({
       companyId: company.id,
       role: company.role,
     });
-    const refreshToken = this.jwtService.signRefresh({
-      companyId: company.id,
-    });
+    const refreshToken = this.jwtService.signRefresh({ companyId: company.id });
 
-    this.logger.log(`✅ تم إصدار التوكنات للشركة: ${company.id}`);
     await this.tokenRepo.save(this.tokenRepo.create({ refreshToken, company }));
     await this.loginLogRepo.save({ ip, success: true, company });
+    this.logger.log(`✅ تم تسجيل دخول الشركة: ${company.id}`);
 
     return { accessToken, refreshToken };
+  }
+
+  async oauthLogin(provider: 'google' | 'facebook' | 'linkedin', token: string) {
+    if (provider === 'google') return this.loginWithGoogle(token);
+    if (provider === 'facebook') return this.loginWithFacebook(token);
+    if (provider === 'linkedin') return this.loginWithLinkedIn(token);
+    throw new BadRequestException('مزود خدمة غير مدعوم');
+  }
+
+  private async loginWithGoogle(token: string) {
+    const res = await axios.get<{ email: string }>(
+      `https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=${token}`,
+    );
+    const { email } = res.data;
+    if (!email) throw new BadRequestException('Google login failed');
+    return this.handleSocialLogin(email, 'google');
+  }
+
+  private async loginWithFacebook(accessToken: string) {
+    const res = await axios.get<{ email?: string }>(
+      `https://graph.facebook.com/me?fields=id,name,email&access_token=${accessToken}`,
+    );
+    const { email } = res.data;
+    if (!email) throw new BadRequestException('Facebook login failed');
+    return this.handleSocialLogin(email, 'facebook');
+  }
+
+  private async loginWithLinkedIn(accessToken: string) {
+    const res = await axios.get<{
+      elements: Array<{ 'handle~': { emailAddress: string } }>;
+    }>(
+      'https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))',
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    const email = res.data.elements[0]['handle~'].emailAddress;
+    if (!email) throw new BadRequestException('LinkedIn login failed');
+    return this.handleSocialLogin(email, 'linkedin');
+  }
+
+  private async handleSocialLogin(email: string, provider: string) {
+    let company = await this.companyRepo.findOne({ where: { email } });
+    if (!company) {
+      const newCompany: DeepPartial<Company> = {
+        id: uuid(),
+        email,
+        provider,
+        isVerified: true,
+        isActive: true,
+      };
+      company = this.companyRepo.create(newCompany);
+      await this.companyRepo.save(company);
+    }
+    const accessToken = this.jwtService.signAccess({
+      companyId: company.id,
+      role: company.role,
+    });
+    const refreshToken = this.jwtService.signRefresh({ companyId: company.id });
+    return { accessToken, refreshToken, provider };
   }
 
   async revokeToken(token: string): Promise<void> {
@@ -247,31 +334,24 @@ async seedDefaultCompany(): Promise<void> {
 
   async verifyRefreshToken(token: string): Promise<CompanyPayload> {
     try {
-      const payload = await this.jwtService.verifyAsync<CompanyPayload>(token);
-      this.logger.log(`✅ تم التحقق من توكن التحديث`);
-      return payload;
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`❌ فشل في التحقق من توكن التحديث: ${message}`);
+      return await this.jwtService.verifyAsync<CompanyPayload>(token);
+    } catch (err: unknown) {
+      const error = err as Error;
+      this.logger.error(`❌ خطأ في التحقق من Refresh Token: ${error.message}`);
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }
 
   async refresh(token: string): Promise<{ accessToken: string }> {
-    this.logger.log(`🔄 تحديث التوكن`);
     const payload = await this.verifyRefreshToken(token);
-
     const accessToken = this.jwtService.signAccess({
       companyId: payload.companyId,
       role: payload.role,
     });
-
-    this.logger.log(`✅ تم إصدار Access Token جديد`);
     return { accessToken };
   }
 
   async logout(token: string): Promise<{ success: boolean }> {
-    this.logger.log(`🚪 تسجيل خروج باستخدام التوكن: ${token}`);
     await this.revokeToken(token);
     return { success: true };
   }
@@ -281,7 +361,6 @@ async seedDefaultCompany(): Promise<void> {
     planId: string,
     provider: string,
   ): Promise<void> {
-    this.logger.log(`📦 تفعيل اشتراك الشركة ${companyId} بالخطة ${planId} عبر ${provider}`);
     await this.companyRepo.update(companyId, {
       subscriptionStatus: 'active',
       subscribedAt: new Date(),
@@ -292,15 +371,10 @@ async seedDefaultCompany(): Promise<void> {
   }
 
   async findAll(): Promise<Company[]> {
-  this.logger.log('📦 جلب جميع الشركات مع الاشتراكات والخطط');
-  const companies = await this.companyRepo
-    .createQueryBuilder('company')
-    .leftJoinAndSelect('company.subscriptions', 'subscription')
-    .leftJoinAndSelect('subscription.plan', 'plan')
-    .getMany();
-
-  return companies;
-}
-
-
+    return this.companyRepo
+      .createQueryBuilder('company')
+      .leftJoinAndSelect('company.subscriptions', 'subscription')
+      .leftJoinAndSelect('subscription.plan', 'plan')
+      .getMany();
+  }
 }
