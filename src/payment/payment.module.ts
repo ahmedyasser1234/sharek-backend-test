@@ -9,13 +9,18 @@ import { STCPayGateway } from './gateways/stcpay.gateway';
 import { GeideaGateway } from './gateways/geidea.gateway';
 import { PaymentTransaction } from './entities/payment-transaction.entity';
 import { Company } from '../company/entities/company.entity';
+import { CompanySubscription } from '../subscription/entities/company-subscription.entity'; 
 import { WebhookController } from './webhook.controller';
 import { PaymentController } from './payment.controller';
 import { PlanModule } from '../plan/plan.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([PaymentTransaction, Company]),
+    TypeOrmModule.forFeature([
+      PaymentTransaction,
+      Company,
+      CompanySubscription, 
+    ]),
     PlanModule,
   ],
   providers: [
@@ -28,6 +33,6 @@ import { PlanModule } from '../plan/plan.module';
     GeideaGateway,
   ],
   exports: [PaymentService],
-  controllers: [WebhookController ,PaymentController ],
+  controllers: [WebhookController, PaymentController],
 })
 export class PaymentModule {}

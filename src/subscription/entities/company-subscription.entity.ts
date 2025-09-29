@@ -2,27 +2,36 @@ import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
-  ManyToOne,
-  JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
   OneToOne,
+  JoinColumn,
 } from 'typeorm';
 import { Company } from '../../company/entities/company.entity';
 import { Plan } from '../../plan/entities/plan.entity';
 import { PaymentTransaction } from '../../payment/entities/payment-transaction.entity';
+
+export enum SubscriptionStatus {
+  ACTIVE = 'active',
+  CANCELLED = 'cancelled',
+  EXPIRED = 'expired',
+  PENDING = 'pending',
+}
 
 @Entity('company_subscriptions')
 export class CompanySubscription {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => Company, { eager: true, nullable: false, onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'companyId' })
+  @ManyToOne(() => Company, (company) => company.subscriptions, {
+    onDelete: 'CASCADE',
+  })
   company: Company;
 
-  @ManyToOne(() => Plan, { eager: true, nullable: false })
-  @JoinColumn({ name: 'planId' })
+  @ManyToOne(() => Plan, (plan) => plan.subscriptions, {
+    onDelete: 'CASCADE',
+  })
   plan: Plan;
 
   @Column({ type: 'timestamp' })
@@ -34,16 +43,27 @@ export class CompanySubscription {
   @Column({ type: 'decimal', precision: 10, scale: 2 })
   price: number;
 
- @OneToOne(() => PaymentTransaction, (tx) => tx.subscription, {
-  nullable: true,
-  cascade: true,
-})
-@JoinColumn({ name: 'paymentTransactionId' })
-paymentTransaction?: PaymentTransaction;
+  @Column({ type: 'varchar', length: 10, default: 'SAR' })
+  currency: string;
 
-  @CreateDateColumn({ type: 'timestamp' })
+  @Column({
+    type: 'enum',
+    enum: SubscriptionStatus,
+    default: SubscriptionStatus.PENDING,
+  })
+  status: SubscriptionStatus;
+
+  @OneToOne(() => PaymentTransaction, (pt) => pt.subscription, {
+    nullable: true,
+    cascade: true,
+  })
+  @JoinColumn({ name: 'paymentTransactionId' })
+  paymentTransaction?: PaymentTransaction;
+
+  @CreateDateColumn()
   createdAt: Date;
 
-  @UpdateDateColumn({ type: 'timestamp' })
+  @UpdateDateColumn()
   updatedAt: Date;
 }
+

@@ -11,17 +11,20 @@ interface TapResponse {
 export class TapGateway {
   private readonly baseUrl = 'https://api.tap.company/v2';
   private readonly apiKey = process.env.TAP_API_KEY!;
+  private readonly callbackUrl = process.env.TAP_CALLBACK_URL ?? 'https://yourdomain.com/tap/callback';
 
   createPlan(plan: { name: string; price: number }): string {
     return `${plan.name}-tap-${Date.now()}`;
   }
 
-  updatePrice(): void {
-  }
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+  updatePrice(): void {}
+
   async generateCheckoutUrl(planId: string, companyId: string): Promise<string> {
+    const externalTransactionId = `${companyId}-${Date.now()}`;
+    const amount = planId.includes('99') ? 99 : 59;
+
     const response: AxiosResponse<TapResponse> = await axios.post(`${this.baseUrl}/charges`, {
-      amount: planId.includes('99') ? 99 : 59,
+      amount,
       currency: 'SAR',
       customer: {
         first_name: 'Ahmed',
@@ -29,7 +32,10 @@ export class TapGateway {
         phone: { country_code: '966', number: '500000000' },
       },
       redirect: {
-        url: `https://yourdomain.com/tap/callback`,
+        url: this.callbackUrl,
+      },
+      reference: {
+        transaction: externalTransactionId,
       },
       source: { id: 'src_all' },
     }, {

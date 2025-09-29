@@ -4,7 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  OneToMany,
 } from 'typeorm';
+import { CompanySubscription } from '../../subscription/entities/company-subscription.entity';
+import { PaymentProvider } from '../../payment/payment-provider.enum';
 
 @Entity('plans')
 export class Plan {
@@ -32,17 +35,35 @@ export class Plan {
   @Column({ default: true })
   isActive: boolean;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  @Column({ type: 'enum', enum: PaymentProvider, nullable: true })
+  paymentProvider?: PaymentProvider;
+
+  @Column({ type: 'varchar', length: 10, default: 'SAR' })
+  currency: string;
+
+  @Column({ nullable: true })
   stripePriceId?: string;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  @Column({ nullable: true })
   paypalPlanId?: string;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
+  @Column({ nullable: true })
   saudiGatewayPlanId?: string;
 
-  @Column({ type: 'varchar', length: 50, nullable: true })
-  paymentProvider?: 'stripe' | 'paypal' | 'paytabs' | 'hyperpay' | 'geidea' | 'manual';
+  @Column({ nullable: true })
+  hyperpayPlanId?: string;
+
+  @Column({ nullable: true })
+  paytabsPlanId?: string;
+
+  @Column({ nullable: true })
+  tapPlanId?: string;
+
+  @Column({ nullable: true })
+  stcpayPlanId?: string;
+
+  @Column({ nullable: true })
+  geideaPlanId?: string;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -50,22 +71,6 @@ export class Plan {
   @UpdateDateColumn()
   updatedAt: Date;
 
-  @Column({ type: 'varchar', length: 10, default: 'SAR' })
-  currency: string;
-
-  @Column({ nullable: true })
-  hyperpayPlanId: string;
-
-  @Column({ nullable: true })
-  paytabsPlanId: string;
-
-  @Column({ nullable: true })
-  tapPlanId: string;
-
-  @Column({ nullable: true })
-  stcpayPlanId: string;
-
-  @Column({ nullable: true })
-  geideaPlanId: string;
-
+  @OneToMany(() => CompanySubscription, (sub) => sub.plan)
+  subscriptions: CompanySubscription[];
 }

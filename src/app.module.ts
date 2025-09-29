@@ -3,7 +3,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { typeOrmConfig } from './config/typeorm.config';
-// import { AuthModule } from './auth/auth.module';
+import { AdminModule } from './admin/admin.module';
 import { CompanyModule } from './company/company.module';
 import { EmployeeModule } from './employee/employee.module';
 import { SubscriptionModule } from './subscription/subscription.module';
@@ -17,7 +17,7 @@ import { ConfigModule } from '@nestjs/config';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(typeOrmConfig),
-    // AuthModule,
+    AdminModule,
     CompanyModule,
     EmployeeModule,
     SubscriptionModule,

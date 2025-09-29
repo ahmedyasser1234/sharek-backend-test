@@ -10,14 +10,11 @@ import { GeideaGateway } from './gateways/geidea.gateway';
 import { PaymentTransaction } from './entities/payment-transaction.entity';
 import { Company } from '../company/entities/company.entity';
 import { Plan } from '../plan/entities/plan.entity';
-
-type PaymentProvider =
-  | 'stripe'
-  | 'hyperpay'
-  | 'paytabs'
-  | 'tap'
-  | 'stcpay'
-  | 'geidea';
+import {
+  CompanySubscription,
+  SubscriptionStatus,
+} from '../subscription/entities/company-subscription.entity';
+import { PaymentProvider } from './payment-provider.enum';
 
 @Injectable()
 export class PaymentService {
@@ -32,58 +29,9 @@ export class PaymentService {
     private readonly transactionRepo: Repository<PaymentTransaction>,
     @InjectRepository(Company)
     private readonly companyRepo: Repository<Company>,
+    @InjectRepository(CompanySubscription)
+    private readonly subRepo: Repository<CompanySubscription>,
   ) {}
-
-  async createPlan(provider: PaymentProvider, plan: Plan): Promise<string> {
-    const payload = {
-      name: plan.name,
-      price: Number(plan.price),
-      currency: plan.currency || 'SAR',
-      interval: plan.durationInDays >= 365 ? 'year' : 'month',
-    };
-
-    switch (provider) {
-      case 'stripe':
-        return this.stripe.createPlan(payload);
-      case 'hyperpay':
-        return this.hyperpay.createPlan(payload);
-      case 'paytabs':
-        return this.paytabs.createPlan(payload);
-      case 'tap':
-        return this.tap.createPlan(payload);
-      case 'geidea':
-        return this.geidea.createPlan(payload);
-      case 'stcpay':
-        return this.stcpay.createPlan(payload);
-      default:
-        throw new Error(`❌ بوابة الدفع غير مدعومة: ${String(provider)}`);
-    }
-  }
-
-  updatePrice(provider: PaymentProvider): void {
-    switch (provider) {
-      case 'stripe':
-        this.stripe.updatePrice();
-        break;
-      case 'hyperpay':
-        this.hyperpay.updatePrice();
-        break;
-      case 'paytabs':
-        this.paytabs.updatePrice();
-        break;
-      case 'tap':
-        this.tap.updatePrice();
-        break;
-      case 'geidea':
-        this.geidea.updatePrice();
-        break;
-      case 'stcpay':
-        this.stcpay.updatePrice();
-        break;
-      default:
-        throw new Error(`❌ بوابة الدفع غير مدعومة: ${String(provider)}`);
-    }
-  }
 
   async generateCheckoutUrl(
     provider: PaymentProvider,
@@ -93,41 +41,75 @@ export class PaymentService {
     const company = await this.companyRepo.findOne({ where: { id: companyId } });
     if (!company) throw new Error(`❌ الشركة غير موجودة: ${companyId}`);
 
-   let checkoutUrl: string;
-switch (provider) {
-  case 'stripe':
-    checkoutUrl = await this.stripe.generateCheckoutUrl(plan.stripePriceId ?? '', companyId);
-    break;
-  case 'hyperpay':
-    checkoutUrl = await this.hyperpay.generateCheckoutUrl(plan.id, companyId);
-    break;
-  case 'paytabs':
-    checkoutUrl = await this.paytabs.generateCheckoutUrl(plan.id, companyId);
-    break;
-  case 'tap':
-    checkoutUrl = await this.tap.generateCheckoutUrl(plan.id, companyId);
-    break;
-  case 'geidea':
-    checkoutUrl = await this.geidea.generateCheckoutUrl(plan.id, companyId);
-    break;
-  case 'stcpay':
-    checkoutUrl = this.stcpay.generateCheckoutUrl(plan.id, companyId);
-    break;
-  default:
-    throw new Error(`❌ بوابة الدفع غير مدعومة: ${String(provider)}`);
-}
+    let checkoutUrl: string;
+    let externalId: string;
 
+    switch (provider) {
+      case PaymentProvider.STRIPE:
+        externalId = plan.stripePriceId ?? '';
+        checkoutUrl = await this.stripe.generateCheckoutUrl(externalId, companyId);
+        break;
+      case PaymentProvider.HYPERPAY:
+        externalId = `${companyId}-${Date.now()}`;
+        checkoutUrl = await this.hyperpay.generateCheckoutUrl(plan.id, companyId);
+        break;
+      case PaymentProvider.PAYTABS:
+        externalId = `${companyId}-${Date.now()}`;
+        checkoutUrl = await this.paytabs.generateCheckoutUrl(plan.id, companyId);
+        break;
+      case PaymentProvider.TAP:
+        externalId = `${companyId}-${Date.now()}`;
+        checkoutUrl = await this.tap.generateCheckoutUrl(plan.id, companyId);
+        break;
+      case PaymentProvider.GEIDEA:
+        externalId = `${companyId}-${Date.now()}`;
+        checkoutUrl = await this.geidea.generateCheckoutUrl(plan.id, companyId);
+        break;
+      case PaymentProvider.STCPAY:
+        externalId = `${companyId}-${Date.now()}`;
+        checkoutUrl = this.stcpay.generateCheckoutUrl(plan.id, companyId);
+        break;
+      default:
+        throw new Error(`❌ بوابة الدفع غير مدعومة: ${String(provider)}`);
+    }
 
     const transaction = this.transactionRepo.create({
       company,
       plan,
       amount: Number(plan.price),
       currency: plan.currency || 'SAR',
-      provider: String(provider),
+      provider,
       status: 'pending',
+      externalTransactionId: externalId,
     });
 
     await this.transactionRepo.save(transaction);
     return checkoutUrl;
+  }
+
+  async confirmTransaction(externalTransactionId: string): Promise<void> {
+    const transaction = await this.transactionRepo.findOne({
+      where: { externalTransactionId },
+      relations: ['company', 'plan'],
+    });
+
+    if (!transaction || transaction.status === 'success') return;
+    if (!transaction.plan) throw new Error('❌ الخطة غير موجودة في المعاملة');
+
+    transaction.status = 'success';
+    await this.transactionRepo.save(transaction);
+
+    const subscription = this.subRepo.create({
+      company: transaction.company,
+      plan: transaction.plan,
+      startDate: new Date(),
+      endDate: new Date(Date.now() + transaction.plan.durationInDays * 86400000),
+      price: transaction.amount,
+      currency: transaction.currency,
+      status: SubscriptionStatus.ACTIVE,
+      paymentTransaction: transaction,
+    });
+
+    await this.subRepo.save(subscription);
   }
 }

@@ -4,6 +4,7 @@ import {
   Column,
   OneToMany,
   BeforeInsert,
+  BeforeUpdate,
 } from 'typeorm';
 import { Employee } from '../../employee/entities/employee.entity';
 import { CompanySubscription } from '../../subscription/entities/company-subscription.entity';
@@ -50,12 +51,11 @@ export class Company {
   verificationToken: string | null;
 
   @Column({ default: 'email', type: 'text' })
-  provider: string; // email | google | github | facebook
+  provider: string;
 
   @Column({ nullable: true, type: 'text' })
   fontFamily: string;
 
-  // ✅ اشتراك ودفع
   @Column({ default: 'inactive', type: 'text' })
   subscriptionStatus: 'active' | 'inactive' | 'expired';
 
@@ -81,8 +81,9 @@ export class Company {
   loginLogs: CompanyLoginLog[];
 
   @BeforeInsert()
+  @BeforeUpdate()
   async hashPassword() {
-    if (this.password) {
+    if (this.password && !this.password.startsWith('$2b$')) {
       this.password = await bcrypt.hash(this.password, 10);
     }
   }

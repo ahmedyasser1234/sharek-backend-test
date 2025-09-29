@@ -4,6 +4,8 @@ import Stripe from 'stripe';
 @Injectable()
 export class StripeGateway {
   private readonly stripe: Stripe;
+  private readonly successUrl = process.env.STRIPE_SUCCESS_URL ?? 'https://yourdomain.com/success';
+  private readonly cancelUrl = process.env.STRIPE_CANCEL_URL ?? 'https://yourdomain.com/cancel';
 
   constructor() {
     const stripeKey = process.env.STRIPE_SECRET_KEY ?? '';
@@ -23,15 +25,14 @@ export class StripeGateway {
     return price.id;
   }
 
-  updatePrice(): void {
-  }
+  updatePrice(): void {}
 
   async generateCheckoutUrl(priceId: string, companyId: string): Promise<string> {
     const session = await this.stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `https://yourdomain.com/success?company=${encodeURIComponent(companyId)}`,
-      cancel_url: `https://yourdomain.com/cancel`,
+      success_url: `${this.successUrl}?company=${encodeURIComponent(companyId)}`,
+      cancel_url: this.cancelUrl,
     });
 
     return session.url ?? '';

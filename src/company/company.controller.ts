@@ -45,13 +45,13 @@ export class CompanyController {
 
   @Post()
   @UseInterceptors(FileInterceptor('logo', {
-  storage: diskStorage({
-    destination: './uploads/temp',
-    filename: (req, file, cb) => {
-      const ext = extname(file.originalname);
-      cb(null, `logo-${Date.now()}${ext}`);
-    },
-  }),
+    storage: diskStorage({
+      destination: './uploads/temp',
+      filename: (req, file, cb) => {
+        const ext = extname(file.originalname);
+        cb(null, `logo-${Date.now()}${ext}`);
+      },
+    }),
   }))
   @ApiOperation({ summary: 'إنشاء شركة جديدة' })
   @ApiResponse({ status: 201, description: 'تم إنشاء الشركة بنجاح' })
@@ -61,6 +61,18 @@ export class CompanyController {
   ) {
     this.logger.log(`✅ إنشاء شركة جديدة: ${dto.email}`);
     return this.companyService.createCompany(dto, logo);
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'اختبار نقطة الوصول العامة للشركة' })
+  @ApiResponse({ status: 200, description: 'النقطة تعمل بنجاح' })
+  getRoot() {
+    this.logger.log('📡 تم الوصول لـ /company بنجاح');
+    return {
+      success: true,
+      message: 'Company endpoint is working',
+      data: null,
+    };
   }
 
   @Post('login')
@@ -119,6 +131,14 @@ export class CompanyController {
     return { ...company, currentSubscription: currentSub };
   }
 
+  @Get('all')
+  @ApiOperation({ summary: 'جلب جميع الشركات مع الاشتراكات' })
+  @ApiResponse({ status: 200, description: 'تم جلب الشركات بنجاح' })
+  getAllCompanies() {
+    this.logger.log('📦 جلب جميع الشركات من قاعدة البيانات');
+    return this.companyService.findAll();
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'جلب شركة حسب ID' })
   @ApiParam({ name: 'id', description: 'معرف الشركة' })
@@ -129,6 +149,9 @@ export class CompanyController {
   }
 
   @Put(':id')
+  @ApiOperation({ summary: 'تحديث بيانات شركة' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiResponse({ status: 200, description: 'تم التحديث بنجاح' })
   @UseInterceptors(FileInterceptor('logo', {
     storage: diskStorage({
       destination: (req, file, cb) => {
@@ -143,9 +166,6 @@ export class CompanyController {
       },
     }),
   }))
-  @ApiOperation({ summary: 'تحديث بيانات شركة' })
-  @ApiParam({ name: 'id', description: 'معرف الشركة' })
-  @ApiResponse({ status: 200, description: 'تم التحديث بنجاح' })
   update(
     @Param('id') id: string,
     @Body() dto: UpdateCompanyDto,

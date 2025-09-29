@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Plan } from './entities/plan.entity';
@@ -23,6 +27,9 @@ export class PlanService {
   }
 
   async create(createPlanDto: CreatePlanDto): Promise<Plan> {
+    const exists = await this.planRepo.findOne({ where: { name: createPlanDto.name } });
+    if (exists) throw new BadRequestException('❌ اسم الخطة مستخدم بالفعل');
+
     const plan = this.planRepo.create(createPlanDto);
     return this.planRepo.save(plan);
   }

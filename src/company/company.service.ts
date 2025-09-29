@@ -18,9 +18,11 @@ import { CompanyLoginLog } from './auth/entities/company-login-log.entity';
 import { v4 as uuid } from 'uuid';
 import { mkdirSync, renameSync } from 'fs';
 import { join } from 'path';
+import { OnModuleInit } from '@nestjs/common';
+
 
 @Injectable()
-export class CompanyService {
+export class CompanyService implements OnModuleInit {
   private readonly logger = new Logger(CompanyService.name);
 
   constructor(
@@ -35,12 +37,46 @@ export class CompanyService {
     public readonly jwtService: CompanyJwtService,
   ) {}
 
+async onModuleInit() {
+  await this.seedDefaultCompany();
+}
+
+
+async seedDefaultCompany(): Promise<void> {
+  const email = 'admin2@company.com';
+
+  const exists = await this.companyRepo.findOne({ where: { email } });
+  if (exists) {
+    this.logger.warn(`⚠️ الشركة الافتراضية موجودة بالفعل: ${email}`);
+    return;
+  }
+
+  const hashedPassword = await bcrypt.hash('123456789', 10);
+  const tempId = uuid();
+
+  const companyData: DeepPartial<Company> = {
+    id: tempId,
+    email,
+    name: 'شركة افتراضية',
+    password: hashedPassword,
+    phone: '01012345678',
+    isVerified: true,
+    isActive: true,
+    provider: 'email',
+    fontFamily: 'Cairo, sans-serif',
+    description: 'شركة تم إنشاؤها تلقائيًا عند بدء التشغيل',
+  };
+
+  const company = this.companyRepo.create(companyData);
+  await this.companyRepo.save(company);
+  this.logger.log(`🌱 تم زرع الشركة الافتراضية: ${email}`);
+}
+
   async countEmployees(companyId: string): Promise<number> {
     return this.employeeRepo.count({
       where: { company: { id: companyId } },
     });
   }
-
   async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
     this.logger.log(`✅ بدء إنشاء شركة جديدة: ${dto.email}`);
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -254,4 +290,17 @@ export class CompanyService {
     });
     this.logger.log(`✅ تم تفعيل اشتراك الشركة: ${companyId}`);
   }
+
+  async findAll(): Promise<Company[]> {
+  this.logger.log('📦 جلب جميع الشركات مع الاشتراكات والخطط');
+  const companies = await this.companyRepo
+    .createQueryBuilder('company')
+    .leftJoinAndSelect('company.subscriptions', 'subscription')
+    .leftJoinAndSelect('subscription.plan', 'plan')
+    .getMany();
+
+  return companies;
+}
+
+
 }

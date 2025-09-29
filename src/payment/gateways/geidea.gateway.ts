@@ -9,29 +9,31 @@ interface GeideaCheckoutResponse {
 export class GeideaGateway {
   private readonly baseUrl = 'https://api.geidea.net';
   private readonly apiKey = process.env.GEIDEA_API_KEY!;
+  private readonly callbackUrl =
+    process.env.GEIDEA_CALLBACK_URL ?? 'https://yourdomain.com/geidea/callback';
 
   createPlan(plan: { name: string; price: number }): string {
     return `${plan.name}-geidea-${Date.now()}`;
   }
 
-  updatePrice(): void {
-  
-  }
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+  updatePrice(): void {}
+
   async generateCheckoutUrl(planId: string, companyId: string): Promise<string> {
     const amount = planId.includes('99') ? 99 : 59;
+    const externalTransactionId = `${companyId}-${Date.now()}`; 
 
     const response: AxiosResponse<GeideaCheckoutResponse> = await axios.post(
       `${this.baseUrl}/payment/checkout`,
       {
         amount,
         currency: 'SAR',
-        callbackUrl: `https://yourdomain.com/geidea/callback`,
+        callbackUrl: this.callbackUrl,
         customer: {
           name: 'Ahmed',
           email: 'ahmed@example.com',
           phone: '966500000000',
         },
+        reference: externalTransactionId, 
       },
       {
         headers: {

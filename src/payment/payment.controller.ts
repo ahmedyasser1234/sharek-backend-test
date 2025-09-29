@@ -1,11 +1,9 @@
-// src/payment/payment.controller.ts
 import { Controller, Post, Body, NotFoundException } from '@nestjs/common';
 import { PaymentService } from './payment.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Plan } from '../plan/entities/plan.entity';
-
-type PaymentProvider = 'stripe' | 'hyperpay' | 'paytabs' | 'tap' | 'stcpay' | 'geidea';
+import { PaymentProvider } from './payment-provider.enum';
 
 @Controller('payment')
 export class PaymentController {
