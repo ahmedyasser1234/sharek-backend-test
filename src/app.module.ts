@@ -12,11 +12,13 @@ import { CardModule } from './card/card.module';
 import { PlanModule } from './plan/plan.module';
 import { PaymentModule } from './payment/payment.module';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule'; // ✅ تم إضافته لتفعيل الكرون
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(typeOrmConfig),
+    ScheduleModule.forRoot(), // ✅ تفعيل الكرون
     AdminModule,
     CompanyModule,
     EmployeeModule,

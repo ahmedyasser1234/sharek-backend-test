@@ -90,7 +90,7 @@ const companyData: DeepPartial<Company> = {
     });
   }
 
- async createCompany(
+async createCompany(
   dto: CreateCompanyDto,
   logo?: Express.Multer.File,
 ): Promise<Company> {
@@ -137,7 +137,14 @@ const companyData: DeepPartial<Company> = {
   const company = this.companyRepo.create(companyData);
   const saved = await this.companyRepo.save(company);
 
-  await this.sendVerificationCode(saved.email);
+  // إرسال كود التحقق مع لوج لحالة الإرسال
+  try {
+    const result = await this.sendVerificationCode(saved.email);
+    this.logger.log(`📧 حالة إرسال كود التحقق: ${result}`);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    this.logger.error(`❌ فشل إرسال كود التحقق: ${errorMessage}`);
+  }
 
   this.logger.log(`📦 تم حفظ الشركة بنجاح: ${saved.id}`);
   return saved;

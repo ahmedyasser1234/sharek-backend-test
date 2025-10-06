@@ -14,7 +14,8 @@ import { Company } from '../company/entities/company.entity';
 import { Plan } from '../plan/entities/plan.entity';
 import { CompanyService } from '../company/company.service';
 import { PaymentService } from '../payment/payment.service';
-
+import * as nodemailer from 'nodemailer';
+import { Cron } from '@nestjs/schedule';
 @Injectable()
 export class SubscriptionService {
   private readonly logger = new Logger(SubscriptionService.name);
@@ -235,4 +236,95 @@ async subscribe(companyId: string, planId: string): Promise<any> {
 
   return subscriptions;
 }
+
+@Cron('0 9 * * *')
+async notifyExpiringSubscriptions(): Promise<void> {
+  this.logger.log('📬 بدء فحص الاشتراكات القريبة من الانتهاء');
+
+  const subscriptions = await this.subscriptionRepo.find({
+    where: { status: SubscriptionStatus.ACTIVE },
+    relations: ['company', 'plan'],
+  });
+
+  const now = new Date();
+
+  for (const sub of subscriptions) {
+    const endDate = new Date(sub.endDate);
+    const diffDays = Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    const companyEmail = sub.company.email;
+    const companyName = sub.company.name;
+    const planName = sub.plan.name;
+
+    let subject = '';
+    let message = '';
+
+    switch (diffDays) {
+      case 30:
+        subject = '📅 تنبيه: اشتراكك ينتهي بعد شهر';
+        break;
+      case 21:
+        subject = '📅 تنبيه: اشتراكك ينتهي بعد 3 أسابيع';
+        break;
+      case 14:
+        subject = '📅 تنبيه: اشتراكك ينتهي بعد أسبوعين';
+        break;
+      case 7:
+        subject = '📅 تنبيه: اشتراكك ينتهي بعد أسبوع';
+        break;
+      default:
+        continue;
+    }
+
+    const renewalUrl = this.generateRenewalUrl(
+      sub.company.id,
+      sub.plan.id,
+      endDate,
+      sub.plan.durationInDays,
+    );
+
+    message = `مرحبًا ${companyName}, اشتراكك في خطة "${planName}" سينتهي في ${endDate.toDateString()}.\n\nيمكنك التجديد الآن عبر الرابط التالي:\n${renewalUrl}`;
+
+    try {
+      const transporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: process.env.EMAIL_USER,
+          pass: process.env.EMAIL_PASS,
+        },
+      });
+
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: companyEmail,
+        subject,
+        text: message,
+      });
+
+      this.logger.log(`📧 تم إرسال تنبيه إلى ${companyEmail} (${diffDays} يوم قبل الانتهاء)`);
+    } catch (err) {
+      const errorMessage =
+        typeof err === 'object' && err !== null && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : 'Unknown error';
+
+      this.logger.error(`❌ فشل إرسال التنبيه إلى ${companyEmail}: ${errorMessage}`);
+    }
+  }
+
+  this.logger.log('✅ تم الانتهاء من فحص وإرسال التنبيهات');
+}
+
+private generateRenewalUrl(
+  companyId: string,
+  planId: string,
+  currentEndDate: Date,
+  durationInDays: number,
+): string {
+  const newEndDate = new Date(currentEndDate);
+  newEndDate.setDate(newEndDate.getDate() + durationInDays);
+  const formattedDate = newEndDate.toISOString().split('T')[0];
+  return `http://localhost:3000/renew-subscription?companyId=${companyId}&planId=${planId}&newEndDate=${formattedDate}`;
+}
+
 }
