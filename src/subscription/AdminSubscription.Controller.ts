@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CompanyService } from '../company/company.service';
-import { AdminJwtGuard } from '../admin/admin-jwt.guard';
+import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard';
 import {
   ApiTags,
   ApiOperation,

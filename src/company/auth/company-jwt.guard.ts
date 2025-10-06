@@ -3,9 +3,13 @@ import {
   ExecutionContext,
   Injectable,
   Logger,
+  ForbiddenException,
 } from '@nestjs/common';
 import { CompanyJwtService, CompanyPayload } from './company-jwt.service';
 import { Request } from 'express';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { RevokedToken } from '../entities/revoked-token.entity';
 
 interface CompanyRequest extends Request {
   user?: CompanyPayload;
@@ -15,9 +19,13 @@ interface CompanyRequest extends Request {
 export class CompanyJwtGuard implements CanActivate {
   private readonly logger = new Logger(CompanyJwtGuard.name);
 
-  constructor(private jwtService: CompanyJwtService) {}
+  constructor(
+    private readonly jwtService: CompanyJwtService,
+    @InjectRepository(RevokedToken)
+    private readonly revokedTokenRepo: Repository<RevokedToken>,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     this.logger.debug('🛡️ CompanyJwtGuard activated');
     const req = context.switchToHttp().getRequest<CompanyRequest>();
     const path = req.path;
@@ -36,8 +44,13 @@ export class CompanyJwtGuard implements CanActivate {
       return false;
     }
 
-    const token = authHeader.split(' ')[1];
+    const token = authHeader.slice(7).trim();
     this.logger.debug(`🔎 Extracted token: ${token}`);
+
+    if (!token || typeof token !== 'string' || token.length < 20) {
+      this.logger.warn('🚫 توكن غير صالح');
+      return false;
+    }
 
     try {
       const payload = this.jwtService.verify(token);
@@ -48,9 +61,20 @@ export class CompanyJwtGuard implements CanActivate {
         return false;
       }
 
+      // ✅ تحقق من أن التوكن غير ملغي بعد فك التوكن
+      const cleanedToken = token.trim();
+      this.logger.debug(`🧾 التحقق من التوكن الملغي: ${cleanedToken}`);
+
+      const isRevoked = await this.revokedTokenRepo.findOne({ where: { token: cleanedToken } });
+      if (isRevoked) {
+        this.logger.warn(`❌ تم استخدام Access Token ملغي: ${cleanedToken}`);
+        throw new ForbiddenException('Access Token has been revoked');
+      }
+
       req.user = {
         companyId: payload.companyId,
         role: payload.role || 'company',
+        token: cleanedToken,
       };
 
       this.logger.log(`📦 req.user set: ${JSON.stringify(req.user)}`);

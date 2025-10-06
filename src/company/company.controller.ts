@@ -19,6 +19,7 @@ import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { LoginCompanyDto } from './dto/login-company.dto';
 import { CompanyJwtGuard } from './auth/company-jwt.guard';
+import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard';
 import type { Request } from 'express';
 import {
   ApiTags,
@@ -42,9 +43,6 @@ export class CompanyController {
 
   constructor(private readonly companyService: CompanyService) {}
 
-  // ==============================
-  // تسجيل وإنشاء شركة
-  // ==============================
   @Post()
   @UseInterceptors(
     FileInterceptor('logo', {
@@ -67,9 +65,6 @@ export class CompanyController {
     return this.companyService.createCompany(dto, logo);
   }
 
-  // ==============================
-  // تسجيل دخول بالبريد
-  // ==============================
   @Post('login')
   @ApiOperation({ summary: 'تسجيل دخول الشركة بالبريد' })
   login(@Body() dto: LoginCompanyDto, @Req() req: Request) {
@@ -78,9 +73,6 @@ export class CompanyController {
     return this.companyService.login(dto, ip);
   }
 
-  // ==============================
-  // تسجيل دخول باستخدام Google/Facebook/LinkedIn
-  // ==============================
   @Post('oauth-login')
   @ApiOperation({ summary: 'تسجيل دخول الشركة باستخدام Google/Facebook/LinkedIn' })
   oauthLogin(
@@ -94,20 +86,14 @@ export class CompanyController {
     return this.companyService.oauthLogin(provider, token);
   }
 
-  // ==============================
-  // إعادة إرسال كود التحقق
-  // ==============================
- @Post('send-verification-code')
-@ApiOperation({ summary: 'إرسال كود تحقق إلى البريد الإلكتروني' })
-async sendVerificationCode(@Body('email') email: string) {
-  if (!email) throw new BadRequestException('الإيميل مطلوب');
-  this.logger.log(`📧 إعادة إرسال كود تحقق للبريد: ${email}`);
-  return this.companyService.sendVerificationCode(email); // ✅ فقط email
-}
+  @Post('send-verification-code')
+  @ApiOperation({ summary: 'إرسال كود تحقق إلى البريد الإلكتروني' })
+  async sendVerificationCode(@Body('email') email: string) {
+    if (!email) throw new BadRequestException('الإيميل مطلوب');
+    this.logger.log(`📧 إعادة إرسال كود تحقق للبريد: ${email}`);
+    return this.companyService.sendVerificationCode(email);
+  }
 
-  // ==============================
-  // تفعيل البريد بالكود
-  // ==============================
   @Post('verify-code')
   @ApiOperation({ summary: 'تفعيل البريد الإلكتروني عبر الكود' })
   verifyCode(@Body() body: { email: string; code: string }) {
@@ -115,31 +101,45 @@ async sendVerificationCode(@Body('email') email: string) {
       throw new BadRequestException('الإيميل والكود مطلوبين');
     }
     this.logger.log(`🔑 محاولة تفعيل البريد ${body.email} بالكود`);
-    return this.companyService.verifyCode(body.email, body.code); // ✅ التغيير هنا
+    return this.companyService.verifyCode(body.email, body.code);
   }
 
-  // ==============================
-  // تحديث التوكن + تسجيل خروج
-  // ==============================
   @Post('refresh')
   @ApiOperation({ summary: 'تحديث التوكن' })
-  refresh(@Body('refreshToken') token: string) {
-    if (!token) throw new BadRequestException('Refresh token مطلوب');
+  refresh(@Req() req: Request) {
+    const refreshToken = req.headers['x-refresh-token']?.toString();
+    if (!refreshToken) {
+      this.logger.warn('🚫 لم يتم إرسال Refresh Token في الهيدر');
+      throw new BadRequestException('Refresh token مطلوب في الهيدر');
+    }
     this.logger.log(`🔄 تحديث توكن`);
-    return this.companyService.refresh(token);
+    return this.companyService.refresh(refreshToken);
   }
 
   @Post('logout')
   @ApiOperation({ summary: 'تسجيل خروج الشركة' })
-  logout(@Body('refreshToken') token: string) {
-    if (!token) throw new BadRequestException('Refresh token مطلوب');
-    this.logger.log(`🚪 تسجيل خروج`);
-    return this.companyService.logout(token);
+  logout(@Req() req: Request) {
+    const ip =
+      req.headers['x-forwarded-for']?.toString() ||
+      req.socket?.remoteAddress ||
+      req.ip ||
+      'unknown';
+    const refreshToken = req.headers['x-refresh-token']?.toString();
+    const rawAccess = req.headers['authorization'];
+    const accessToken = typeof rawAccess === 'string' && rawAccess.startsWith('Bearer ')
+      ? rawAccess.slice(7).trim()
+      : null;
+
+    if (!refreshToken) {
+      this.logger.warn('🚫 Refresh Token مفقود من الهيدر');
+      throw new BadRequestException('Refresh token مطلوب في الهيدر');
+    }
+
+    this.logger.debug(`📡 IP المستخرج من الطلب: ${ip}`);
+    this.logger.log(`🚪 تسجيل خروج باستخدام Refresh Token و Access Token`);
+    return this.companyService.logout(refreshToken, ip, accessToken);
   }
 
-  // ==============================
-  // بيانات الشركة الحالية
-  // ==============================
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
   @Get('profile')
@@ -156,27 +156,20 @@ async sendVerificationCode(@Body('email') email: string) {
     return { ...company, currentSubscription: currentSub };
   }
 
-  // ==============================
-  // جلب جميع الشركات
-  // ==============================
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
   @Get('all')
-  @ApiOperation({ summary: 'جلب جميع الشركات مع الاشتراكات' })
-  getAllCompanies() {
+  @ApiOperation({ summary: 'جلب جميع الشركات مع الاشتراكات (للمشرف فقط)' })
+  async getAllCompanies() {
     return this.companyService.findAll();
   }
 
-  // ==============================
-  // جلب شركة بالـ ID
-  // ==============================
   @Get(':id')
   @ApiOperation({ summary: 'جلب شركة حسب ID' })
   findOne(@Param('id') id: string) {
     return this.companyService.findById(id);
   }
 
-  // ==============================
-  // تحديث شركة
-  // ==============================
   @Put(':id')
   @UseInterceptors(
     FileInterceptor('logo', {
@@ -202,12 +195,11 @@ async sendVerificationCode(@Body('email') email: string) {
     return this.companyService.updateCompany(id, dto, logo);
   }
 
-  // ==============================
-  // حذف شركة
-  // ==============================
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
   @Delete(':id')
-  @ApiOperation({ summary: 'حذف شركة' })
-  remove(@Param('id') id: string) {
+  @ApiOperation({ summary: 'حذف شركة (للمشرف فقط)' })
+  async remove(@Param('id') id: string) {
     return this.companyService.deleteCompany(id);
   }
 }

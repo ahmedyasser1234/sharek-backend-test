@@ -306,6 +306,12 @@ workingHours?: {
   @Column({ type: 'varchar', length: 255, nullable: true })
   productsLink?: string;
 
+  @Column({ type: 'text', nullable: true })
+  googleWalletUrl?: string;
+
+  @Column({ type: 'text', nullable: true })
+  appleWalletUrl?: string;
+
   @OneToMany(() => EmployeeImage, image => image.employee)
   images: EmployeeImage[];
 

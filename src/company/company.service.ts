@@ -5,6 +5,7 @@ import {
   Logger,
   OnModuleInit,
   BadRequestException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DeepPartial } from 'typeorm';
@@ -13,32 +14,42 @@ import { Employee } from '../employee/entities/employee.entity';
 import { CreateCompanyDto } from './dto/create-company.dto';
 import { UpdateCompanyDto } from './dto/update-company.dto';
 import { LoginCompanyDto } from './dto/login-company.dto';
-import bcrypt from 'bcryptjs';
 import { CompanyJwtService, CompanyPayload } from './auth/company-jwt.service';
 import { CompanyToken } from './auth/entities/company-token.entity';
 import { CompanyLoginLog } from './auth/entities/company-login-log.entity';
 import { v4 as uuid } from 'uuid';
+import * as bcrypt from 'bcrypt';
 import { mkdirSync, renameSync } from 'fs';
 import { join } from 'path';
 import * as nodemailer from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import axios from 'axios';
-
+import { RevokedToken } from './entities/revoked-token.entity';
+import { DataSource } from 'typeorm';
+import { Request } from 'express';
 @Injectable()
 export class CompanyService implements OnModuleInit {
   private readonly logger = new Logger(CompanyService.name);
 
   constructor(
-    @InjectRepository(Company)
-    private readonly companyRepo: Repository<Company>,
-    @InjectRepository(Employee)
-    private readonly employeeRepo: Repository<Employee>,
-    @InjectRepository(CompanyToken)
-    private readonly tokenRepo: Repository<CompanyToken>,
-    @InjectRepository(CompanyLoginLog)
-    private readonly loginLogRepo: Repository<CompanyLoginLog>,
-    public readonly jwtService: CompanyJwtService,
-  ) {}
+  @InjectRepository(Company)
+  private readonly companyRepo: Repository<Company>,
+
+  @InjectRepository(Employee)
+  private readonly employeeRepo: Repository<Employee>,
+
+  @InjectRepository(CompanyToken)
+  private readonly tokenRepo: Repository<CompanyToken>,
+
+  @InjectRepository(RevokedToken)
+  private readonly revokedTokenRepo: Repository<RevokedToken>,
+
+  @InjectRepository(CompanyLoginLog)
+  private readonly loginLogRepo: Repository<CompanyLoginLog>,
+
+  public readonly jwtService: CompanyJwtService,
+  private readonly dataSource: DataSource,
+) {}
 
   async onModuleInit() {
     await this.seedDefaultCompany();
@@ -52,21 +63,21 @@ export class CompanyService implements OnModuleInit {
       return;
     }
 
-    const hashedPassword = await bcrypt.hash('123456789', 10);
-    const tempId = uuid();
+   const hashedPassword = await bcrypt.hash('admin123', 10);
+const companyData: DeepPartial<Company> = {
+  email,
+  password: hashedPassword,
+  isVerified: true,
+  isActive: true,
+  provider: 'email',
+  id: uuid(),
+  role: 'admin',
+  name: 'شركة افتراضية',
+  phone: '01012345678',
+  fontFamily: 'Cairo, sans-serif',
+  description: 'شركة تم إنشاؤها تلقائيًا عند بدء التشغيل',
+};
 
-    const companyData: DeepPartial<Company> = {
-      id: tempId,
-      email,
-      name: 'شركة افتراضية',
-      password: hashedPassword,
-      phone: '01012345678',
-      isVerified: true,
-      isActive: true,
-      provider: 'email',
-      fontFamily: 'Cairo, sans-serif',
-      description: 'شركة تم إنشاؤها تلقائيًا عند بدء التشغيل',
-    };
 
     const company = this.companyRepo.create(companyData);
     await this.companyRepo.save(company);
@@ -83,7 +94,7 @@ export class CompanyService implements OnModuleInit {
     dto: CreateCompanyDto,
     logo?: Express.Multer.File,
   ): Promise<Company> {
-    this.logger.log(`✅ بدء إنشاء شركة جديدة: ${dto.email}`);
+    this.logger.log(`✅ بدء إنشاء شركة جدديدة: ${dto.email}`);
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const verificationCode = Math.floor(
       100000 + Math.random() * 900000,
@@ -103,16 +114,21 @@ export class CompanyService implements OnModuleInit {
       this.logger.debug(`🖼️ تم نقل اللوجو من temp إلى: ${logoUrl}`);
     }
 
-    const companyData: DeepPartial<Company> = {
-      ...dto,
-      password: hashedPassword,
-      isVerified: false,
-      verificationCode,
-      provider: dto.provider || 'email',
-      logoUrl,
-      fontFamily: dto.fontFamily ?? undefined,
-      id: tempId,
-    };
+   const companyData: DeepPartial<Company> = {
+  ...dto,
+  password: hashedPassword,
+  isVerified: false,
+  verificationCode,
+  provider: dto.provider || 'email',
+  logoUrl,
+  fontFamily: dto.fontFamily ?? undefined,
+  id: tempId,
+  subscriptionStatus: 'inactive',
+  planId: null,
+  subscribedAt: undefined,
+  paymentProvider: undefined,
+};
+
 
     const company = this.companyRepo.create(companyData);
     const saved = await this.companyRepo.save(company);
@@ -219,21 +235,25 @@ async sendVerificationCode(email: string): Promise<string> {
     if (!company) throw new NotFoundException('Company not found');
     return company;
   }
+async findById(id: string): Promise<Company> {
+  this.logger.debug(`🔍 البحث عن شركة بالمعرف: ${id}`);
 
-  async findById(id: string): Promise<Company> {
-    this.logger.debug(`🔍 البحث عن شركة بالمعرف: ${id}`);
-    const company = await this.companyRepo
-      .createQueryBuilder('company')
-      .leftJoinAndSelect('company.employees', 'employee')
-      .leftJoinAndSelect('company.subscriptions', 'subscription')
-      .leftJoinAndSelect('subscription.plan', 'plan')
-      .where('company.id = :id', { id })
-      .getOne();
+  const company = await this.companyRepo
+    .createQueryBuilder('company')
+    .leftJoinAndSelect('company.employees', 'employee')
+    .leftJoinAndSelect('company.subscriptions', 'subscription')
+    .leftJoinAndSelect('subscription.plan', 'plan')
+    .leftJoinAndSelect('company.tokens', 'token')
+    .leftJoinAndSelect('company.loginLogs', 'log')
+    .where('company.id = :id', { id })
+    .getOne();
 
-    if (!company) throw new NotFoundException('Company not found');
-    this.logger.log(`📦 تم جلب بيانات الشركة: ${company.id}`);
-    return company;
-  }
+  if (!company) throw new NotFoundException('Company not found');
+
+  this.logger.log(`📦 تم جلب بيانات الشركة: ${company.id}`);
+  return company;
+}
+
 
   async deleteCompany(id: string): Promise<void> {
     this.logger.warn(`🗑 حذف شركة بالمعرف: ${id}`);
@@ -242,31 +262,44 @@ async sendVerificationCode(email: string): Promise<string> {
     this.logger.log(`✅ تم حذف الشركة: ${id}`);
   }
 
+
   async login(
-    dto: LoginCompanyDto,
-    ip: string,
-  ): Promise<{ accessToken: string; refreshToken: string }> {
-    this.logger.log(`🔐 محاولة تسجيل دخول من IP: ${ip} للبريد: ${dto.email}`);
-    const company = await this.findByEmail(dto.email);
-    if (!company) throw new UnauthorizedException('Invalid credentials');
-    if (!company.isActive) throw new UnauthorizedException('Company not active');
-    if (!company.isVerified)
-      throw new UnauthorizedException('Email not verified');
+  dto: LoginCompanyDto,
+  ip: string,
+): Promise<{ accessToken: string; refreshToken: string }> {
+  this.logger.log(`🔐 محاولة تسجيل دخول من IP: ${ip} للبريد: ${dto.email}`);
 
-    const isMatch = await company.comparePassword(dto.password);
-    if (!isMatch) throw new UnauthorizedException('Invalid credentials');
+  const company = await this.findByEmail(dto.email);
+  if (!company) throw new UnauthorizedException('Invalid credentials');
+  if (!company.isActive) throw new UnauthorizedException('Company not active');
+  if (!company.isVerified) throw new UnauthorizedException('Email not verified');
 
-    const accessToken = this.jwtService.signAccess({
-      companyId: company.id,
-      role: company.role,
-    });
-    const refreshToken = this.jwtService.signRefresh({ companyId: company.id });
+  const isMatch = await company.comparePassword(dto.password);
+  if (!isMatch) throw new UnauthorizedException('Invalid credentials');
 
-    await this.tokenRepo.save(this.tokenRepo.create({ refreshToken, company }));
-    await this.loginLogRepo.save({ ip, success: true, company });
-    this.logger.log(`✅ تم تسجيل دخول الشركة: ${company.id}`);
+  const accessToken = this.jwtService.signAccess({
+    companyId: company.id,
+    role: company.role,
+  });
 
-    return { accessToken, refreshToken };
+  const refreshToken = this.jwtService.signRefresh({ companyId: company.id });
+
+  await this.tokenRepo.save(this.tokenRepo.create({ refreshToken, company }));
+
+  // ✅ تحديث أو إدراج سجل الدخول
+  await this.loginLogRepo.upsert(
+    {
+      company,
+      ip,
+      action: 'login',
+      success: true,
+    },
+    ['companyId']
+  );
+
+  this.logger.log(`✅ تم تسجيل دخول الشركة: ${company.id}`);
+
+  return { accessToken, refreshToken };
   }
 
   async oauthLogin(provider: 'google' | 'facebook' | 'linkedin', token: string) {
@@ -351,10 +384,71 @@ async sendVerificationCode(email: string): Promise<string> {
     return { accessToken };
   }
 
-  async logout(token: string): Promise<{ success: boolean }> {
-    await this.revokeToken(token);
-    return { success: true };
+async logout(
+  refreshToken: string,
+  ip: string,
+  accessToken: string | null,
+): Promise<{ success: boolean }> {
+  this.logger.log(`🚪 بدء تنفيذ logout`);
+  this.logger.debug(`📥 التوكن المستلم: ${refreshToken}`);
+  this.logger.debug(`📡 IP المستلم من الكنترولر: ${ip}`);
+
+  const safeIp = typeof ip === 'string' && ip.trim().length > 0 ? ip.trim() : 'unknown';
+  this.logger.debug(`✅ IP المستخدم فعليًا: ${safeIp}`);
+
+  const existing: CompanyToken | null = await this.tokenRepo.findOne({
+    where: { refreshToken },
+    relations: ['company'],
+  });
+
+  if (!existing) {
+    this.logger.warn(`❌ التوكن غير موجود`);
+    throw new NotFoundException('Refresh token غير صالح');
   }
+
+  const companyId = existing.company?.id;
+  this.logger.debug(`📦 companyId المستخرج: ${companyId}`);
+
+  if (!companyId || typeof companyId !== 'string') {
+    this.logger.error(`❌ companyId غير موجود أو غير صالح`);
+    throw new InternalServerErrorException('فشل استخراج معرف الشركة');
+  }
+
+  await this.tokenRepo.remove(existing);
+  this.logger.log(`🧹 تم حذف Refresh Token بنجاح`);
+
+  // ✅ تسجيل Access Token كـ ملغي
+  if (accessToken && accessToken.length > 20) {
+    try {
+      this.jwtService.verify(accessToken);
+      const revoked = this.revokedTokenRepo.create({
+        token: accessToken,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+      });
+      await this.revokedTokenRepo.save(revoked);
+      this.logger.log(`🛑 تم تسجيل Access Token كـ ملغي`);
+      this.logger.debug(`🧾 التوكن الملغي المسجل: ${accessToken}`);
+    } catch (err) {
+      this.logger.warn(`⚠️ التوكن غير صالح للتسجيل كـ ملغي: ${accessToken}`);
+    }
+  } else {
+    this.logger.warn(`⚠️ Access Token غير صالح أو مفقود`);
+  }
+
+  await this.loginLogRepo.upsert(
+    {
+      company: { id: companyId },
+      ip: safeIp,
+      action: 'logout',
+      success: true,
+    },
+    ['companyId']
+  );
+
+  this.logger.log(`📄 تم تسجيل عملية تسجيل الخروج بنجاح`);
+
+  return { success: true };
+}
 
   async activateSubscription(
     companyId: string,
@@ -378,3 +472,4 @@ async sendVerificationCode(email: string): Promise<string> {
       .getMany();
   }
 }
+

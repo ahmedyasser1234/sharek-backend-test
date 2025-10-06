@@ -10,17 +10,20 @@ import { Employee } from '../employee/entities/employee.entity';
 import { Company } from './entities/company.entity';
 import { CompanyToken } from './auth/entities/company-token.entity';
 import { CompanyLoginLog } from './auth/entities/company-login-log.entity';
+import { RevokedToken } from './entities/revoked-token.entity';
+import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard'; 
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      Company,           // ✅ الكيان الرئيسي
-      CompanyToken,      // ✅ كيان التوكنات
-      CompanyLoginLog,   // ✅ كيان اللوجات
-      Employee,          // ✅ علشان نعد الموظفين بسهولة
+      Company,           
+      CompanyToken,      
+      CompanyLoginLog,   
+      Employee,  
+      RevokedToken,        
     ]),
     JwtModule.register({
-      secret: 'your-secret-key', // 🔐 مؤقتًا هنا، وهنتنقل لـ env لاحقًا
+      secret: 'your-secret-key', 
       signOptions: { expiresIn: '1d' },
     }),
   ],
@@ -29,11 +32,12 @@ import { CompanyLoginLog } from './auth/entities/company-login-log.entity';
     CompanyService,
     CompanyJwtService,
     CompanyJwtGuard,
+    AdminJwtGuard,
   ],
   exports: [
-    CompanyService,      // ✅ علشان تستخدمه موديولات تانية
-    TypeOrmModule,       // ✅ علشان توفر الـ Repositories
-    CompanyJwtService,   // ✅ لو هتستخدمه في موديولات تانية
+    CompanyService,     
+    TypeOrmModule,       
+    CompanyJwtService,
   ],
 })
 export class CompanyModule {}

@@ -12,7 +12,7 @@ import { PlanService } from './plan.service';
 import { Plan } from './entities/plan.entity';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
-import { AdminJwtGuard } from '../admin/admin-jwt.guard';
+import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard';
 import {
   ApiTags,
   ApiBearerAuth,

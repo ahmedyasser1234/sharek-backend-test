@@ -7,12 +7,11 @@ import {
   Put,
   Delete,
   Patch,
-  Req,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
-import { AdminJwtGuard } from './admin-jwt.guard';
+import { AdminJwtGuard } from './auth/admin-jwt.guard';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Request } from 'express';
 import { Admin } from './entities/admin.entity';
@@ -24,6 +23,11 @@ import { Employee } from '../employee/entities/employee.entity';
 export class AdminController {
   constructor(private readonly service: AdminService) {}
 
+  @Post('refresh')
+  refresh(@Body() body: { refreshToken: string }) {
+  return this.service.refresh(body.refreshToken);
+}
+
   @Post('login')
   login(@Body() body: { email: string; password: string }) {
     return this.service.login(body.email, body.password);
@@ -32,10 +36,10 @@ export class AdminController {
   @Post('logout')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  logout(@Req() req: Request) {
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) throw new UnauthorizedException('Missing token');
-    return this.service.logout();
+  logout(@Body() body: { refreshToken?: string }) {
+    const refreshToken = body?.refreshToken;
+    if (!refreshToken) throw new UnauthorizedException('Missing refresh token');
+    return this.service.logout(refreshToken);
   }
 
   @Post('create-admin')

@@ -19,6 +19,8 @@ import { VisitService } from '../visit/visit.service';
 import { CardService } from '../card/card.service';
 import { Request } from 'express';
 import * as ExcelJS from 'exceljs';
+import jwt from 'jsonwebtoken';
+import { createEmployeePass } from '../wallet/passkit.adapter';
 
 
 type VideoType = 'youtube' | 'vimeo';
@@ -209,7 +211,62 @@ const employeeData: Partial<Employee> = {
     };
   }
 
-  async update(id: number, dto: UpdateEmployeeDto, files?: Express.Multer.File[]) {
+  async generateGoogleWalletLink(employeeId: number): Promise<{ url: string }> {
+  const employee = await this.employeeRepo.findOne({ where: { id: employeeId }, relations: ['company'] });
+  if (!employee) throw new NotFoundException('الموظف غير موجود');
+
+  const jwtPayload = {
+    iss: process.env.GOOGLE_ISSUER_ID,
+    aud: 'google',
+    typ: 'savetowallet',
+    payload: {
+      name: employee.name,
+      jobTitle: employee.jobTitle,
+      qrCode: employee.qrCode,
+    },
+  };
+
+  const token = jwt.sign(jwtPayload, process.env.GOOGLE_PRIVATE_KEY!, {
+    algorithm: 'RS256',
+  });
+
+  const url = `https://pay.google.com/gp/v/save/${token}`;
+  employee.googleWalletUrl = url;
+  await this.employeeRepo.save(employee);
+
+  return { url };
+  }
+ 
+  async generateAppleWalletPass(employeeId: number): Promise<Buffer> {
+  const employee = await this.employeeRepo.findOne({
+    where: { id: employeeId },
+    relations: ['company'],
+  });
+  if (!employee) throw new NotFoundException('الموظف غير موجود');
+
+  const stream = await createEmployeePass({
+    employeeId: employee.id,
+    employeeName: employee.name,
+    companyName: employee.company.name,
+    qrCode: employee.qrCode,
+    cardUrl: employee.cardUrl,
+  });
+
+  const buffer = await new Promise<Buffer>((resolve, reject) => {
+    const chunks: Uint8Array[] = [];
+    stream.on('data', (chunk: Uint8Array) => chunks.push(chunk));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+  });
+
+  const url = `${process.env.API_BASE_URL}/employees/${employeeId}/apple-wallet`;
+  employee.appleWalletUrl = url;
+  await this.employeeRepo.save(employee);
+
+  return buffer;
+  }
+ 
+async update(id: number, dto: UpdateEmployeeDto, files?: Express.Multer.File[]) {
   this.logger.log(`✏️ بدء تحديث الموظف: ${id}`);
 
   const employee = await this.employeeRepo.findOne({
@@ -309,8 +366,6 @@ const employeeData: Partial<Employee> = {
   };
   }
 
-
-
   async remove(id: number) {
   this.logger.warn(`🗑 بدء حذف الموظف: ${id}`);
   const employeeRes = await this.findOne(id);
@@ -336,6 +391,7 @@ const employeeData: Partial<Employee> = {
     message: '✅ تم حذف الموظف بنجاح',
   };
   }
+
 
   async findByUniqueUrl(uniqueUrl: string, source = 'link', req?: Request) {
   this.logger.debug(`🔗 البحث عن موظف باستخدام الرابط الفريد: ${uniqueUrl} | المصدر: ${source}`);
@@ -482,13 +538,9 @@ const employeeData: Partial<Employee> = {
   };
 
   const normalize = (
-    value: ExcelJS.CellValue,
-    columnName?: string
+    value: ExcelJS.CellValue
   ): string | number | undefined => {
     if (value === null || value === undefined) return undefined;
-
-    const isImageField = columnName?.toLowerCase().includes('imageurl');
-    const isUrlField = columnName?.toLowerCase().includes('url');
 
     if (typeof value === 'object' && value !== null) {
       const cellObj = value as ExcelCellObject;
@@ -496,15 +548,12 @@ const employeeData: Partial<Employee> = {
         cellObj.text ||
         cellObj.hyperlink ||
         (Array.isArray(cellObj.richText) ? cellObj.richText.map(t => t.text).join('') : '');
-
       return rawText?.trim() || undefined;
     }
 
     if (typeof value === 'string') {
       const trimmed = value.trim();
-      if (trimmed === '') return undefined;
-      if (isImageField || isUrlField) return trimmed;
-      return trimmed;
+      return trimmed === '' ? undefined : trimmed;
     }
 
     if (typeof value === 'number') return value.toString();
@@ -534,6 +583,8 @@ const employeeData: Partial<Employee> = {
     'image': 'imageUrl',
     'image url': 'imageUrl',
     'imageurl': 'imageUrl',
+    'profile image': 'profileImageUrl',
+    'profileimageurl': 'profileImageUrl',
   };
 
   for (let i = 2; i <= sheet.rowCount; i++) {
@@ -552,10 +603,8 @@ const employeeData: Partial<Employee> = {
       if (entityIndex === -1) return;
 
       const actualEntityKey = entityColumns[entityIndex];
-      rowData[actualEntityKey] = normalize(row.getCell(index + 1).value, actualEntityKey);
+      rowData[actualEntityKey] = normalize(row.getCell(index + 1).value);
     });
-
-    console.log(`🔁 Row ${i} mapped data:`, rowData);
 
     if (!rowData['name'] || !rowData['email']) {
       skipped.push(`Row ${i} skipped: missing name/email`);
@@ -578,6 +627,7 @@ const employeeData: Partial<Employee> = {
     try {
       const fs = await import('fs');
       const path = await import('path');
+
       const imageFields = Object.keys(rowData).filter(key =>
         key.toLowerCase().includes('imageurl') ||
         key.toLowerCase().includes('image') ||
@@ -585,22 +635,26 @@ const employeeData: Partial<Employee> = {
       );
 
       for (const field of imageFields) {
-        const imgFileName = String(rowData[field]);
-        if (!imgFileName || imgFileName === 'undefined') {
-          if (field === 'profileImageUrl') {
-            rowData[field] = '/uploads/defaults/default-profile.jpeg';
-          }
-          continue;
+        const imgFileName = String(rowData[field] ?? '').trim();
+        const isProfile = field === 'profileImageUrl';
+        const hasFileName = imgFileName !== '' && imgFileName !== 'undefined';
+
+        const localPath = hasFileName
+          ? path.join(`./uploads/companies/${companyId}`, imgFileName)
+          : '';
+
+        const fileExists = hasFileName && fs.existsSync(localPath);
+
+        if (fileExists) {
+          rowData[field] = `/uploads/companies/${companyId}/${imgFileName}`;
+        } else if (isProfile) {
+          rowData[field] = '/uploads/defaults/default-profile.jpg';
+        } else {
+          rowData[field] = undefined;
         }
 
-        const localPath = path.join(`./uploads/companies/${companyId}`, imgFileName);
-        if (fs.existsSync(localPath)) {
-          rowData[field] = `/uploads/companies/${companyId}/${imgFileName}`;
-        } else {
+        if (!fileExists && hasFileName) {
           skipped.push(`Row ${i} warning: image ${imgFileName} not found for field ${field}`);
-          rowData[field] = field === 'profileImageUrl'
-            ? '/uploads/defaults/default-profile.jpg'
-            : undefined;
         }
       }
 
@@ -611,39 +665,24 @@ const employeeData: Partial<Employee> = {
         company,
       };
 
-      console.log(`🧬 Final data to be saved for row ${i}:`, finalData);
-
       const employee = this.employeeRepo.create(finalData);
       const saved = await this.employeeRepo.save(employee);
-
-      const nullFields = Object.entries(saved)
-        .filter(([_, value]) => value === null || value === undefined)
-        .map(([key]) => key);
-
-      if (nullFields.length) {
-        console.log(`⚠️ Row ${i} fields saved as null/undefined:`, nullFields);
-      }
 
       const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved);
       saved.cardUrl = cardUrl;
       saved.qrCode = qrCode;
-
-      if (!saved.designId) {
-        saved.designId = designId;
-      }
+      if (!saved.designId) saved.designId = designId;
 
       await this.employeeRepo.save(saved);
       imported.push(saved);
-      console.log(`✅ Row ${i} imported successfully: ${rowData['email']}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : JSON.stringify(err);
       skipped.push(`Row ${i} skipped: save error: ${msg}`);
-      console.error(`❌ Row ${i} save error:`, msg, rowData);
     }
   }
 
-  console.log(`✅ Imported: ${imported.length}, Skipped: ${skipped.length}`);
   return { count: imported.length, imported, skipped };
-  }
+}
 
+  
 }

@@ -7,12 +7,10 @@ import * as express from 'express';
 import { join } from 'path';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppDataSource } from './data-source';
+import { AdminService } from './admin/admin.service';
 
 async function bootstrap() {
-
   await AppDataSource.initialize();
-
-  await AppDataSource.synchronize();
 
   const app = await NestFactory.create(AppModule);
 
@@ -24,13 +22,19 @@ async function bootstrap() {
 
   const config = new DocumentBuilder()
     .setTitle('Employee API')
-    .setDescription('توثيق كامل لنظام الموظفين')
+    .setDescription('توثيق كامل لنظام الموظفيين')
     .setVersion('1.0')
     .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
+
+  await app.init(); // مهم قبل استخدام أي خدمة
+
+  // ✅ إنشاء الأدمن الأساسي
+  const adminService = app.get(AdminService);
+  await adminService.ensureDefaultAdmin();
 
   await app.listen(process.env.PORT ?? 3000);
   console.log(`✅ Server is running on http://localhost:${process.env.PORT ?? 3000}`);

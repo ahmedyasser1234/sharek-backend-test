@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, ManyToOne } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn } from 'typeorm';
 import { Company } from '../../entities/company.entity';
 
 @Entity()
@@ -6,12 +6,10 @@ export class CompanyToken {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column('text', { nullable: false })
   refreshToken: string;
 
-  @ManyToOne(() => Company, (company) => company.tokens, {
-    onDelete: 'CASCADE',
-    nullable: false,
-  })
+  @ManyToOne(() => Company, (company) => company.tokens, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'companyId' })
   company: Company;
 }

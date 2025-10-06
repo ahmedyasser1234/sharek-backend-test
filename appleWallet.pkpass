@@ -1,0 +1,43 @@
+import { PassGenerator } from 'passkit-generator';
+import * as fs from 'fs';
+import * as path from 'path';
+
+async generateAppleWalletPass(employeeId: number): Promise<Buffer> {
+  const employee = await this.employeeRepo.findOne({ where: { id: employeeId }, relations: ['company'] });
+  if (!employee) throw new NotFoundException('الموظف غير موجود');
+
+  const pass = new PassGenerator({
+    model: path.join(__dirname, '../../templates/employee.pass'),
+    certificates: {
+      wwdr: fs.readFileSync('./certs/WWDR.pem'),
+      signerCert: fs.readFileSync('./certs/signerCert.pem'),
+      signerKey: fs.readFileSync('./certs/signerKey.pem'),
+      password: process.env.APPLE_CERT_PASSWORD!,
+    },
+    overrides: {
+      serialNumber: `emp-${employee.id}`,
+      description: `بطاقة الموظف ${employee.name}`,
+      organizationName: employee.company.name,
+      logoText: employee.name,
+      barcode: {
+        message: employee.qrCode || employee.cardUrl || `https://yourdomain.com/employees/${employee.id}`,
+        format: 'PKBarcodeFormatQR',
+        messageEncoding: 'iso-8859-1',
+      },
+    },
+  });
+
+  const stream = await pass.generate();
+  const buffer = await new Promise<Buffer>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    stream.on('data', (chunk) => chunks.push(chunk));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
+  });
+
+  const url = `${process.env.API_BASE_URL}/employees/${employeeId}/apple-wallet`;
+  employee.appleWalletUrl = url;
+  await this.employeeRepo.save(employee);
+
+  return buffer;
+}

@@ -229,4 +229,18 @@ export class EmployeeController {
       data: result.imported,
     };
   }
+
+  @Get(':id/google-wallet')
+async getGoogleWalletLink(@Param('id') id: number) {
+  return this.employeeService.generateGoogleWalletLink(id);
+}
+
+@Get(':id/apple-wallet')
+async getAppleWalletPass(@Param('id') id: number, @Res() res: Response) {
+  const passBuffer = await this.employeeService.generateAppleWalletPass(id);
+  res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
+  res.setHeader('Content-Disposition', 'attachment; filename=employee.pkpass');
+  res.send(passBuffer);
+}
+
 }

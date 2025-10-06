@@ -4,8 +4,10 @@ import {
   Column,
   BeforeInsert,
   BeforeUpdate,
+  OneToMany,
 } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
+import { AdminToken } from '../auth/entities/admin-token.entity';
 
 @Entity()
 export class Admin {
@@ -23,6 +25,10 @@ export class Admin {
 
   @Column({ default: 'admin' })
   role: string;
+
+  @OneToMany(() => AdminToken, (token) => token.admin)
+  tokens: AdminToken[];
+
 
   @BeforeInsert()
   @BeforeUpdate()

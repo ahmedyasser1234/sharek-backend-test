@@ -13,6 +13,8 @@ import { CompanySubscription, SubscriptionStatus } from '../subscription/entitie
 import { Plan } from '../plan/entities/plan.entity';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
+import { AdminToken } from './auth/entities/admin-token.entity';
+import { AdminJwtService } from './auth/admin-jwt.service';
 
 @Injectable()
 export class AdminService {
@@ -22,26 +24,65 @@ export class AdminService {
     @InjectRepository(Employee) private readonly employeeRepo: Repository<Employee>,
     @InjectRepository(CompanySubscription) private readonly subRepo: Repository<CompanySubscription>,
     @InjectRepository(Plan) private readonly planRepo: Repository<Plan>,
+    @InjectRepository(AdminToken) private readonly tokenRepo: Repository<AdminToken>,
+    private readonly adminJwt: AdminJwtService,
     private readonly jwtService: JwtService,
+
   ) {}
 
-  async login(email: string, password: string) {
-    const admin = await this.adminRepo.findOne({ where: { email } });
-    if (!admin || !(await bcrypt.compare(password, admin.password))) {
-      throw new UnauthorizedException('بيانات الدخول غير صحيحة');
-    }
+  async ensureDefaultAdmin() {
+  const defaultEmail = 'admin@system.local';
+  const defaultPassword = 'admin123';
 
-    const accessToken = this.jwtService.sign({
-      adminId: admin.id,
-      role: 'admin',
-    });
+  const exists = await this.adminRepo.findOne({ where: { email: defaultEmail } });
+  if (exists) return;
 
-    return { accessToken };
+  const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+  const admin = this.adminRepo.create({
+    email: defaultEmail,
+    password: hashedPassword,
+  });
+
+  await this.adminRepo.save(admin);
+  console.log(`✅ تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
+}
+
+async login(email: string, password: string) {
+  const admin = await this.adminRepo.findOne({ where: { email } });
+  if (!admin || !(await bcrypt.compare(password, admin.password))) {
+    throw new UnauthorizedException('بيانات الدخول غير صحيحة');
   }
 
-  logout() {
-    return { success: true };
+  const payload = { adminId: admin.id, role: 'admin' };
+  const accessToken = this.adminJwt.signAccess(payload);
+  const refreshToken = this.adminJwt.signRefresh(payload);
+
+  await this.tokenRepo.save({ admin, refreshToken });
+
+  return { accessToken, refreshToken };
+}
+
+async refresh(refreshToken: string) {
+  const token = await this.tokenRepo.findOne({
+    where: { refreshToken },
+    relations: ['admin'],
+  });
+
+  if (!token) throw new UnauthorizedException('توكن غير صالح');
+
+  const payload = this.adminJwt.verify(refreshToken);
+  if (payload.adminId !== token.admin.id) {
+    throw new UnauthorizedException('توكن غير مطابق');
   }
+
+  const accessToken = this.adminJwt.signAccess(payload);
+  return { accessToken };
+}
+async logout(refreshToken: string) {
+  await this.tokenRepo.delete({ refreshToken });
+  return { success: true };
+}
+
 
   async createAdmin(dto: { email: string; password: string }) {
     const exists = await this.adminRepo.findOne({ where: { email: dto.email } });

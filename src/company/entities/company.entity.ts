@@ -63,7 +63,7 @@ export class Company {
   subscribedAt: Date;
 
   @Column({ nullable: true, type: 'text' })
-  planId: string;
+  planId: string | null;
 
   @Column({ nullable: true, type: 'text' })
   paymentProvider: string;

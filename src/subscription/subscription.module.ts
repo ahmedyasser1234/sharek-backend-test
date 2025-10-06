@@ -11,7 +11,7 @@ import { CompanyModule } from '../company/company.module';
 import { PaymentTransaction } from '../payment/entities/payment-transaction.entity';
 import { PaymentModule } from '../payment/payment.module';
 import { JwtModule } from '@nestjs/jwt';
-import { AdminJwtGuard } from '../admin/admin-jwt.guard'; 
+import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard'; 
 
 @Module({
   imports: [

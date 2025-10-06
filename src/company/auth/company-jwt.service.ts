@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 export interface CompanyPayload {
   companyId: string;
   role?: string;
+    token?: string; 
 }
 
 @Injectable()
@@ -13,9 +14,10 @@ export class CompanyJwtService {
   constructor(private readonly jwt: JwtService) {}
 
   signAccess(payload: CompanyPayload): string {
-    this.logger.log(`🔐 إصدار Access Token للشركة: ${payload.companyId}`);
-    return this.jwt.sign(payload, { expiresIn: '15m' });
-  }
+  this.logger.log(`🔐 إصدار Access Token للشركة: ${payload.companyId}`);
+  return this.jwt.sign(payload, { expiresIn: '7d' }); 
+}
+
 
   signRefresh(payload: CompanyPayload): string {
     this.logger.log(`🔄 إصدار Refresh Token للشركة: ${payload.companyId}`);

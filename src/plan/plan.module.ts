@@ -4,7 +4,7 @@ import { Plan } from './entities/plan.entity';
 import { PlanService } from './plan.service';
 import { PlanController } from './plan.controller';
 import { JwtModule } from '@nestjs/jwt';
-import { AdminJwtGuard } from '../admin/admin-jwt.guard';
+import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard';
 
 @Module({
   imports: [
