@@ -90,55 +90,58 @@ const companyData: DeepPartial<Company> = {
     });
   }
 
-  async createCompany(
-    dto: CreateCompanyDto,
-    logo?: Express.Multer.File,
-  ): Promise<Company> {
-    this.logger.log(`✅ بدء إنشاء شركة جدديدة: ${dto.email}`);
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
-    const verificationCode = Math.floor(
-      100000 + Math.random() * 900000,
-    ).toString();
-    const tempId = uuid();
+ async createCompany(
+  dto: CreateCompanyDto,
+  logo?: Express.Multer.File,
+): Promise<Company> {
+  this.logger.log(`✅ بدء إنشاء شركة جدديدة: ${dto.email}`);
 
-    const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
-    const folderPath = `./uploads/companies/${tempId}`;
-    mkdirSync(folderPath, { recursive: true });
-
-    let logoUrl: string | undefined;
-    if (logo) {
-      const tempPath = join('./uploads/temp', logo.filename);
-      const finalPath = join(folderPath, logo.filename);
-      renameSync(tempPath, finalPath);
-      logoUrl = `${baseUrl}/uploads/companies/${tempId}/${logo.filename}`;
-      this.logger.debug(`🖼️ تم نقل اللوجو من temp إلى: ${logoUrl}`);
-    }
-
-   const companyData: DeepPartial<Company> = {
-  ...dto,
-  password: hashedPassword,
-  isVerified: false,
-  verificationCode,
-  provider: dto.provider || 'email',
-  logoUrl,
-  fontFamily: dto.fontFamily ?? undefined,
-  id: tempId,
-  subscriptionStatus: 'inactive',
-  planId: null,
-  subscribedAt: undefined,
-  paymentProvider: undefined,
-};
-
-
-    const company = this.companyRepo.create(companyData);
-    const saved = await this.companyRepo.save(company);
-
-    await this.sendVerificationCode(saved.email);
-
-    this.logger.log(`📦 تم حفظ الشركة بنجاح: ${saved.id}`);
-    return saved;
+  // تحقق من وجود شركة بنفس البريد
+  const existing = await this.companyRepo.findOne({ where: { email: dto.email } });
+  if (existing) {
+    throw new BadRequestException('📛 هذا البريد مستخدم بالفعل');
   }
 
+  const hashedPassword = await bcrypt.hash(dto.password, 10);
+  const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const tempId = uuid();
+
+  const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
+  const folderPath = `./uploads/companies/${tempId}`;
+  mkdirSync(folderPath, { recursive: true });
+
+  let logoUrl: string | undefined;
+  if (logo) {
+    const tempPath = join('./uploads/temp', logo.filename);
+    const finalPath = join(folderPath, logo.filename);
+    renameSync(tempPath, finalPath);
+    logoUrl = `${baseUrl}/uploads/companies/${tempId}/${logo.filename}`;
+    this.logger.debug(`🖼️ تم نقل اللوجو من temp إلى: ${logoUrl}`);
+  }
+
+  const companyData: DeepPartial<Company> = {
+    ...dto,
+    password: hashedPassword,
+    isVerified: false,
+    verificationCode,
+    provider: dto.provider || 'email',
+    logoUrl,
+    fontFamily: dto.fontFamily ?? undefined,
+    id: tempId,
+    subscriptionStatus: 'inactive',
+    planId: null,
+    subscribedAt: undefined,
+    paymentProvider: undefined,
+  };
+
+  const company = this.companyRepo.create(companyData);
+  const saved = await this.companyRepo.save(company);
+
+  await this.sendVerificationCode(saved.email);
+
+  this.logger.log(`📦 تم حفظ الشركة بنجاح: ${saved.id}`);
+  return saved;
+}
 
 async sendVerificationCode(email: string): Promise<string> {
   const company = await this.companyRepo.findOne({ where: { email } });
@@ -151,7 +154,7 @@ async sendVerificationCode(email: string): Promise<string> {
   await this.companyRepo.save(company);
 
   const transportOptions: SMTPTransport.Options = {
-    service: email.includes('yahoo') ? 'yahoo' : 'gmail',
+    service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER ?? '',
       pass: process.env.EMAIL_PASS ?? '',
@@ -169,7 +172,7 @@ async sendVerificationCode(email: string): Promise<string> {
   try {
     await transporter.sendMail(mailOptions);
     this.logger.log(`📧 تم إرسال كود التحقق إلى: ${email}`);
-    return 'تم إرسال كود التحقق';
+    return `✅ تم إرسال كود التحقق إلى ${email}`;
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : 'Unknown error';
