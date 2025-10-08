@@ -35,7 +35,7 @@
     <h2><%= employee.name %></h2>
     <p><%= employee.jobTitle %></p>
     <% if (employee.profileImageUrl) { %>
-      <img src="<%= employee.profileImageUrl %>" class="avatar" alt="Profile" />
+<img src="<%= employee.profileImageUrl || '/uploads/defaults/default-profile.jpg' %>" class="avatar" alt="Profile" />
     <% } %>
     <p>📞 <%= employee.phone %></p>
     <p>📧 <%= employee.email %></p>

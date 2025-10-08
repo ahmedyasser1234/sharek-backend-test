@@ -90,13 +90,12 @@ const companyData: DeepPartial<Company> = {
     });
   }
 
-async createCompany(
+  async createCompany(
   dto: CreateCompanyDto,
   logo?: Express.Multer.File,
 ): Promise<Company> {
   this.logger.log(`✅ بدء إنشاء شركة جدديدة: ${dto.email}`);
 
-  // تحقق من وجود شركة بنفس البريد
   const existing = await this.companyRepo.findOne({ where: { email: dto.email } });
   if (existing) {
     throw new BadRequestException('📛 هذا البريد مستخدم بالفعل');
@@ -137,7 +136,6 @@ async createCompany(
   const company = this.companyRepo.create(companyData);
   const saved = await this.companyRepo.save(company);
 
-  // إرسال كود التحقق مع لوج لحالة الإرسال
   try {
     const result = await this.sendVerificationCode(saved.email);
     this.logger.log(`📧 حالة إرسال كود التحقق: ${result}`);
@@ -148,9 +146,9 @@ async createCompany(
 
   this.logger.log(`📦 تم حفظ الشركة بنجاح: ${saved.id}`);
   return saved;
-}
+  }
 
-async sendVerificationCode(email: string): Promise<string> {
+  async sendVerificationCode(email: string): Promise<string> {
   const company = await this.companyRepo.findOne({ where: { email } });
   if (!company) {
     throw new NotFoundException('Company not found');
@@ -186,7 +184,7 @@ async sendVerificationCode(email: string): Promise<string> {
     this.logger.error(`❌ فشل إرسال البريد: ${errorMessage}`);
     throw new BadRequestException('فشل إرسال البريد الإلكتروني');
   }
-}
+  }
 
   async verifyCode(email: string, code: string): Promise<string> {
     this.logger.log(`📧 محاولة تفعيل البريد ${email} بالكود ${code}`);
@@ -245,7 +243,8 @@ async sendVerificationCode(email: string): Promise<string> {
     if (!company) throw new NotFoundException('Company not found');
     return company;
   }
-async findById(id: string): Promise<Company> {
+
+  async findById(id: string): Promise<Company> {
   this.logger.debug(`🔍 البحث عن شركة بالمعرف: ${id}`);
 
   const company = await this.companyRepo
@@ -262,8 +261,7 @@ async findById(id: string): Promise<Company> {
 
   this.logger.log(`📦 تم جلب بيانات الشركة: ${company.id}`);
   return company;
-}
-
+  }
 
   async deleteCompany(id: string): Promise<void> {
     this.logger.warn(`🗑 حذف شركة بالمعرف: ${id}`);
@@ -271,7 +269,6 @@ async findById(id: string): Promise<Company> {
     await this.companyRepo.remove(company);
     this.logger.log(`✅ تم حذف الشركة: ${id}`);
   }
-
 
   async login(
   dto: LoginCompanyDto,
@@ -394,7 +391,7 @@ async findById(id: string): Promise<Company> {
     return { accessToken };
   }
 
-async logout(
+  async logout(
   refreshToken: string,
   ip: string,
   accessToken: string | null,
@@ -427,7 +424,6 @@ async logout(
   await this.tokenRepo.remove(existing);
   this.logger.log(`🧹 تم حذف Refresh Token بنجاح`);
 
-  // ✅ تسجيل Access Token كـ ملغي
   if (accessToken && accessToken.length > 20) {
     try {
       this.jwtService.verify(accessToken);
@@ -458,7 +454,7 @@ async logout(
   this.logger.log(`📄 تم تسجيل عملية تسجيل الخروج بنجاح`);
 
   return { success: true };
-}
+  }
 
   async activateSubscription(
     companyId: string,
@@ -481,5 +477,62 @@ async logout(
       .leftJoinAndSelect('subscription.plan', 'plan')
       .getMany();
   }
+
+  async requestPasswordReset(email: string): Promise<string> {
+  this.logger.log(`🔐 طلب إعادة تعيين كلمة المرور للبريد: ${email}`);
+
+  const company = await this.companyRepo.findOne({ where: { email } });
+  if (!company) throw new NotFoundException('Company not found');
+
+  const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+  company.verificationCode = resetCode;
+  await this.companyRepo.save(company);
+
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER ?? '',
+      pass: process.env.EMAIL_PASS ?? '',
+    },
+  });
+
+  const mailOptions: nodemailer.SendMailOptions = {
+    from: process.env.EMAIL_USER ?? '',
+    to: email,
+    subject: 'إعادة تعيين كلمة المرور',
+    text: `رمز إعادة تعيين كلمة المرور هو: ${resetCode}`,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    this.logger.log(`📧 تم إرسال كود إعادة التعيين إلى: ${email}`);
+    return '✅ تم إرسال كود إعادة تعيين كلمة المرور';
+  } catch (err) {
+    const errorMessage =
+      typeof err === 'object' && err !== null && 'message' in err
+        ? String((err as { message: unknown }).message)
+        : 'Unknown error';
+
+    this.logger.error(`❌ فشل إرسال البريد: ${errorMessage}`);
+    throw new BadRequestException('فشل إرسال البريد الإلكتروني');
+  }
+  }
+
+  async resetPassword(email: string, code: string, newPassword: string): Promise<string> {
+  this.logger.log(`🔐 محاولة إعادة تعيين كلمة المرور للبريد: ${email}`);
+
+  const company = await this.companyRepo.findOne({ where: { email } });
+  if (!company) throw new NotFoundException('Company not found');
+  if (company.verificationCode !== code)
+    throw new UnauthorizedException('❌ كود غير صحيح');
+
+  company.password = await bcrypt.hash(newPassword, 10);
+  company.verificationCode = null;
+  await this.companyRepo.save(company);
+
+  this.logger.log(`✅ تم تغيير كلمة المرور للشركة: ${company.id}`);
+  return '✅ تم تغيير كلمة المرور بنجاح';
+  }
+
 }
 

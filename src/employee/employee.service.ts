@@ -51,14 +51,24 @@ export class EmployeeService {
   this.logger.log(`🆕 بدء إنشاء موظف جديد للشركة: ${companyId}`);
 
   const company = await this.companyRepo.findOne({ where: { id: companyId } });
-  if (!company) throw new NotFoundException('Company not found');
+  if (!company) {
+    this.logger.error(`❌ الشركة غير موجودة: ${companyId}`);
+    throw new NotFoundException('Company not found');
+  }
 
   const currentCount = await this.employeeRepo.count({ where: { company: { id: companyId } } });
   const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
-  if (currentCount >= allowedCount) throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد');
+  this.logger.debug(`📊 عدد الموظفين الحالي: ${currentCount} / الحد المسموح: ${allowedCount}`);
+  if (currentCount >= allowedCount) {
+    this.logger.warn(`🚫 تجاوز الحد المسموح للموظفين`);
+    throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد');
+  }
 
   const existingEmployee = await this.employeeRepo.findOne({ where: { email: dto.email } });
-  if (existingEmployee) throw new BadRequestException('❌ هذا الإيميل مستخدم بالفعل لموظف آخر');
+  if (existingEmployee) {
+    this.logger.warn(`📧 الإيميل مستخدم بالفعل: ${dto.email}`);
+    throw new BadRequestException('❌ هذا الإيميل مستخدم بالفعل لموظف آخر');
+  }
 
   let workingHours: Record<string, { from: string; to: string }> | null = null;
   let isOpen24Hours = false;
@@ -67,35 +77,37 @@ export class EmployeeService {
   if (showWorkingHours) {
     if (dto.isOpen24Hours) {
       isOpen24Hours = true;
+      this.logger.debug(`🕒 الموظف يعمل 24 ساعة`);
     } else if (dto.workingHours && Object.keys(dto.workingHours).length > 0) {
       workingHours = dto.workingHours;
+      this.logger.debug(`📅 جدول ساعات العمل: ${JSON.stringify(workingHours)}`);
     } else {
       showWorkingHours = false;
+      this.logger.debug(`⚠️ تم تعطيل عرض ساعات العمل لعدم وجود جدول`);
     }
   }
-const employeeData: Partial<Employee> = {
-  ...dto,
-  company,
-  showWorkingHours,
-  isOpen24Hours,
-  workingHours,
-  videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
-    ? (dto.videoType as VideoType)
-    : undefined,
 
-  contactFormDisplayType: allowedContactFormDisplayTypes.includes(dto.contactFormDisplayType as ContactFormDisplayType)
-    ? (dto.contactFormDisplayType as ContactFormDisplayType)
-    : undefined,
+  const employeeData: Partial<Employee> = {
+    ...dto,
+    company,
+    showWorkingHours,
+    isOpen24Hours,
+    workingHours,
+    videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
+      ? (dto.videoType as VideoType)
+      : undefined,
+    contactFormDisplayType: allowedContactFormDisplayTypes.includes(dto.contactFormDisplayType as ContactFormDisplayType)
+      ? (dto.contactFormDisplayType as ContactFormDisplayType)
+      : undefined,
+    contactFieldType: allowedContactFieldTypes.includes(dto.contactFieldType as ContactFieldType)
+      ? (dto.contactFieldType as ContactFieldType)
+      : undefined,
+    feedbackIconType: allowedFeedbackIconTypes.includes(dto.feedbackIconType as FeedbackIconType)
+      ? (dto.feedbackIconType as FeedbackIconType)
+      : undefined,
+  };
 
-  contactFieldType: allowedContactFieldTypes.includes(dto.contactFieldType as ContactFieldType)
-    ? (dto.contactFieldType as ContactFieldType)
-    : undefined,
-
-  feedbackIconType: allowedFeedbackIconTypes.includes(dto.feedbackIconType as FeedbackIconType)
-    ? (dto.feedbackIconType as FeedbackIconType)
-    : undefined,
-};
-
+  this.logger.debug(`📦 بيانات الموظف قبل الحفظ: ${JSON.stringify(employeeData)}`);
 
   const employee = this.employeeRepo.create(employeeData);
   let saved = await this.employeeRepo.save(employee);
@@ -118,38 +130,48 @@ const employeeData: Partial<Employee> = {
   const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
   const companyFolder = companyId;
 
-  for (const file of files) {
-    const field = imageMap[file.fieldname as keyof typeof imageMap];
-    const imageUrl = `${baseUrl}/uploads/${companyFolder}/${encodeURIComponent(file.filename)}`;
-    this.logger.debug(`📤 رفع صورة: ${file.originalname} → ${imageUrl}`);
+ for (const file of files) {
+  const field = imageMap[file.fieldname as keyof typeof imageMap];
+  const imageUrl = `${baseUrl}/uploads/companies/${companyFolder}/${encodeURIComponent(file.filename)}`;
 
-    if (field) {
-      Object.assign(saved, { [field]: imageUrl });
-    } else {
-      const label = file.originalname.split('.')[0];
-      const imageEntity = this.imageRepo.create({ imageUrl, label, employee: saved });
-      await this.imageRepo.save(imageEntity);
-    }
+  this.logger.debug(`📤 رفع صورة: ${file.fieldname} → ${imageUrl}`);
+
+  if (field) {
+    Object.assign(saved, { [field]: imageUrl });
+    this.logger.debug(`✅ تم تعيين الصورة في الحقل: ${field} → ${imageUrl}`);
+  } else {
+    const label = file.originalname.split('.')[0];
+    const imageEntity = this.imageRepo.create({ imageUrl, label, employee: saved });
+    await this.imageRepo.save(imageEntity);
+    this.logger.debug(`🖼️ صورة جاليري محفوظة: ${label}`);
   }
+}
 
-  if (!saved.profileImageUrl) {
-    saved.profileImageUrl = `${baseUrl}/uploads/defaults/default-profile.jpg`;
-    this.logger.debug(`🖼️ تعيين صورة افتراضية للبروفايل`);
-  }
+this.logger.debug(`📷 صورة البروفايل قبل التحقق: ${saved.profileImageUrl}`);
 
+if (!saved.profileImageUrl) {
+  saved.profileImageUrl = `${baseUrl}/uploads/defaults/default-profile.jpg`;
+  this.logger.debug(`🖼️ تعيين صورة افتراضية للبروفايل`);
+}
   saved = await this.employeeRepo.save(saved);
+  this.logger.debug(`📦 الموظف بعد حفظ الصور: ${JSON.stringify(saved)}`);
 
   const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved, dto.designId);
   saved.cardUrl = cardUrl;
   saved.designId = designId;
-  await this.employeeRepo.save(saved);
+  saved.qrCode = qrCode;
+  this.logger.debug(`🎨 تم توليد البطاقة: ${cardUrl}`);
+  this.logger.debug(`🔳 تم توليد QR: ${qrCode}`);
+
+  saved = await this.employeeRepo.save(saved);
+  this.logger.debug(`📦 الموظف بعد حفظ البطاقة والـ QR: ${JSON.stringify(saved)}`);
 
   return {
     statusCode: HttpStatus.CREATED,
     message: '✅ تم إنشاء الموظف بنجاح',
     data: { ...saved, qrCode },
   };
- }
+  }
 
   async findAll(companyId: string, page = 1, limit = 10, search?: string) {
     this.logger.debug(`📄 جلب الموظفين للشركة: ${companyId} | صفحة: ${page} | بحث: ${search || 'لا يوجد'}`);
@@ -392,7 +414,6 @@ async update(id: number, dto: UpdateEmployeeDto, files?: Express.Multer.File[]) 
   };
   }
 
-
   async findByUniqueUrl(uniqueUrl: string, source = 'link', req?: Request) {
   this.logger.debug(`🔗 البحث عن موظف باستخدام الرابط الفريد: ${uniqueUrl} | المصدر: ${source}`);
   const card = await this.cardRepo.findOne({
@@ -427,7 +448,6 @@ async update(id: number, dto: UpdateEmployeeDto, files?: Express.Multer.File[]) 
   };
   }
   
-
   async exportToExcel(companyId: string): Promise<Buffer> {
   try {
     const employees = await this.employeeRepo.find({
@@ -682,7 +702,7 @@ async update(id: number, dto: UpdateEmployeeDto, files?: Express.Multer.File[]) 
   }
 
   return { count: imported.length, imported, skipped };
-}
 
-  
+  }
+
 }

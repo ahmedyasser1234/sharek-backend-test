@@ -518,18 +518,22 @@ if (req.body.showWorkingHours === 'true') {
     contactFormHeaderImage: 'contactFormHeaderImageUrl'
   };
 
-  for (const [uploadField, entityField] of Object.entries(imageFields)) {
-    const file = req.files?.[uploadField];
-    if (file) {
-      const tempPath = path.join(tempDir, file.name);
-      await file.mv(tempPath);
-      form.append(entityField, fs.createReadStream(tempPath), {
-        filename: file.name,
-        contentType: file.mimetype
-      });
+ for (const [uploadField, entityField] of Object.entries(imageFields)) {
+  const file = req.files?.[uploadField];
+  if (file) {
+    const tempPath = path.join(tempDir, file.name);
+    await file.mv(tempPath);
+
+    // ✅ اللوج لتأكيد اسم الحقل
+    console.log(`📥 الملف المستلم: fieldname=${uploadField}, originalname=${file.name}`);
+
+    // ✅ التعديل الأساسي هنا: نستخدم uploadField بدل entityField
+    form.append(uploadField, fs.createReadStream(tempPath), {
+      filename: file.name,
+      contentType: file.mimetype
+    });
     }
   }
-
   try {
     await axios.post('http://localhost:3000/employee', form, {
       headers: {
@@ -732,7 +736,7 @@ app.get('/:designId/:uniqueUrl', async (req, res) => {
     if (!employee) {
       return res.status(404).send("❌ الموظف غير موجود");
     }
-
+    console.log('📷 رابط صورة الموظف:', employee.profileImageUrl);
     // ✅ تحديد التصميم
     const template = designId || employee.designId || 'classic';
     console.log(`🎨 عرض البطاقة باستخدام التصميم: ${template}`);

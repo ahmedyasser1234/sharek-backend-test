@@ -52,7 +52,6 @@
       <input type="text" name="smsNumber" placeholder="رقم SMS" />
       <input type="text" name="faxNumber" placeholder="رقم فاكس" />
       <input type="text" name="telephone" placeholder="رقم الهاتف المنزلى " />
-      <input type="text" name="location" placeholder="الموقع" />
       <input type="text" name="wechat" placeholder="Wechat" />
       <label>الصورة الشخصية:</label>
       <input type="file" name="profileImage" accept="image/*" />
@@ -149,108 +148,98 @@
       </select>
       <br/>
  <h2>ساعات العمل</h2>
-
-<div>
-  <label>
-    <input type="checkbox" id="showWorkingHours" name="showWorkingHours" value="false" />
-    تفعيل عرض مواعيد العمل
-  </label>
-</div>
-
-<div>
-  <label>
-    <input type="checkbox" id="isOpen24Hours" name="isOpen24Hours" value="false" disabled />
-    مفتوح 24 ساعة
-  </label>
-</div>
-
-<div>
-  <label>صورة مواعيد العمل:
-    <input type="file" name="workingHoursImage" accept="image/*" />
-  </label>
-</div>
-
-<!-- سكشن جدول الأيام -->
-<div id="workingHoursSection" style="display:none;">
-  <h3>جدول الأيام</h3>
+  <div>
+    <label>
+      <input type="checkbox" id="showWorkingHours" name="showWorkingHours" value="false" />
+      تفعيل عرض مواعيد العمل
+    </label>
+  </div>
 
   <div>
-    <label>الاثنين:
-      من <input type="time" name="workingHours[monday][from]" />
-      إلى <input type="time" name="workingHours[monday][to]" />
+    <label>
+      <input type="checkbox" id="isOpen24Hours" name="isOpen24Hours" value="false" disabled />
+      مفتوح 24 ساعة
     </label>
   </div>
+
   <div>
-    <label>الثلاثاء:
-      من <input type="time" name="workingHours[tuesday][from]" />
-      إلى <input type="time" name="workingHours[tuesday][to]" />
+    <label>صورة مواعيد العمل:
+      <input type="file" name="workingHoursImage" accept="image/*" />
     </label>
   </div>
-  <div>
-    <label>الأربعاء:
-      من <input type="time" name="workingHours[wednesday][from]" />
-      إلى <input type="time" name="workingHours[wednesday][to]" />
-    </label>
+
+  <div id="workingHoursSection" style="display:none;">
+    <h3>جدول الأيام</h3>
+    <div><label>الاثنين: من <input type="time" name="workingHours[monday][from]" /> إلى <input type="time" name="workingHours[monday][to]" /></label></div>
+    <div><label>الثلاثاء: من <input type="time" name="workingHours[tuesday][from]" /> إلى <input type="time" name="workingHours[tuesday][to]" /></label></div>
+    <div><label>الأربعاء: من <input type="time" name="workingHours[wednesday][from]" /> إلى <input type="time" name="workingHours[wednesday][to]" /></label></div>
+    <div><label>الخميس: من <input type="time" name="workingHours[thursday][from]" /> إلى <input type="time" name="workingHours[thursday][to]" /></label></div>
+    <div><label>الجمعة: من <input type="time" name="workingHours[friday][from]" /> إلى <input type="time" name="workingHours[friday][to]" /></label></div>
+    <div><label>السبت: من <input type="time" name="workingHours[saturday][from]" /> إلى <input type="time" name="workingHours[saturday][to]" /></label></div>
+    <div><label>الأحد: من <input type="time" name="workingHours[sunday][from]" /> إلى <input type="time" name="workingHours[sunday][to]" /></label></div>
   </div>
-  <div>
-    <label>الخميس:
-      من <input type="time" name="workingHours[thursday][from]" />
-      إلى <input type="time" name="workingHours[thursday][to]" />
-    </label>
-  </div>
-  <div>
-    <label>الجمعة:
-      من <input type="time" name="workingHours[friday][from]" />
-      إلى <input type="time" name="workingHours[friday][to]" />
-    </label>
-  </div>
-  <div>
-    <label>السبت:
-      من <input type="time" name="workingHours[saturday][from]" />
-      إلى <input type="time" name="workingHours[saturday][to]" />
-    </label>
-  </div>
-  <div>
-    <label>الأحد:
-      من <input type="time" name="workingHours[sunday][from]" />
-      إلى <input type="time" name="workingHours[sunday][to]" />
-    </label>
-  </div>
-</div>
+
+  <button type="submit">➕ إضافة الموظف</button>
+</form>
 
 <script>
+  const form = document.getElementById('employeeForm');
   const showCheckbox = document.getElementById('showWorkingHours');
   const open24Checkbox = document.getElementById('isOpen24Hours');
   const workingHoursSection = document.getElementById('workingHoursSection');
 
-  // تحديث تفعيل سكشن الجدول
   showCheckbox.addEventListener('change', () => {
-    if (showCheckbox.checked) {
-      showCheckbox.value = "true";
-      open24Checkbox.disabled = false;
-      workingHoursSection.style.display = open24Checkbox.checked ? "none" : "block";
-    } else {
-      showCheckbox.value = "false";
-      open24Checkbox.checked = false;
-      open24Checkbox.value = "false";
-      open24Checkbox.disabled = true;
-      workingHoursSection.style.display = "none";
-    }
+    showCheckbox.value = showCheckbox.checked ? "true" : "false";
+    open24Checkbox.disabled = !showCheckbox.checked;
+    workingHoursSection.style.display = showCheckbox.checked && !open24Checkbox.checked ? "block" : "none";
   });
 
-  // تحديث 24 ساعة
   open24Checkbox.addEventListener('change', () => {
     open24Checkbox.value = open24Checkbox.checked ? "true" : "false";
     workingHoursSection.style.display = open24Checkbox.checked ? "none" : "block";
   });
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+
+    const formData = new FormData(form);
+
+    formData.set('showWorkingHours', formData.get('showWorkingHours') === 'true');
+    formData.set('isOpen24Hours', formData.get('isOpen24Hours') === 'true');
+
+    const workingHours = {};
+    ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].forEach(day => {
+      workingHours[day] = {
+        from: formData.get(`workingHours[${day}][from]`),
+        to: formData.get(`workingHours[${day}][to]`)
+      };
+      formData.delete(`workingHours[${day}][from]`);
+      formData.delete(`workingHours[${day}][to]`);
+    });
+
+    formData.set('workingHours', JSON.stringify(workingHours));
+
+    try {
+      const res = await fetch('/api/employee', {
+        method: 'POST',
+        body: formData
+      });
+
+      const result = await res.json();
+
+      if (res.ok && result.statusCode === 201) {
+        alert('✅ تم إضافة الموظف بنجاح');
+        window.location.reload();
+      } else {
+        alert(`❌ خطأ: ${result.message || 'فشل الإضافة'}`);
+      }
+    } catch (err) {
+      console.error('❌ فشل الإرسال:', err);
+      alert('❌ حدث خطأ أثناء الإرسال');
+    }
+  });
 </script>
 
-
-      <!-- الصور -->
-      <label>Custom Image:</label>
-      <input type="file" name="customImage" accept="image/*" />
-      <button type="submit">➕ إضافة الموظف</button>
-    </form>
   <% } else { %>
     <p class="warning">⚠️ لقد وصلت للحد الأقصى من الموظفين (<%= maxEmployees %>)، لا يمكن إضافة موظفين جدد.</p>
   <% } %>

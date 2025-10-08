@@ -10,6 +10,7 @@ import {
   IsObject,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 
 export class CreateEmployeeDto {
   @ApiProperty({ example: 'Ahmed Ali', maxLength: 1000 })
@@ -288,18 +289,22 @@ export class CreateEmployeeDto {
   @IsString()
   workingHoursTitle?: string;
 
-  @ApiPropertyOptional({ example: true, description: 'هل يتم عرض مواعيد العمل للموظف؟' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'هل يتم عرض مواعيد العمل للموظف؟',
+  })
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   showWorkingHours?: boolean;
 
-
   @ApiPropertyOptional({ example: true })
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   isOpen24Hours?: boolean;
 
-  @ApiPropertyOptional({ })
+  @ApiPropertyOptional({ example: 'https://example.com/image.png' })
   @IsOptional()
   @IsString()
   workingHoursImageUrl?: string;
@@ -311,6 +316,32 @@ export class CreateEmployeeDto {
     },
   })
   @IsOptional()
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value) as {
+          monday?: { from: string; to: string };
+          tuesday?: { from: string; to: string };
+          wednesday?: { from: string; to: string };
+          thursday?: { from: string; to: string };
+          friday?: { from: string; to: string };
+          saturday?: { from: string; to: string };
+          sunday?: { from: string; to: string };
+        };
+      } catch {
+        return undefined;
+      }
+    }
+    return value as {
+      monday?: { from: string; to: string };
+      tuesday?: { from: string; to: string };
+      wednesday?: { from: string; to: string };
+      thursday?: { from: string; to: string };
+      friday?: { from: string; to: string };
+      saturday?: { from: string; to: string };
+      sunday?: { from: string; to: string };
+    };
+  })
   @IsObject()
   workingHours?: {
     monday?: { from: string; to: string };
