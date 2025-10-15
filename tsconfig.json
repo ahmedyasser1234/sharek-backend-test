@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "module": "CommonJS",                          // ✅ مهم جدًا لتشغيل الميجريشن
+    "moduleResolution": "node",                    // ✅ متوافق مع CommonJS
+    "target": "ES2020",                            // ✅ مناسب لـ NestJS و TypeORM
+    "outDir": "./dist",
+    "sourceMap": true,
+    "incremental": true,
+    "declaration": true,
+    "removeComments": true,
+    "baseUrl": "./",
+    "paths": {
+      "*": ["node_modules/*", "src/*"]
+    },
+
+    // ✅ دعم NestJS و TypeORM
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "isolatedModules": true,
+
+    // ✅ إعدادات صارمة مفيدة
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitAny": false,
+    "strictBindCallApply": false,
+    "noFallthroughCasesInSwitch": false
+  },
+  "include": ["src"],
+  "exclude": ["node_modules"]
+}

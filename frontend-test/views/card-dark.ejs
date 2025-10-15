@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>بطاقة الموظف</title>
+<style>
+    body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #111;
+  height: 100vh;
+  margin: 0;
+}
+
+.card.dark {
+  background: #222;
+  color: #f9f9f9;
+  border-radius: 10px;
+  padding: 25px;
+  text-align: center;
+  width: 300px;
+}
+
+.card.dark .avatar {
+  width: 100px;
+  border-radius: 50%;
+  border: 3px solid #f9f9f9;
+  margin: 15px 0;
+}
+</style>
+</head>
+<body>
+  <div class="card dark">
+    <h2><%= employee.name %></h2>
+    <p><%= employee.jobTitle %></p>
+    <% if (employee.profileImageUrl) { %>
+<img src="<%= employee.profileImageUrl || '/uploads/defaults/default-profile.jpg' %>" class="avatar" alt="Profile" />
+    <% } %>
+    <p>📞 <%= employee.phone %></p>
+    <p>📧 <%= employee.email %></p>
+    <div class="qr">
+      <img src="<%= employee.qrCode %>" alt="QR" width="130"/>
+    </div>
+  </div>
+</body>
+</html>

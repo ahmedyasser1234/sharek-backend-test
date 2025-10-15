@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>الموظفين</title>
+</head>
+<body>
+  <h2>الموظفين</h2>
+  <ul>
+    <% employees.forEach(emp => { %>
+      <li><%= emp.name %> - <%= emp.role %></li>
+    <% }) %>
+  </ul>
+
+  <h3>إضافة موظف جديد</h3>
+  <form action="/add-employee?companyId=<%= companyId %>" method="POST">
+    <input type="text" name="name" placeholder="اسم الموظف" required />
+    <input type="text" name="role" placeholder="الوظيفة" required />
+    <button type="submit">إضافة</button>
+  </form>
+</body>
+</html>

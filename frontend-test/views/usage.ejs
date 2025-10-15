@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>تفاصيل الاشتراك والموظفين</title>
+  <style>
+    body { font-family: Arial, sans-serif; direction: rtl; padding: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 10px; text-align: center; vertical-align: middle; }
+    th { background-color: #f0f0f0; }
+    .warning { color: red; font-weight: bold; }
+    .success { color: green; font-weight: bold; }
+    form input[type="text"],
+    form input[type="email"],
+    form input[type="file"],
+    form select { margin: 5px; padding: 8px; width: 200px; }
+    form button { padding: 8px 16px; margin-top: 5px; cursor: pointer; }
+    img { border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+<h2>تفاصيل الاشتراك الحالي</h2>
+
+<% if (usage.hasSubscription && !usage.isExpired) { %>
+
+  <!-- تفاصيل الخطة -->
+  <div>
+    <p><strong>اسم الخطة:</strong> <%= usage.currentSubscription.plan.name %></p>
+    <p><strong>السعر:</strong> <%= usage.currentSubscription.plan.price %> ج.م</p>
+    <p><strong>عدد الموظفين المسموح:</strong> <%= usage.currentSubscription.plan.maxEmployees %></p>
+    <p><strong>تاريخ البداية:</strong> <%= new Date(usage.currentSubscription.startDate).toLocaleDateString("ar-EG") %></p>
+    <p><strong>تاريخ النهاية:</strong> <%= new Date(usage.currentSubscription.endDate).toLocaleDateString("ar-EG") %></p>
+  </div>
+
+  <% const maxEmployees = usage.currentSubscription.plan.maxEmployees; %>
+  <% const currentEmployees = usage.employees.length; %>
+
+  <% if (currentEmployees < maxEmployees) { %>
+    <h3>إضافة موظف جديد</h3>
+    <p>✅ إجمالي عدد الزيارات لكل موظفي الشركة: <strong><%= usage.totalVisitsCount %></strong></p>
+    <p class="success">المتبقي: <%= maxEmployees - currentEmployees %> موظف يمكن إضافتهم</p>
+
+    <form method="POST" action="/add-employee" enctype="multipart/form-data">
+      <h2>المعلومات الشخصيه</h2>
+      <input type="text" name="name" placeholder="الاسم" required />
+      <input type="text" name="jobTitle" placeholder="المسمى الوظيفي" required />
+      <input type="text" name="phone" placeholder="رقم الهاتف" required />
+      <input type="email" name="email" placeholder="البريد الإلكتروني" required />
+      <input type="text" name="location" placeholder="الموقع" />
+      <input type="text" name="whatsapp" placeholder="واتساب" />
+      <input type="text" name="smsNumber" placeholder="رقم SMS" />
+      <input type="text" name="faxNumber" placeholder="رقم فاكس" />
+      <input type="text" name="telephone" placeholder="رقم الهاتف المنزلى " />
+      <input type="text" name="wechat" placeholder="Wechat" />
+      <label>الصورة الشخصية:</label>
+      <input type="file" name="profileImage" accept="image/*" />
+      <label>الصورة الثانوية:</label>
+      <input type="file" name="secondaryImage" accept="image/*" />
+      <br/>
+      <h2>النبذه</h2>
+      <input type="text" name="aboutTitle" placeholder="عنوان النبذة" />
+      <input type="text" name="about" placeholder="نبذة عن الموظف" />
+      <br/>
+      <h2>تواصل معى</h2>
+       <label>Contact Form Header Image:</label>
+      <input type="file" name="contactFormHeaderImage" accept="image/*" />
+      <input type="text" name="phoneTitle" placeholder="عنوان الهاتف" />
+      <input type="text" name="conphone" placeholder="رقم الهاتف (ثانوي)" />
+      <input type="text" name="emailTitle" placeholder="عنوان البريد الإلكتروني" />
+      <input type="email" name="conemail" placeholder="البريد الإلكتروني (ثانوي)" />
+      <input type="text" name="locationTitle" placeholder="عنوان الموقع" />
+      <input type="text" name="conStreet" placeholder="الشارع" />
+      <input type="text" name="conAdressLine" placeholder="العنوان الإضافي" />
+      <input type="text" name="conCity" placeholder="المدينة" />
+      <input type="text" name="conState" placeholder="المحافظة" />
+      <input type="text" name="conCountry" placeholder="الدولة" />
+      <input type="text" name="conZipcode" placeholder="الرمز البريدي" />
+      <input type="text" name="conDirection" placeholder="الاتجاهات" />
+      <input type="text" name="conGoogleMapUrl" placeholder="رابط Google Map" />
+      <br/>
+      <h2>الصور</h2>
+      <label>صور إضافية (جاليري):</label>
+      <input type="file" name="galleryImages" accept="image/*" multiple />
+      <br/>
+      <h2>مواقع التواصل الاجتماعى</h2>
+       <label>Facebook Image:</label>
+      <input type="file" name="facebookImage" accept="image/*" />
+      <input type="text" name="facebook" placeholder="رابط Facebook" />
+      <label>Instagram Image:</label>
+      <input type="file" name="instagramImage" accept="image/*" />
+      <input type="text" name="instagram" placeholder="رابط Instagram" />
+      <label>TikTok Image:</label>
+      <input type="file" name="tiktokImage" accept="image/*" />
+      <input type="text" name="tiktok" placeholder="رابط TikTok" />
+      <label>Snapchat Image:</label>
+      <input type="file" name="snapchatImage" accept="image/*" />     
+      <input type="text" name="snapchat" placeholder="رابط Snapchat" />
+      <br/>
+      <h2> روابط</h2>
+      <input type="text" name="workLink" placeholder="رابط العمل" />
+      <input type="text" name="productsLink" placeholder="رابط المنتجات" />
+       <br/>
+      <h2>التوصية</h2>
+      <input type="text" name="testimonialTitle" placeholder="عنوان التوصية" />
+      <input type="text" name="testimonialDescription" placeholder="وصف التوصية" />
+      <input type="text" name="testimonialText" placeholder="نص التوصية" />
+      <input type="text" name="testimonialName" placeholder="اسم صاحب التوصية" />
+      <input type="text" name="testimonialDesignation" placeholder="وظيفة صاحب التوصية" />
+      <label>Testimonial Image:</label>
+      <input type="file" name="testimonialImage" accept="image/*" />
+      <br/>
+      <h2>الفيديو</h2>
+      <input type="text" name="videoTitle" placeholder="عنوان الفيديو" />
+      <input type="text" name="videoDescription" placeholder="وصف الفيديو" />
+      <input type="text" name="videoUrl" placeholder="رابط الفيديو" />
+      <select name="videoType">
+        <option value="">نوع الفيديو</option>
+        <option value="youtube">YouTube</option>
+        <option value="vimeo">Vimeo</option>
+      </select>
+      <br/>
+      <h2>pdf</h2>
+      <input type="text" name="pdfGalleryTitle" placeholder="عنوان pdf" />
+      <input type="text" name="pdfGalleryDescription" placeholder="وصف pdf" />
+      <input type="text" name="pdfGalleryDescription" placeholder="وصف pdf" />
+      <input type="file" name="pdfFileUrl" accept=".pdf" required />
+      <input type="text" name="pdfTitle" placeholder="عنوان مبسط لملف pdf" />
+      <input type="text" name="pdfSubtitle" placeholder="وصف  لملف pdf" />
+      <label>PDF image:</label>
+      <input type="file" name="pdfThumbnail" accept="image/*" />
+      <br/>
+      <h2> نموذج التواصل </h2>
+      <input type="text" name="contactFormTitle" placeholder="عنوان نموذج التواصل" />
+      <input type="text" name="contactFormDescription" placeholder="وصف النموذج" />
+      <select name="contactFormDisplayType">
+        <option value="">طريقة العرض</option>
+        <option value="overlay">Overlay</option>
+        <option value="inline">Inline</option>
+      </select>
+      <br/>
+      <h2>التصميمات</h2>
+      <label for="designId">اختر التصميم:</label>
+      <select name="designId" id="designId" required>    
+        <option value="card-minimal">تصميم 1 (كلاسيك)</option>
+        <option value="card-dark">تصميم 2 (مودرن)</option>
+        <option value="card-modern">تصميم 3 (إيلاجانس)</option>
+      </select>
+      <br/>
+ <h2>ساعات العمل</h2>
+  <div>
+    <label>
+      <input type="checkbox" id="showWorkingHours" name="showWorkingHours" value="false" />
+      تفعيل عرض مواعيد العمل
+    </label>
+  </div>
+
+  <div>
+    <label>
+      <input type="checkbox" id="isOpen24Hours" name="isOpen24Hours" value="false" disabled />
+      مفتوح 24 ساعة
+    </label>
+  </div>
+
+  <div>
+    <label>صورة مواعيد العمل:
+      <input type="file" name="workingHoursImage" accept="image/*" />
+    </label>
+  </div>
+
+  <div id="workingHoursSection" style="display:none;">
+    <h3>جدول الأيام</h3>
+    <div><label>الاثنين: من <input type="time" name="workingHours[monday][from]" /> إلى <input type="time" name="workingHours[monday][to]" /></label></div>
+    <div><label>الثلاثاء: من <input type="time" name="workingHours[tuesday][from]" /> إلى <input type="time" name="workingHours[tuesday][to]" /></label></div>
+    <div><label>الأربعاء: من <input type="time" name="workingHours[wednesday][from]" /> إلى <input type="time" name="workingHours[wednesday][to]" /></label></div>
+    <div><label>الخميس: من <input type="time" name="workingHours[thursday][from]" /> إلى <input type="time" name="workingHours[thursday][to]" /></label></div>
+    <div><label>الجمعة: من <input type="time" name="workingHours[friday][from]" /> إلى <input type="time" name="workingHours[friday][to]" /></label></div>
+    <div><label>السبت: من <input type="time" name="workingHours[saturday][from]" /> إلى <input type="time" name="workingHours[saturday][to]" /></label></div>
+    <div><label>الأحد: من <input type="time" name="workingHours[sunday][from]" /> إلى <input type="time" name="workingHours[sunday][to]" /></label></div>
+  </div>
+
+  <button type="submit">➕ إضافة الموظف</button>
+</form>
+
+<script>
+  const form = document.getElementById('employeeForm');
+  const showCheckbox = document.getElementById('showWorkingHours');
+  const open24Checkbox = document.getElementById('isOpen24Hours');
+  const workingHoursSection = document.getElementById('workingHoursSection');
+
+  showCheckbox.addEventListener('change', () => {
+    showCheckbox.value = showCheckbox.checked ? "true" : "false";
+    open24Checkbox.disabled = !showCheckbox.checked;
+    workingHoursSection.style.display = showCheckbox.checked && !open24Checkbox.checked ? "block" : "none";
+  });
+
+  open24Checkbox.addEventListener('change', () => {
+    open24Checkbox.value = open24Checkbox.checked ? "true" : "false";
+    workingHoursSection.style.display = open24Checkbox.checked ? "none" : "block";
+  });
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+
+    const formData = new FormData(form);
+
+    formData.set('showWorkingHours', formData.get('showWorkingHours') === 'true');
+    formData.set('isOpen24Hours', formData.get('isOpen24Hours') === 'true');
+
+    const workingHours = {};
+    ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].forEach(day => {
+      workingHours[day] = {
+        from: formData.get(`workingHours[${day}][from]`),
+        to: formData.get(`workingHours[${day}][to]`)
+      };
+      formData.delete(`workingHours[${day}][from]`);
+      formData.delete(`workingHours[${day}][to]`);
+    });
+
+    formData.set('workingHours', JSON.stringify(workingHours));
+
+    try {
+      const res = await fetch('/api/employee', {
+        method: 'POST',
+        body: formData
+      });
+
+      const result = await res.json();
+
+      if (res.ok && result.statusCode === 201) {
+        alert('✅ تم إضافة الموظف بنجاح');
+        window.location.reload();
+      } else {
+        alert(`❌ خطأ: ${result.message || 'فشل الإضافة'}`);
+      }
+    } catch (err) {
+      console.error('❌ فشل الإرسال:', err);
+      alert('❌ حدث خطأ أثناء الإرسال');
+    }
+  });
+</script>
+
+  <% } else { %>
+    <p class="warning">⚠️ لقد وصلت للحد الأقصى من الموظفين (<%= maxEmployees %>)، لا يمكن إضافة موظفين جدد.</p>
+  <% } %>
+  <form method="POST" action="/import-employees" enctype="multipart/form-data">
+  <label>📤 رفع ملف Excel:</label>
+  <input type="file" name="excelFile" accept=".xlsx" required />
+  <button type="submit">📤 استيراد الموظفين من Excel</button>
+</form>
+
+<form method="GET" action="/export-employees">
+  <button type="submit">📥 تصدير الموظفين إلى Excel</button>
+</form>
+
+  <h3>قائمة الموظفين</h3>
+  <% if (usage.employees.length > 0) { %>
+    <table>
+      <thead>
+        <tr>
+          <th>الاسم</th>
+          <th>البريد الإلكتروني</th>
+          <th>المسمى الوظيفي</th>
+          <th>الهاتف</th>
+          <th>واتساب</th>
+          <th>الموقع</th>
+          <th>تصميم البطاقة</th>
+          <th>البطاقة</th>
+          <th>QR</th>
+          <th>عدد الزيارات</th>
+          <th>تعديل</th>
+          <th>حذف</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% usage.employees.forEach(emp => { %>
+          <tr>
+            <td><%= emp.name %></td>
+            <td><%= emp.email %></td>
+            <td><%= emp.jobTitle %></td>
+            <td><%= emp.phone %></td>
+            <td><%= emp.whatsapp %></td>
+            <td><%= emp.location || '-' %></td>
+            <td><%= emp.designId || 'غير محدد' %></td>
+            <td>
+              <% if (emp.cardUrl) { %>
+                <a href="<%= emp.cardUrl %>" target="_blank">عرض البطاقة</a> ✅
+              <% } else { %> ❌ <% } %>
+            </td>
+            <td>
+              <% if (emp.qrCode) { %>
+                <img src="<%= emp.qrCode %>" alt="QR" width="60" />
+              <% } else { %> ❌ <% } %>
+            </td>
+         <td>
+         <% if (typeof emp.visits === 'number') { %>
+         <%= emp.visits %> زيارة
+         <% } else { %>
+          ❌ غير متوفر
+          <% } %>
+        </td>
+                    <td>
+
+              <form method="GET" action="/edit-employee/<%= emp.id %>">
+                <button type="submit">✏️ تعديل</button>
+              </form>
+            </td>
+            <td>
+              <form method="POST" action="/delete-employee" onsubmit="return confirm('هل أنت متأكد من حذف هذا الموظف؟');">
+                <input type="hidden" name="id" value="<%= emp.id %>" />
+                <button type="submit">🗑️ حذف</button>
+              </form>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } else { %>
+    <p>لا يوجد موظفين حتى الآن</p>
+  <% } %>
+  <h3>قائمة الزيارات</h3>
+  <% if (usage.visits && usage.visits.length > 0) { %>
+    <table>
+      <thead>
+        <tr>
+          <th>الموظف</th>
+          <th>المصدر</th>
+          <th>نظام التشغيل</th>
+          <th>المتصفح</th>
+          <th>نوع الجهاز</th>
+          <th>تاريخ الزيارة</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% usage.visits.forEach(visit => { %>
+          <tr>
+            <td><%= visit.employee ? visit.employee.name : '-' %></td>
+            <td><%= visit.source %></td>
+            <td><%= visit.os %></td>
+            <td><%= visit.browser %></td>
+            <td><%= visit.deviceType %></td>
+            <td><%= new Date(visit.visitedAt).toLocaleString("ar-EG") %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } else { %>
+    <p>لا توجد زيارات مسجلة حتى الآن</p>
+  <% } %>
+
+<% } else { %>
+  <p class="warning">⚠️ لا يوجد اشتراك حالي أو انتهت الخطة. يرجى الاشتراك في خطة جديدة.</p>
+  <form method="GET" action="/plans">
+    <button type="submit">الذهاب للاشتراكات</button>
+  </form>
+<% } %>
+
+</body>
+</html>
