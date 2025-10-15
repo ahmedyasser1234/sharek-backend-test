@@ -58,12 +58,12 @@ export class EmployeeService {
   if (currentCount >= allowedCount) {
     throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد');
   }
-
+/*
   const existingEmployee = await this.employeeRepo.findOne({ where: { email: dto.email } });
   if (existingEmployee) {
     throw new BadRequestException(' هذا الإيميل مستخدم بالفعل لموظف آخر');
   }
-
+*/
   let workingHours: Record<string, { from: string; to: string }> | null = null;
   let isOpen24Hours = false;
   let showWorkingHours = dto.showWorkingHours ?? false;

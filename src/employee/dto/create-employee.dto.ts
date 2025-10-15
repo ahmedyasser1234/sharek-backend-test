@@ -1,6 +1,5 @@
 import {
   IsString,
-  IsEmail,
   IsOptional,
   Length,
   IsBoolean,
@@ -14,13 +13,10 @@ import { Transform } from 'class-transformer';
 export class CreateEmployeeDto {
   @ApiProperty({ example: 'Ahmed Ali', maxLength: 1000 })
   @Length(1, 1000)
-  @IsString()
   name: string;
 
   @ApiProperty({ example: 'ahmed@example.com', minLength: 5, maxLength: 100 })
   @IsOptional()
-  @IsEmail()
-  @Length(5, 100)
   email: string;
 
   @ApiProperty({ example: '+966512345678', description: 'رقم الهاتف بصيغة دولية' })
