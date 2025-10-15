@@ -37,7 +37,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const errorLog =
       exception instanceof Error ? exception.stack || exception.message : String(exception);
-    this.logger.error(`❌ استثناء تم التقاطه: ${responseMessage}`, errorLog);
+    this.logger.error(` استثناء تم التقاطه: ${responseMessage}`, errorLog);
 
     response.status(status).json({
       statusCode: status,

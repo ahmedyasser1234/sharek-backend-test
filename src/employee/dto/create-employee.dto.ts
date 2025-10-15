@@ -18,11 +18,13 @@ export class CreateEmployeeDto {
   name: string;
 
   @ApiProperty({ example: 'ahmed@example.com', minLength: 5, maxLength: 100 })
+  @IsOptional()
   @IsEmail()
   @Length(5, 100)
   email: string;
 
   @ApiProperty({ example: '+966512345678', description: 'رقم الهاتف بصيغة دولية' })
+  @IsOptional()
   phone: string;
 
   @ApiPropertyOptional({ example: 'contact@example.com' })

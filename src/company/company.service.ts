@@ -386,14 +386,14 @@ export class CompanyService implements OnModuleInit {
     });
 
     if (!existing) {
-      this.logger.warn(`❌ التوكن غير موجود`);
+      this.logger.warn(` التوكن غير موجود`);
       throw new NotFoundException('Refresh token غير صالح');
     }
 
     const companyId = existing.company?.id;
 
     if (!companyId || typeof companyId !== 'string') {
-      this.logger.error(`❌ companyId غير موجود أو غير صالح`);
+      this.logger.error(` companyId غير موجود أو غير صالح`);
       throw new InternalServerErrorException('فشل استخراج معرف الشركة');
     }
 
@@ -408,15 +408,15 @@ export class CompanyService implements OnModuleInit {
         });
         await this.revokedTokenRepo.save(revoked);
       } catch {
-        this.logger.warn(`⚠️ التوكن غير صالح للتسجيل كـ ملغي`);
+        this.logger.warn(` التوكن غير صالح للتسجيل كـ ملغي`);
       }
     }
-
-    await this.loginLogRepo.upsert(
-      { company: { id: companyId }, ip, action: 'logout', success: true },
-      ['companyId'],
-    );
-
+    await this.loginLogRepo.save({
+      company: { id: companyId },
+      ip,
+      action: 'logout',
+      success: true,
+    });
     return { success: true };
   }
 

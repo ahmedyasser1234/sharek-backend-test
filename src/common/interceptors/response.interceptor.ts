@@ -40,7 +40,7 @@ export class ResponseInterceptor<T>
           typeof controllerResult === 'object' &&
           ('statusCode' in controllerResult || 'success' in controllerResult)
         ) {
-          this.logger.debug(`📤 تم إرسال رد مخصص من الكنترولر`);
+          this.logger.debug(`تم إرسال رد مخصص من الكنترولر`);
           return controllerResult as unknown as ApiResponse<T>;
         }
 
@@ -77,7 +77,7 @@ export class ResponseInterceptor<T>
         };
 
         this.logger.log(
-          `✅ رد موحد تم إنشاؤه: ${JSON.stringify({
+          ` رد موحد تم إنشاؤه: ${JSON.stringify({
             statusCode: finalResponse.statusCode,
             message: finalResponse.message,
           })}`,
