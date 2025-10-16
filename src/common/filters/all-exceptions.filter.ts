@@ -1,3 +1,4 @@
+// src/common/filters/all-exceptions.filter.ts
 import {
   ExceptionFilter,
   Catch,
@@ -42,7 +43,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const message = Array.isArray(rawMessage)
       ? rawMessage.filter((m): m is string => typeof m === 'string').join(', ')
-      : String(rawMessage);
+      : typeof rawMessage === 'string'
+      ? rawMessage
+      : 'Unknown error';
 
     const errorCause =
       typeof res === 'object' && res !== null && 'errorCause' in res
@@ -64,9 +67,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
           message,
           errorCause,
         }) + '\n',
+        { encoding: 'utf8' },
       );
     } catch (fileError) {
-      this.logger.warn('فشل في كتابة اللوج إلى الملف:', fileError instanceof Error ? fileError.message : String(fileError));
+      this.logger.warn(
+        'فشل في كتابة اللوج إلى الملف:',
+        fileError instanceof Error ? fileError.message : String(fileError),
+      );
     }
 
     response.status(status).json({

@@ -2,7 +2,6 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
-  BadRequestException,
   HttpStatus,
   Logger,
 } from '@nestjs/common';
@@ -153,7 +152,7 @@ export class EmployeeService {
   return {
     statusCode: HttpStatus.CREATED,
     message: ' تم إنشاء الموظف بنجاح',
-    data: { ...saved, qrCode },
+    data: { saved },
   };
 }
 

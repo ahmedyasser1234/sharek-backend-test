@@ -13,6 +13,11 @@ import { RequestLoggerMiddleware } from './common/middleware/request-logger.midd
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+type LoggedRequest = Request & {
+  requestId: string;
+  originalUrl: string;
+};
+
 function ensureLogDirectory(): void {
   const logsDir = path.join(__dirname, '..', 'logs');
   if (!fs.existsSync(logsDir)) {
@@ -42,13 +47,9 @@ async function bootstrap(): Promise<void> {
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.useGlobalInterceptors(new ResponseLoggerInterceptor());
 
-  app.use(
-    (
-      req: Request<object, object, Record<string, unknown>>,
-      res: Response,
-      next: NextFunction,
-    ) => new RequestLoggerMiddleware().use(req, res, next),
-  );
+  app.use((req: LoggedRequest, res: Response, next: NextFunction) => {
+    new RequestLoggerMiddleware().use(req, res, next);
+  });
 
   const config = new DocumentBuilder()
     .setTitle('Employee API')
@@ -62,46 +63,52 @@ async function bootstrap(): Promise<void> {
 
   app.use(express.json());
 
- app.use((req: Request, res: Response, next: NextFunction): void => {
-  const originalJson: (body: unknown) => Response = res.json.bind(res);
+  app.use((req: Request, res: Response, next: NextFunction): void => {
+    const originalJson = res.json.bind(res) as (body: unknown) => Response;
 
-  res.json = (body: unknown): Response => {
-    console.log(' Response:', body);
-
-    if (
-      typeof body === 'object' &&
-      body !== null &&
-      'statusCode' in body &&
-      typeof (body as { statusCode: unknown }).statusCode === 'number' &&
-      (body as { statusCode: number }).statusCode >= 400
-    ) {
-      const rawMessage = (body as { message?: unknown }).message;
-      const rawErrorCause = (body as { errorCause?: unknown }).errorCause;
-
-      const message =
-        typeof rawMessage === 'string'
-          ? rawMessage
-          : Array.isArray(rawMessage)
-          ? rawMessage.filter((m): m is string => typeof m === 'string').join(' | ')
-          : undefined;
-
-      const errorCause =
-        typeof rawErrorCause === 'string' ? rawErrorCause : undefined;
-
-      if (message) {
-        console.log(` Error Cause: ${message}`);
+    res.json = (body: unknown): Response => {
+      if (body === undefined || body === null) {
+        console.warn('⚠️ محاولة إرسال undefined/null في res.json');
+        return originalJson({
+          statusCode: 500,
+          success: false,
+          message: 'Empty response body',
+          errorCause: 'No content returned',
+          data: null,
+        });
       }
 
-      if (errorCause) {
+      console.log(' Response:', body);
+
+      if (
+        typeof body === 'object' &&
+        body !== null &&
+        'statusCode' in body &&
+        typeof (body as { statusCode: unknown }).statusCode === 'number' &&
+        (body as { statusCode: number }).statusCode >= 400
+      ) {
+        const rawMessage = (body as { message?: unknown }).message;
+        const rawErrorCause = (body as { errorCause?: unknown }).errorCause;
+
+        const message =
+          typeof rawMessage === 'string'
+            ? rawMessage
+            : Array.isArray(rawMessage)
+            ? rawMessage.filter((m): m is string => typeof m === 'string').join(' | ')
+            : 'Unknown error';
+
+        const errorCause =
+          typeof rawErrorCause === 'string' ? rawErrorCause : 'No internal cause';
+
+        console.log(` Error Cause: ${message}`);
         console.log(` Internal Cause: ${errorCause}`);
       }
-    }
 
-    return originalJson(body); 
-  };
+      return originalJson(body);
+    };
 
-  next();
-});
+    next();
+  });
 
   await app.init();
 
