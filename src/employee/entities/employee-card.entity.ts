@@ -49,8 +49,8 @@ export class EmployeeCard {
   @Column({ type: 'varchar', length: 20, nullable: true })
   dropShadow: string | null;
 
-  @Column({ default: 'normal' })
-  qrStyle: string;
+  @Column({ type: 'int', default: 1 })
+  qrStyle: number;
 
   @ManyToOne(() => Employee, (employee) => employee.cards, {
     nullable: false,
