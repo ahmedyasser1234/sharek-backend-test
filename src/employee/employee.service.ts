@@ -47,124 +47,129 @@ export class EmployeeService {
   ) {}
 
   async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
-  const company = await this.companyRepo.findOne({ where: { id: companyId } });
-  if (!company) {
-    throw new NotFoundException('Company not found');
-  }
-
-  const currentCount = await this.employeeRepo.count({ where: { company: { id: companyId } } });
-  const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
-  if (currentCount >= allowedCount) {
-    throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد');
-  }
-/*
-  const existingEmployee = await this.employeeRepo.findOne({ where: { email: dto.email } });
-  if (existingEmployee) {
-    throw new BadRequestException(' هذا الإيميل مستخدم بالفعل لموظف آخر');
-  }
-*/
-  let workingHours: Record<string, { from: string; to: string }> | null = null;
-  let isOpen24Hours = false;
-  let showWorkingHours = dto.showWorkingHours ?? false;
-  if (showWorkingHours) {
-    if (dto.isOpen24Hours) {
-      isOpen24Hours = true;
-    } else if (dto.workingHours && Object.keys(dto.workingHours).length > 0) {
-      workingHours = dto.workingHours;
-    } else {
-      showWorkingHours = false;
+    const company = await this.companyRepo.findOne({ where: { id: companyId } });
+    if (!company) {
+      throw new NotFoundException('Company not found');
     }
-  }
 
-  const employeeData: Partial<Employee> = {
-    ...dto,
-    company,
-    showWorkingHours,
-    isOpen24Hours,
-    workingHours,
-    videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
+    const currentCount = await this.employeeRepo.count({ where: { company: { id: companyId } } });
+    const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
+    if (currentCount >= allowedCount) {
+      throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد');
+    }
+    /*
+    const existingEmployee = await this.employeeRepo.findOne({ where: { email: dto.email } });
+    if (existingEmployee) {
+    throw new BadRequestException(' هذا الإيميل مستخدم بالفعل لموظف آخر');
+    }
+    */
+    let workingHours: Record<string, { from: string; to: string }> | null = null;
+    let isOpen24Hours = false;
+    let showWorkingHours = dto.showWorkingHours ?? false;
+    if (showWorkingHours) {
+      if (dto.isOpen24Hours) {
+        isOpen24Hours = true;
+      } else if (dto.workingHours && Object.keys(dto.workingHours).length > 0) {
+        workingHours = dto.workingHours;
+      } else {
+        showWorkingHours = false;
+      }
+    }
+
+    const employeeData: Partial<Employee> = {
+      ...dto,
+      company,
+      showWorkingHours,
+      isOpen24Hours,
+      workingHours,
+      videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
       ? (dto.videoType as VideoType)
       : undefined,
-    contactFormDisplayType: allowedContactFormDisplayTypes.includes(dto.contactFormDisplayType as ContactFormDisplayType)
+      contactFormDisplayType: allowedContactFormDisplayTypes.includes(dto.contactFormDisplayType as ContactFormDisplayType)
       ? (dto.contactFormDisplayType as ContactFormDisplayType)
       : undefined,
-    contactFieldType: allowedContactFieldTypes.includes(dto.contactFieldType as ContactFieldType)
+      contactFieldType: allowedContactFieldTypes.includes(dto.contactFieldType as ContactFieldType)
       ? (dto.contactFieldType as ContactFieldType)
       : undefined,
-    feedbackIconType: allowedFeedbackIconTypes.includes(dto.feedbackIconType as FeedbackIconType)
+      feedbackIconType: allowedFeedbackIconTypes.includes(dto.feedbackIconType as FeedbackIconType)
       ? (dto.feedbackIconType as FeedbackIconType)
       : undefined,
-  };
+    };
 
-  const employee = this.employeeRepo.create(employeeData);
-  let saved = await this.employeeRepo.save(employee);
+    const employee = this.employeeRepo.create(employeeData);
+    let saved = await this.employeeRepo.save(employee);
 
-  const imageMap = {
-    profileImage: 'profileImageUrl',
-    secondaryImage: 'secondaryImageUrl',
-    facebookImage: 'facebookImageUrl',
-    instagramImage: 'instagramImageUrl',
-    tiktokImage: 'tiktokImageUrl',
-    snapchatImage: 'snapchatImageUrl',
-    xImage: 'xImageUrl',
-    linkedinImage: 'linkedinImageUrl',
-    customImage: 'customImageUrl',
-    testimonialImage: 'testimonialImageUrl',
-    workingHoursImage: 'workingHoursImageUrl',
-    contactFormHeaderImage: 'contactFormHeaderImageUrl',
-    pdfThumbnail: 'pdfThumbnailUrl',
-    workLinkImage: 'workLinkImageUrl',
-    workLinkkImage: 'workLinkkImageUrl',
-    workLinkkkImage: 'workLinkkkImageUrl',
-    workLinkkkkImage: 'workLinkkkkImageUrl',
-    workLinkkkkkImage: 'workLinkkkkkImageUrl',
+    const imageMap = {
+      profileImage: 'profileImageUrl',
+      secondaryImage: 'secondaryImageUrl',
+      facebookImage: 'facebookImageUrl',
+      instagramImage: 'instagramImageUrl',
+      tiktokImage: 'tiktokImageUrl',
+      snapchatImage: 'snapchatImageUrl',
+      xImage: 'xImageUrl',
+      linkedinImage: 'linkedinImageUrl',
+      customImage: 'customImageUrl',
+      testimonialImage: 'testimonialImageUrl',
+      workingHoursImage: 'workingHoursImageUrl',
+      contactFormHeaderImage: 'contactFormHeaderImageUrl',
+      pdfThumbnail: 'pdfThumbnailUrl',
+      workLinkImage: 'workLinkImageUrl',
+      workLinkkImage: 'workLinkkImageUrl',
+      workLinkkkImage: 'workLinkkkImageUrl',
+      workLinkkkkImage: 'workLinkkkkImageUrl',
+      workLinkkkkkImage: 'workLinkkkkkImageUrl',
+    } as const;
 
-  } as const;
+    const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
+    const companyFolder = companyId;
+    files = Array.isArray(files) ? files : [];
 
-  const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
-  const companyFolder = companyId;
-  files = Array.isArray(files) ? files : [];
-
-  for (const file of files) {
-    const field = imageMap[file.fieldname as keyof typeof imageMap];
-    const imageUrl = `${baseUrl}/uploads/companies/${companyFolder}/${encodeURIComponent(file.filename)}`;
-    if (field) {
-      Object.assign(saved, { [field]: imageUrl });
-    } else {
-      const label = file.originalname.split('.')[0];
-      const imageEntity = this.imageRepo.create({ imageUrl, label, employee: saved });
-      await this.imageRepo.save(imageEntity);
+    for (const file of files) {
+      const field = imageMap[file.fieldname as keyof typeof imageMap];
+      const imageUrl = `${baseUrl}/uploads/companies/${companyFolder}/${encodeURIComponent(file.filename)}`;
+      if (field) {
+        Object.assign(saved, { [field]: imageUrl });
+      } else {
+        const label = file.originalname.split('.')[0];
+        const imageEntity = this.imageRepo.create({ imageUrl, label, employee: saved });
+        await this.imageRepo.save(imageEntity);
+      }
     }
-  }
 
-  if (!saved.profileImageUrl) {
-    saved.profileImageUrl = `${baseUrl}/uploads/defaults/default-profile.jpg`;
-  }
+    if (!saved.profileImageUrl) {
+      saved.profileImageUrl = `${baseUrl}/uploads/defaults/default-profile.jpg`;
+    }
 
-  saved = await this.employeeRepo.save(saved);
+    saved = await this.employeeRepo.save(saved);
 
-  const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved, dto.designId);
+    const { cardUrl, qrCode, designId, qrStyle } = await this.cardService.generateCard(
+    saved,
+    dto.designId,
+    dto.qrStyle,
+  );
+
   saved.cardUrl = cardUrl;
+  saved.qrCode = qrCode;
   saved.designId = designId;
-  saved.qrCode = qrCode;  
-  saved = await this.employeeRepo.save(saved);
+  saved.qrStyle = qrStyle;
 
-  return {
-    statusCode: HttpStatus.CREATED,
-    message: ' تم إنشاء الموظف بنجاح',
-    data: { saved },
-  };
-}
+  saved = await this.employeeRepo.save(saved);
+    return {
+      statusCode: HttpStatus.CREATED,
+      message: ' تم إنشاء الموظف بنجاح',
+      data: { saved },
+    };
+  }
 
   async findAll(companyId: string, page = 1, limit = 10, search?: string) {
     const query = this.employeeRepo
     .createQueryBuilder('employee')
     .leftJoinAndSelect('employee.cards', 'card')
-    .leftJoinAndSelect('employee.images', 'image')
+    .leftJoinAndSelect('employee.images', 'image')      
     .where('employee.companyId = :companyId', { companyId });
 
     if (search) {
-      query.andWhere('employee.name ILIKE :search OR employee.email ILIKE :search', {
+      query.andWhere('employee.name ILIKE :search OR employee.email ILIKE :search', {          
         search: `%${search}%`,
       });
     }
@@ -186,14 +191,13 @@ export class EmployeeService {
       message: 'تم جلب الموظفين بنجاح',
       data,
       meta: {
-      total,
-      page,
-      limit,
-      pages: limit > 0 ? Math.ceil(total / limit) : 1,
-    },
-  };
-}
-
+        total,
+        page,
+        limit,
+        pages: limit > 0 ? Math.ceil(total / limit) : 1,
+      },
+    };
+  }
 
   async findOne(id: number) {
     const employee = await this.employeeRepo.findOne({

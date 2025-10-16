@@ -74,6 +74,11 @@ export class CreateEmployeeDto {
   @IsString()
   designId?: string;
 
+  @ApiPropertyOptional({ enum: ['normal', 'colored', 'decorative'], example: 'colored' })
+  @IsOptional()
+  @IsString()
+  qrStyle?: 'normal' | 'colored' | 'decorative';
+
   @ApiPropertyOptional({ example: 'https://maps.google.com/?q=location' })
   @IsOptional()
   @IsString()

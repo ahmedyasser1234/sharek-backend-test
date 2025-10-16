@@ -95,6 +95,10 @@ export class Employee {
   @Column({ nullable: true })
   designId: string;
 
+  
+  @Column({ default: 'normal' })
+  qrStyle: string;
+
   //  About Section
   @Column({ type: 'varchar', length: 255, nullable: true })
   aboutTitle?: string;

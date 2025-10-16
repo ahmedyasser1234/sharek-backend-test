@@ -49,6 +49,9 @@ export class EmployeeCard {
   @Column({ type: 'varchar', length: 20, nullable: true })
   dropShadow: string | null;
 
+  @Column({ default: 'normal' })
+  qrStyle: string;
+
   @ManyToOne(() => Employee, (employee) => employee.cards, {
     nullable: false,
     onDelete: 'CASCADE',

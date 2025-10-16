@@ -20,14 +20,14 @@ export class CardService {
   async generateCard(
     employee: Employee,
     designId?: string,
-  ): Promise<{ cardUrl: string; qrCode: string; designId: string }> {
-
+    qrStyle?: string,
+  ): Promise<{ cardUrl: string; qrCode: string; designId: string; qrStyle: string }> {
     const finalDesignId =
       designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
 
+    const finalQrStyle = qrStyle ?? 'normal';
     const uniqueUrl = randomUUID();
     const cardUrl = `http://localhost:4000/${finalDesignId}/${uniqueUrl}`;
-
     const qrCode = await QRCode.toDataURL(cardUrl);
 
     const card = this.cardRepo.create({
@@ -35,10 +35,11 @@ export class CardService {
       uniqueUrl,
       qrCode,
       designId: finalDesignId,
+      qrStyle: finalQrStyle,
       employee,
     });
 
     await this.cardRepo.save(card);
-    return { cardUrl, qrCode, designId: finalDesignId };
+    return { cardUrl, qrCode, designId: finalDesignId, qrStyle: finalQrStyle };
   }
 }
