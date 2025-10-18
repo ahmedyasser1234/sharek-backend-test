@@ -104,9 +104,3 @@ Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
       .leftJoinAndSelect('subscription.plan', 'plan')
       .leftJoinAndSelect('company.tokens', 'token')
       .leftJoinAndSelect('company.loginLogs', 'log')
-
-
-git add .
-git commit -m "update"
-git push
-     
