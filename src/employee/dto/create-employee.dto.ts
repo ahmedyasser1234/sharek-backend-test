@@ -8,6 +8,7 @@ import {
   IsObject,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { Transform } from 'class-transformer';
 
 export class CreateEmployeeDto {
@@ -75,6 +76,7 @@ export class CreateEmployeeDto {
   designId?: string;
 
   @ApiPropertyOptional({ enum: [1, 2, 3], example: 2 })
+  @Type(() => Number)
   @IsOptional()
   @IsIn([1, 2, 3])
   qrStyle?: number;
