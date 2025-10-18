@@ -10,6 +10,7 @@ import {
   
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import { Transform } from 'class-transformer';
 
 export class UpdateEmployeeDto {
@@ -81,6 +82,12 @@ export class UpdateEmployeeDto {
     @IsOptional()
     @IsString()
     designId?: string;
+
+     @ApiPropertyOptional({ enum: [1, 2, 3], example: 2 })
+      @Type(() => Number)
+      @IsOptional()
+      @IsNumber()
+      qrStyle?: number;
   
     @ApiPropertyOptional({ example: 'https://maps.google.com/?q=location' })
     @IsOptional()

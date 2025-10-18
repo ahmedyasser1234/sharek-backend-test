@@ -66,6 +66,7 @@ export class CreateEmployeeDto {
   cardUrl?: string;
 
   @ApiPropertyOptional()
+  
   @IsOptional()
   @IsString()
   qrCode?: string;
@@ -78,7 +79,7 @@ export class CreateEmployeeDto {
   @ApiPropertyOptional({ enum: [1, 2, 3], example: 2 })
   @Type(() => Number)
   @IsOptional()
-  @IsIn([1, 2, 3])
+  @IsNumber()
   qrStyle?: number;
 
   @ApiPropertyOptional({ example: 'https://maps.google.com/?q=location' })

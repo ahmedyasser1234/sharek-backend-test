@@ -152,6 +152,7 @@ export class EmployeeService {
   saved.qrCode = qrCode;
   saved.designId = designId;
   saved.qrStyle = qrStyle;
+  console.log('qrStyle received:', dto.qrStyle, typeof dto.qrStyle);
 
   saved = await this.employeeRepo.save(saved);
     return {

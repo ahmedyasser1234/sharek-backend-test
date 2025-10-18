@@ -33,19 +33,15 @@ export class CardService {
     designId?: string,
     qrStyle?: number,
   ): Promise<{ cardUrl: string; qrCode: string; designId: string; qrStyle: number }> {
-    // تحديد التصميم النهائي
     const finalDesignId =
       designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
 
-    // تحديد شكل الكود النهائي
     const finalQrStyle = qrStyle ?? 1;
-
-    // توليد رابط البطاقة الفريد
     const uniqueUrl = randomUUID();
     const cardUrl = `http://localhost:4000/${finalDesignId}/${uniqueUrl}`;
 
-    // توليد صورة QR حسب الشكل المختار
     let qrCode: string;
+
     switch (finalQrStyle) {
       case 2:
         qrCode = await QRCode.toDataURL(cardUrl, {
@@ -60,10 +56,12 @@ export class CardService {
         break;
       default:
         qrCode = await QRCode.toDataURL(cardUrl);
+        if (![1, 2, 3].includes(finalQrStyle)) {
+          this.logger.warn(`qrStyle غير معروف (${finalQrStyle})، تم استخدام الشكل العادي`);
+        }
         break;
     }
 
-    // إنشاء كيان البطاقة وربطه بالموظف
     const card = this.cardRepo.create({
       title: `${employee.name} - ${employee.jobTitle} - بطاقة الموظف`,
       uniqueUrl,
