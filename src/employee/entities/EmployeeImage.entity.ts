@@ -26,4 +26,8 @@ export class EmployeeImage {
 
   @Column()
   employeeId: number;
+
+  @Column({ nullable: true })
+  publicId: string;
+
 }

@@ -10,6 +10,7 @@ import { SubscriptionModule } from '../subscription/subscription.module';
 import { CompanyJwtGuard } from '../company/auth/company-jwt.guard';
 import { CardModule } from '../card/card.module';
 import { VisitModule } from '../visit/visit.module'; 
+import { CloudinaryModule } from '../common/services/cloudinary.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { VisitModule } from '../visit/visit.module';
     SubscriptionModule,
     CardModule,
     VisitModule, 
+    CloudinaryModule,
   ],
   controllers: [EmployeeController],
   providers: [

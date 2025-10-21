@@ -1,13 +1,18 @@
-import { IsOptional, IsString, IsNumber, IsDateString } from 'class-validator';
+import { IsOptional, IsUUID, IsNumber, IsDateString } from 'class-validator';
 import { PartialType } from '@nestjs/mapped-types';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { CreateSubscriptionDto } from './create-subscription.dto';
 
 export class UpdateSubscriptionDto extends PartialType(CreateSubscriptionDto) {
-  @ApiPropertyOptional({ example: 'Premium Plan', description: 'اسم الباقة (اختياري)' })
+  @ApiPropertyOptional({ example: 'plan-uuid', description: 'معرف الباقة الجديد (اختياري)' })
   @IsOptional()
-  @IsString()
-  planName?: string;
+  @IsUUID()
+  planId?: string;
+
+  @ApiPropertyOptional({ example: 'company-uuid', description: 'معرف الشركة (اختياري)' })
+  @IsOptional()
+  @IsUUID()
+  companyId?: string;
 
   @ApiPropertyOptional({ example: 199.99, description: 'سعر الباقة (اختياري)' })
   @IsOptional()

@@ -16,7 +16,6 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Request } from 'express';
 import { Admin } from './entities/admin.entity';
 import { Company } from '../company/entities/company.entity';
-import { Employee } from '../employee/entities/employee.entity';
 
 @ApiTags('Admin')
 @Controller('admin')
@@ -103,13 +102,6 @@ export class AdminController {
   @ApiBearerAuth()
   getEmployees(@Param('companyId') companyId: string) {
     return this.service.getEmployeesByCompany(companyId);
-  }
-
-  @Put('employees/:id')
-  @UseGuards(AdminJwtGuard)
-  @ApiBearerAuth()
-  updateEmployee(@Param('id') id: number, @Body() dto: Partial<Employee>) {
-    return this.service.updateEmployee(id, dto);
   }
 
   @Delete('employees/:id')

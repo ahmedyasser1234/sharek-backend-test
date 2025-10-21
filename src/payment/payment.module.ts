@@ -13,6 +13,8 @@ import { CompanySubscription } from '../subscription/entities/company-subscripti
 import { WebhookController } from './webhook.controller';
 import { PaymentController } from './payment.controller';
 import { PlanModule } from '../plan/plan.module';
+import { PaymentProof } from './entities/payment-proof.entity';
+import { CloudinaryModule } from '../common/services/cloudinary.module';
 
 @Module({
   imports: [
@@ -20,7 +22,9 @@ import { PlanModule } from '../plan/plan.module';
       PaymentTransaction,
       Company,
       CompanySubscription, 
+      PaymentProof,
     ]),
+    CloudinaryModule,
     PlanModule,
   ],
   providers: [
@@ -31,6 +35,7 @@ import { PlanModule } from '../plan/plan.module';
     TapGateway,
     STCPayGateway,
     GeideaGateway,
+    
   ],
   exports: [PaymentService],
   controllers: [WebhookController, PaymentController],

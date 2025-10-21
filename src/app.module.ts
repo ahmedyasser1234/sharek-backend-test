@@ -12,13 +12,13 @@ import { CardModule } from './card/card.module';
 import { PlanModule } from './plan/plan.module';
 import { PaymentModule } from './payment/payment.module';
 import { ConfigModule } from '@nestjs/config';
-import { ScheduleModule } from '@nestjs/schedule'; // ✅ تم إضافته لتفعيل الكرون
-
+import { ScheduleModule } from '@nestjs/schedule';
+import { CloudinaryService } from './common/services/cloudinary.service'
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(typeOrmConfig),
-    ScheduleModule.forRoot(), // ✅ تفعيل الكرون
+    ScheduleModule.forRoot(), 
     AdminModule,
     CompanyModule,
     EmployeeModule,
@@ -30,7 +30,7 @@ import { ScheduleModule } from '@nestjs/schedule'; // ✅ تم إضافته لت
   ],
   controllers: [AppController],
   providers: [
-    AppService,
+    AppService, CloudinaryService
   ],
   exports: [],
 })

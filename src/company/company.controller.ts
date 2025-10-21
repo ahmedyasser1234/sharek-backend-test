@@ -30,7 +30,10 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { mkdirSync } from 'fs';
-import { SubscriptionService } from '../subscription/subscription.service';
+import { memoryStorage } from 'multer';
+import { SubscriptionService } from '../subscription/subscription.service'; 
+import { InternalServerErrorException } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 
 interface CompanyRequest extends Request {
   user?: { companyId: string; role: string };
@@ -39,22 +42,21 @@ interface CompanyRequest extends Request {
 @ApiTags('Company')
 @Controller('company')
 export class CompanyController {
+    private readonly logger = new Logger(CompanyController.name);
   constructor(
     private readonly companyService: CompanyService,
-    private readonly subscriptionService: SubscriptionService 
-  ) {}
+    private readonly subscriptionService: SubscriptionService
+    ) {}
 
-  //  إنشاء شركة جديدة
   @Post()
   @UseInterceptors(FileInterceptor('logo', {
-    storage: diskStorage({
-      destination: './uploads/temp',
-      filename: (_, file, cb) => {
-        const ext = extname(file.originalname);
-        cb(null, `logo-${Date.now()}${ext}`);
-      },
-    }),
+    storage: memoryStorage(), 
+    fileFilter: (req, file, cb) => {
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      cb(null, allowedTypes.includes(file.mimetype));
+    },
   }))
+
   @ApiOperation({ summary: 'إنشاء شركة جديدة' })
   @ApiResponse({ status: 201, description: 'تم إنشاء الشركة بنجاح' })
   create(@Body() dto: CreateCompanyDto, @UploadedFile() logo: Express.Multer.File) {
@@ -145,7 +147,6 @@ export class CompanyController {
     return this.companyService.logout(refreshToken, ip, accessToken);
   }
 
-  //  جلب بيانات الشركة الحالية
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
   @Get('profile')
@@ -154,12 +155,18 @@ export class CompanyController {
     if (!req.user?.companyId)
       throw new UnauthorizedException('Unauthorized access');
 
-    const company = await this.companyService.getProfileById(req.user.companyId);
-    if (!company) throw new BadRequestException('الشركة غير موجودة');
-    const currentSub = await this.subscriptionService.getLatestSubscription(req.user.companyId);
+    try {
+      const company = await this.companyService.getProfileById(req.user.companyId);
+      if (!company) throw new BadRequestException('الشركة غير موجودة');
 
-    return { ...company, currentSubscription: currentSub };
+      const currentSub = await this.subscriptionService.getCompanySubscription(req.user.companyId);
 
+      return { ...company, currentSubscription: currentSub };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(` فشل تحميل بيانات الشركة: ${msg}`);
+      throw new InternalServerErrorException('فشل تحميل بيانات الشركة');
+    }
   }
 
   //  جلب جميع الشركات (للمشرف فقط)

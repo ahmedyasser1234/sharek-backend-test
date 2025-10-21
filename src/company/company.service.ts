@@ -28,6 +28,7 @@ import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import axios from 'axios';
 import { RevokedToken } from './entities/revoked-token.entity';
 import { DataSource } from 'typeorm';
+import { CloudinaryService } from '../common/services/cloudinary.service';
 
 @Injectable()
 export class CompanyService implements OnModuleInit {
@@ -51,6 +52,7 @@ export class CompanyService implements OnModuleInit {
 
     public readonly jwtService: CompanyJwtService,
     private readonly dataSource: DataSource,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   async onModuleInit() {
@@ -82,7 +84,7 @@ export class CompanyService implements OnModuleInit {
 
     const company = this.companyRepo.create(companyData);
     await this.companyRepo.save(company);
-    this.logger.log(`🌱 تم زرع الشركة الافتراضية: ${email}`);
+    this.logger.log(`تم زرع الشركة الافتراضية: ${email}`);
   }
 
   async countEmployees(companyId: string): Promise<number> {
@@ -91,55 +93,55 @@ export class CompanyService implements OnModuleInit {
     });
   }
 
-  async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
-    const existing = await this.companyRepo.findOne({ where: { email: dto.email } });
-    if (existing) {
-      throw new BadRequestException('📛 هذا البريد مستخدم بالفعل');
-    }
+async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
+  const existing = await this.companyRepo.findOne({ where: { email: dto.email } });
+  if (existing) {
+    throw new BadRequestException(' هذا البريد مستخدم بالفعل');
+  }
 
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const tempId = uuid();
+  const hashedPassword = await bcrypt.hash(dto.password, 10);
+  const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const tempId = uuid();
 
-    const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
-    const folderPath = `./uploads/companies/${tempId}`;
-    mkdirSync(folderPath, { recursive: true });
-
-    let logoUrl: string | undefined;
-    if (logo) {
-      const tempPath = join('./uploads/temp', logo.filename);
-      const finalPath = join(folderPath, logo.filename);
-      renameSync(tempPath, finalPath);
-      logoUrl = `${baseUrl}/uploads/companies/${tempId}/${logo.filename}`;
-    }
-
-    const companyData: DeepPartial<Company> = {
-      ...dto,
-      password: hashedPassword,
-      isVerified: false,
-      verificationCode,
-      provider: dto.provider || 'email',
-      logoUrl,
-      fontFamily: dto.fontFamily ?? undefined,
-      id: tempId,
-      subscriptionStatus: 'inactive',
-      planId: null,
-      subscribedAt: undefined,
-      paymentProvider: undefined,
-    };
-
-    const company = this.companyRepo.create(companyData);
-    const saved = await this.companyRepo.save(company);
-
+  let logoUrl: string | undefined;
+  if (logo) {
     try {
-      await this.sendVerificationCode(saved.email);
+      const result = await this.cloudinaryService.uploadImage(logo, `companies/${tempId}/logo`);
+      logoUrl = result.secure_url; // ✅ استخدم secure_url من الكائن
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`❌ فشل إرسال كود التحقق: ${errorMessage}`);
+      this.logger.error(` فشل رفع الشعار على Cloudinary: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل رفع صورة الشعار');
     }
-
-    return saved;
   }
+
+  const companyData: DeepPartial<Company> = {
+    ...dto,
+    password: hashedPassword,
+    isVerified: false,
+    verificationCode,
+    provider: dto.provider || 'email',
+    logoUrl,
+    fontFamily: dto.fontFamily ?? undefined,
+    id: tempId,
+    subscriptionStatus: 'inactive',
+    planId: null,
+    subscribedAt: undefined,
+    paymentProvider: undefined,
+  };
+
+  const company = this.companyRepo.create(companyData);
+  const saved = await this.companyRepo.save(company);
+
+  try {
+    await this.sendVerificationCode(saved.email);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    this.logger.error(` فشل إرسال كود التحقق: ${errorMessage}`);
+  }
+
+  return saved;
+}
 
   async sendVerificationCode(email: string): Promise<string> {
     const company = await this.companyRepo.findOne({ where: { email } });

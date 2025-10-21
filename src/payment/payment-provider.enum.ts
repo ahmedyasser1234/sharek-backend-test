@@ -5,4 +5,5 @@ export enum PaymentProvider {
   TAP = 'tap',
   STCPAY = 'stcpay',
   GEIDEA = 'geidea',
+  MANUAL_TRANSFER = 'manual_transfer',
 }

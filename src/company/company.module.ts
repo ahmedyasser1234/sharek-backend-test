@@ -1,7 +1,6 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
-
 import { CompanyController } from './company.controller';
 import { CompanyService } from './company.service';
 import { CompanyJwtService } from './auth/company-jwt.service';
@@ -12,6 +11,7 @@ import { CompanyToken } from './auth/entities/company-token.entity';
 import { CompanyLoginLog } from './auth/entities/company-login-log.entity';
 import { RevokedToken } from './entities/revoked-token.entity';
 import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard'; 
+import { CloudinaryModule } from '../common/services/cloudinary.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
 
 @Module({
@@ -21,13 +21,14 @@ import { SubscriptionModule } from '../subscription/subscription.module';
       CompanyToken,      
       CompanyLoginLog,   
       Employee,  
-      RevokedToken,        
+      RevokedToken,      
     ]),
+    forwardRef(() => SubscriptionModule),
+    CloudinaryModule,
     JwtModule.register({
       secret: 'your-secret-key', 
       signOptions: { expiresIn: '1d' },
     }),
-    forwardRef(() => SubscriptionModule), 
   ],
   controllers: [CompanyController],
   providers: [

@@ -66,4 +66,8 @@ export class CompanySubscription {
 
   @UpdateDateColumn({ comment: 'تاريخ آخر تعديل' })
   updatedAt: Date;
+
+  @Column({ type: 'int', nullable: true })
+  customMaxEmployees?: number;
+
 }

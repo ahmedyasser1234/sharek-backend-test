@@ -149,12 +149,6 @@ async logout(refreshToken: string) {
   async getEmployeesByCompany(companyId: string) {
     return this.employeeRepo.find({ where: { company: { id: companyId } } });
   }
-
-  async updateEmployee(id: number, dto: Partial<Employee>) {
-    await this.employeeRepo.update(id, dto);
-    return this.employeeRepo.findOne({ where: { id } });
-  }
-
   async deleteEmployee(id: number) {
     await this.employeeRepo.delete(id);
   }
