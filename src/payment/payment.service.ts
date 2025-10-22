@@ -201,7 +201,7 @@ async handleManualTransferProof(
 
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
-      to: process.env.ADMIN_EMAIL,
+      to: process.env.EMAIL_USER,
       subject,
       html,
     });
@@ -242,36 +242,34 @@ async handleManualTransferProof(
       });
   }
 
- async rejectProof(proofId: string, reason: string): Promise<{ message: string }> {
-  const proof = await this.paymentProofRepo.findOne({
-    where: { id: proofId },
-    relations: ['company', 'plan'],
-  });
+  async rejectProof(proofId: string, reason: string): Promise<{ message: string }> {
+    const proof = await this.paymentProofRepo.findOne({
+      where: { id: proofId },
+      relations: ['company', 'plan'],
+    });
 
-  if (!proof) {
-    this.logger.warn(`طلب غير موجود: ${proofId}`);
-    throw new NotFoundException('الطلب غير موجود');
+    if (!proof) {
+      this.logger.warn(`طلب غير موجود: ${proofId}`);
+      throw new NotFoundException('الطلب غير موجود');
+    }
+
+    proof.rejected = true;
+    proof.reviewed = true;
+    proof.decisionNote = reason;
+    await this.paymentProofRepo.save(proof);
+
+    this.logger.log(` تم رفض طلب التحويل: ${proofId} - الشركة ${proof.company.name} - السبب: ${reason}`);
+    if (proof.company.email) {
+      await this.sendDecisionEmail(
+        proof.company.email,
+        proof.company.name,
+        proof.plan.name,
+        false,
+        reason
+      );
+    }
+
+    return { message: ' تم رفض الطلب وإرسال إشعار للشركة' };
   }
-
-  proof.rejected = true;
-  proof.reviewed = true;
-  proof.decisionNote = reason;
-  await this.paymentProofRepo.save(proof);
-
-  this.logger.log(` تم رفض طلب التحويل: ${proofId} - الشركة ${proof.company.name} - السبب: ${reason}`);
-
-  if (proof.company.email) {
-    await this.sendDecisionEmail(
-      proof.company.email,
-      proof.company.name,
-      proof.plan.name,
-      false,
-      reason
-    );
-  }
-
-  return { message: ' تم رفض الطلب وإرسال إشعار للشركة' };
-}
-
 
 }

@@ -190,7 +190,7 @@ export class EmployeeService {
     }
 
     if (!saved.profileImageUrl) {
-      saved.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1234567890/defaults/default-profile.jpg';
+      saved.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
     }
 
     const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved, dto.designId);
@@ -457,7 +457,7 @@ export class EmployeeService {
 
     if (!employee.profileImageUrl) {
       employee.profileImageUrl =
-      'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1234567890/defaults/default-profile.jpg';
+      'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
     }
 
     let saved = await this.employeeRepo.save(employee);
@@ -732,7 +732,7 @@ export class EmployeeService {
           if (imgUrl && imgUrl.startsWith('http')) {
             rowData[field] = imgUrl;
           } else if (isProfile) {
-            rowData[field] = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1234567890/defaults/default-profile.jpg';
+            rowData[field] = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
           } else {
             rowData[field] = undefined;
           }

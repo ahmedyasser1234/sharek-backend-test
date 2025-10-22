@@ -44,7 +44,7 @@ export class AdminService {
   });
 
   await this.adminRepo.save(admin);
-  console.log(`✅ تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
+  console.log(` تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
 }
 
 async login(email: string, password: string) {

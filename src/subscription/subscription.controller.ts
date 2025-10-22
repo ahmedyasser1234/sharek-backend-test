@@ -6,6 +6,9 @@ import {
   Logger,
   HttpException,
   HttpStatus,
+  NotFoundException,
+  UseInterceptors, 
+  UploadedFile
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CompanyService } from '../company/company.service';
@@ -15,7 +18,11 @@ import {
   ApiOperation,
   ApiParam,
   ApiResponse,
+  ApiConsumes
 } from '@nestjs/swagger';
+import { PaymentProvider } from '../payment/payment-provider.enum';
+import { PaymentService } from '../payment/payment.service';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @ApiTags('Subscription')
 @Controller()
@@ -25,6 +32,7 @@ export class SubscriptionController {
   constructor(
     private readonly subscriptionService: SubscriptionService,
     private readonly companyService: CompanyService,
+    private readonly paymentService: PaymentService
   ) {}
 
   @Get('plans')
@@ -108,4 +116,45 @@ export class SubscriptionController {
       throw new HttpException(`فشل جلب استخدام الشركة: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
+
+  @Post('company/:id/manual-subscribe/:planId')
+  @ApiOperation({ summary: 'بدء اشتراك يدوي (تحويل بنكي) مع رفع إيصال' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiParam({ name: 'planId', description: 'معرف الخطة' })
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({ status: 200, description: 'تم إرسال طلب الاشتراك اليدوي بنجاح' })
+  @UseInterceptors(FileInterceptor('file'))
+  async startManualSubscription(
+    @Param('id') companyId: string,
+    @Param('planId') planId: string,
+    @UploadedFile() file: Express.Multer.File
+  ): Promise<{ message: string }> {
+    try {
+      const plans = await this.subscriptionService.getPlans();
+      const plan = plans.find(p => p.id === planId);
+      if (!plan) throw new NotFoundException('الخطة غير موجودة');
+
+      const isManualPaymentAllowed =
+        plan.paymentProvider?.toString() === PaymentProvider.MANUAL_TRANSFER;
+
+      if (!isManualPaymentAllowed) {
+        throw new HttpException('الخطة لا تدعم الدفع اليدوي', HttpStatus.BAD_REQUEST);
+      }
+
+      if (!file || !file.buffer) {
+        throw new HttpException('الصورة مطلوبة لإثبات الدفع', HttpStatus.BAD_REQUEST);
+      }
+
+      await this.paymentService.handleManualTransferProof({ companyId, planId }, file);
+
+      return { message: 'تم إرسال وصل التحويل، سيتم مراجعته من قبل الإدارة' };
+    } catch (error: unknown) {
+      const msg = error instanceof Error && typeof error.message === 'string'
+        ? error.message
+        : 'Unknown error';
+      this.logger.error(`فشل الاشتراك اليدوي: ${msg}`);
+      throw new HttpException(`فشل الاشتراك اليدوي: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
 }

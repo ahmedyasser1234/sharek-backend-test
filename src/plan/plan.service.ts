@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 import { Plan } from './entities/plan.entity';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
+import { PaymentProvider } from '../payment/payment-provider.enum'; 
 
 @Injectable()
 export class PlanService {
@@ -29,7 +30,7 @@ export class PlanService {
   async findOne(id: string): Promise<Plan> {
     try {
       const plan = await this.planRepo.findOne({ where: { id } });
-      if (!plan) throw new NotFoundException(' الخطة غير موجودة');
+      if (!plan) throw new NotFoundException('الخطة غير موجودة');
       return plan;
     } catch (err) {
       if (err instanceof NotFoundException) throw err;
@@ -40,9 +41,13 @@ export class PlanService {
   async create(createPlanDto: CreatePlanDto): Promise<Plan> {
     try {
       const exists = await this.planRepo.findOne({ where: { name: createPlanDto.name } });
-      if (exists) throw new BadRequestException(' اسم الخطة مستخدم بالفعل');
+      if (exists) throw new BadRequestException('اسم الخطة مستخدم بالفعل');
+      const planData = {
+        ...createPlanDto,
+        paymentProvider: createPlanDto.paymentProvider ?? PaymentProvider.MANUAL_TRANSFER,
+      };
 
-      const plan = this.planRepo.create(createPlanDto);
+      const plan = this.planRepo.create(planData);
       return await this.planRepo.save(plan);
     } catch (err) {
       if (err instanceof BadRequestException) throw err;
@@ -65,10 +70,25 @@ export class PlanService {
     try {
       const plan = await this.findOne(id);
       await this.planRepo.remove(plan);
-      return { message: ' تم حذف الخطة بنجاح' };
+      return { message: 'تم حذف الخطة بنجاح' };
     } catch (err) {
       if (err instanceof NotFoundException) throw err;
       throw new HttpException('فشل حذف الخطة', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  async applyManualPaymentToAllPlans(): Promise<{ updated: number }> {
+    try {
+      const plans = await this.planRepo.find();
+      const updatedPlans = plans.map(plan => {
+        plan.paymentProvider = PaymentProvider.MANUAL_TRANSFER;
+        return plan;
+      });
+      await this.planRepo.save(updatedPlans);
+      return { updated: updatedPlans.length };
+    } catch (err) {
+      console.error('خطأ أثناء التحديث:', err);
+      throw new HttpException('فشل تحديث الخطط القديمة', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

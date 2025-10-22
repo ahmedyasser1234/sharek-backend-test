@@ -38,7 +38,7 @@ export class SubscriptionService {
       this.logger.log(' جلب جميع الخطط من قاعدة البيانات');
       return await this.planRepo.find();
     } catch (error: unknown) {
-      this.logger.error('❌ فشل جلب الخطط', error as any);
+      this.logger.error(' فشل جلب الخطط', error as any);
       throw new InternalServerErrorException('فشل جلب الخطط');
     }
   }
@@ -86,7 +86,6 @@ export class SubscriptionService {
       status: SubscriptionStatus.ACTIVE,
     };
 
-    // ✅ تنفيذ الاشتراك مباشرة لو مجاني أو تم تفعيله من الأدمن
     if (planPrice === 0 || isAdminOverride) {
       const subscription = existingSub
         ? Object.assign(existingSub, subscriptionData)
@@ -109,7 +108,6 @@ export class SubscriptionService {
       };
     }
 
-    // ✅ لو الخطة مدفوعة ولم يتم تفعيلها من الأدمن → توليد رابط دفع
     if (planPrice > 0) {
       const provider = newPlan.paymentProvider;
       if (!provider) throw new BadRequestException('مزود الدفع مطلوب للخطط المدفوعة');
@@ -150,7 +148,7 @@ async updateCompanyEmployeeLimit(companyId: string, newLimit: number): Promise<a
     };
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`❌ فشل تعديل الحد للموظفين للشركة ${companyId}: ${msg}`);
+    this.logger.error(` فشل تعديل الحد للموظفين للشركة ${companyId}: ${msg}`);
     throw new InternalServerErrorException('فشل تعديل الحد للموظفين');
   }
 }

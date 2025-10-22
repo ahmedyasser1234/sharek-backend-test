@@ -31,7 +31,7 @@ export class PaymentController {
     @Body() body: { provider: PaymentProvider; planId: string; companyId: string },
   ): Promise<{ url: string }> {
     try {
-      this.logger.log(`🔁 طلب إنشاء رابط دفع: الشركة ${body.companyId} - الخطة ${body.planId} - المزود ${body.provider}`);
+      this.logger.log(` طلب إنشاء رابط دفع: الشركة ${body.companyId} - الخطة ${body.planId} - المزود ${body.provider}`);
 
       const plan = await this.planRepo.findOne({ where: { id: body.planId } });
       if (!plan) {
@@ -45,7 +45,7 @@ export class PaymentController {
         body.companyId,
       );
 
-      this.logger.log(`✅ تم إنشاء رابط الدفع بنجاح: ${url}`);
+      this.logger.log(` تم إنشاء رابط الدفع بنجاح: ${url}`);
       return { url };
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
