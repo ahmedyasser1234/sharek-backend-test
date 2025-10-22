@@ -21,14 +21,13 @@ import { CompanyToken } from './auth/entities/company-token.entity';
 import { CompanyLoginLog } from './auth/entities/company-login-log.entity';
 import { v4 as uuid } from 'uuid';
 import * as bcrypt from 'bcrypt';
-import { mkdirSync, renameSync } from 'fs';
-import { join } from 'path';
 import * as nodemailer from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import axios from 'axios';
 import { RevokedToken } from './entities/revoked-token.entity';
 import { DataSource } from 'typeorm';
 import { CloudinaryService } from '../common/services/cloudinary.service';
+import sharp from 'sharp';
 
 @Injectable()
 export class CompanyService implements OnModuleInit {
@@ -93,55 +92,74 @@ export class CompanyService implements OnModuleInit {
     });
   }
 
-async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
-  const existing = await this.companyRepo.findOne({ where: { email: dto.email } });
-  if (existing) {
-    throw new BadRequestException(' هذا البريد مستخدم بالفعل');
-  }
-
-  const hashedPassword = await bcrypt.hash(dto.password, 10);
-  const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-  const tempId = uuid();
-
-  let logoUrl: string | undefined;
-  if (logo) {
-    try {
-      const result = await this.cloudinaryService.uploadImage(logo, `companies/${tempId}/logo`);
-      logoUrl = result.secure_url; // ✅ استخدم secure_url من الكائن
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل رفع الشعار على Cloudinary: ${errorMessage}`);
-      throw new InternalServerErrorException('فشل رفع صورة الشعار');
+  async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
+    const existing = await this.companyRepo.findOne({ where: { email: dto.email } });
+    if (existing) {
+      throw new BadRequestException('هذا البريد مستخدم بالفعل');
     }
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const tempId = uuid();
+    let logoUrl: string | undefined;
+
+    if (logo) {
+      try {
+        if (!logo.buffer || !(logo.buffer instanceof Buffer)) {
+          throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
+        }
+
+        const imageProcessor = sharp(logo.buffer);
+        const resized = imageProcessor.resize({ width: 800 });
+        const formatted = resized.webp({ quality: 70 });
+        const compressedBuffer = await formatted.toBuffer();
+
+        const compressedFile = {
+          ...logo,
+          buffer: compressedBuffer,
+        };
+
+        const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${tempId}/logo`);
+        logoUrl = result.secure_url;
+      } catch (error: unknown) {
+        const errorMessage =
+        error instanceof Error && typeof error.message === 'string'
+        ? error.message
+        : 'Unknown error';
+        this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
+        throw new InternalServerErrorException('فشل رفع صورة الشعار');
+      }
+    }
+
+    const companyData: DeepPartial<Company> = {
+      ...dto,
+      password: hashedPassword,
+      isVerified: false,
+      verificationCode,
+      provider: dto.provider || 'email',
+      logoUrl,
+      fontFamily: dto.fontFamily ?? undefined,
+      id: tempId,
+      subscriptionStatus: 'inactive',
+      planId: null,
+      subscribedAt: undefined,
+      paymentProvider: undefined,
+    };
+
+    const company = this.companyRepo.create(companyData);
+    const saved = await this.companyRepo.save(company);
+
+    try {
+      await this.sendVerificationCode(saved.email);
+    } catch (error: unknown) {
+      const errorMessage =
+      error instanceof Error && typeof error.message === 'string'
+      ? error.message
+      : 'Unknown error';
+      this.logger.error(`فشل إرسال كود التحقق: ${errorMessage}`);
+    }
+    return saved;
   }
-
-  const companyData: DeepPartial<Company> = {
-    ...dto,
-    password: hashedPassword,
-    isVerified: false,
-    verificationCode,
-    provider: dto.provider || 'email',
-    logoUrl,
-    fontFamily: dto.fontFamily ?? undefined,
-    id: tempId,
-    subscriptionStatus: 'inactive',
-    planId: null,
-    subscribedAt: undefined,
-    paymentProvider: undefined,
-  };
-
-  const company = this.companyRepo.create(companyData);
-  const saved = await this.companyRepo.save(company);
-
-  try {
-    await this.sendVerificationCode(saved.email);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(` فشل إرسال كود التحقق: ${errorMessage}`);
-  }
-
-  return saved;
-}
 
   async sendVerificationCode(email: string): Promise<string> {
     const company = await this.companyRepo.findOne({ where: { email } });
@@ -195,20 +213,37 @@ async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<
   async updateCompany(id: string, dto: UpdateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
     const company = await this.companyRepo.findOne({ where: { id } });
     if (!company) throw new NotFoundException('Company not found');
-
     if (dto.password) {
       dto.password = await bcrypt.hash(dto.password, 10);
     }
 
-    const baseUrl = process.env.API_BASE_URL || 'http://localhost:3000';
     let logoUrl: string | undefined;
     if (logo) {
-      const folderPath = `./uploads/companies/${id}`;
-      mkdirSync(folderPath, { recursive: true });
-      const tempPath = join('./uploads/temp', logo.filename);
-      const finalPath = join(folderPath, logo.filename);
-      renameSync(tempPath, finalPath);
-      logoUrl = `${baseUrl}/uploads/companies/${id}/${logo.filename}`;
+      try {
+        if (!logo.buffer || !(logo.buffer instanceof Buffer)) {
+          throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
+        }
+
+        const imageProcessor = sharp(logo.buffer);
+        const resized = imageProcessor.resize({ width: 800 });
+        const formatted = resized.webp({ quality: 70 });
+        const compressedBuffer = await formatted.toBuffer();
+
+        const compressedFile = {
+          ...logo,
+          buffer: compressedBuffer,
+        };
+
+        const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
+        logoUrl = result.secure_url;
+      } catch (error: unknown) {
+        const errorMessage =
+        error instanceof Error && typeof error.message === 'string'
+        ? error.message
+        : 'Unknown error';
+        this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
+        throw new InternalServerErrorException('فشل رفع صورة الشعار');
+      }
     }
 
     const updateData: Partial<Company> = {
@@ -220,6 +255,7 @@ async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<
     await this.companyRepo.update(id, updateData);
     return this.findById(id);
   }
+
 
   async findByEmail(email: string): Promise<Company> {
     const company = await this.companyRepo.findOne({ where: { email } });
