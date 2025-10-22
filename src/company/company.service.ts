@@ -256,7 +256,6 @@ export class CompanyService implements OnModuleInit {
     return this.findById(id);
   }
 
-
   async findByEmail(email: string): Promise<Company> {
     const company = await this.companyRepo.findOne({ where: { email } });
     if (!company) throw new NotFoundException('Company not found');
