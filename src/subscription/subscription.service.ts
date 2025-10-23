@@ -101,8 +101,8 @@ export class SubscriptionService {
 
       return {
         message: isAdminOverride
-          ? '✅ تم تفعيل الاشتراك يدويًا بواسطة الأدمن'
-          : '✅ تم الاشتراك في الخطة المجانية بنجاح',
+          ? ' تم تفعيل الاشتراك يدويًا بواسطة الأدمن'
+          : ' تم الاشتراك في الخطة المجانية بنجاح',
         redirectToDashboard: true,
         subscription: saved,
       };

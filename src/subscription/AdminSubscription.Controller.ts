@@ -142,8 +142,10 @@ export class AdminSubscriptionController {
 
       return proofs.map((proof) => ({
         id: proof.id,
+        companyId: proof.company.id,
         companyName: proof.company.name,
         companyEmail: proof.company.email,
+        planId: proof.plan.id,
         planName: proof.plan.name,
         imageUrl: proof.imageUrl,
         createdAt: proof.createdAt,
@@ -172,8 +174,10 @@ export class AdminSubscriptionController {
 
       return {
         id: proof.id,
+        companyId: proof.company.id,
         companyName: proof.company.name,
         companyEmail: proof.company.email,
+        planId: proof.plan.id,
         planName: proof.plan.name,
         imageUrl: proof.imageUrl,
         createdAt: proof.createdAt,
