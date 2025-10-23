@@ -98,6 +98,9 @@ export class Employee {
   @Column({ type: 'int', default: 1 })
   qrStyle: number;
 
+  @Column({ type: 'boolean', default: false })
+  cardStyleSection: boolean;
+
   //  About Section
   @Column({ type: 'varchar', length: 255, nullable: true })
   aboutTitle?: string;

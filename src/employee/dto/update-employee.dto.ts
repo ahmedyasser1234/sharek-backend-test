@@ -83,12 +83,82 @@ export class UpdateEmployeeDto {
     @IsString()
     designId?: string;
 
-     @ApiPropertyOptional({ enum: [1, 2, 3], example: 2 })
-      @Type(() => Number)
-      @IsOptional()
-      @IsNumber()
-      qrStyle?: number;
-  
+    @ApiPropertyOptional({ enum: [1, 2, 3], example: 2 })
+    @Type(() => Number)
+    @IsOptional()
+    @IsNumber()
+    qrStyle?: number;
+
+    @ApiPropertyOptional({ example: '#000000' })
+    @IsOptional()
+    @IsString()
+    fontColorHead?: string;
+
+    @ApiPropertyOptional({ example: '#333333' })
+    @IsOptional()
+    @IsString()
+    fontColorHead2?: string;
+
+    @ApiPropertyOptional({ example: '#666666' })
+    @IsOptional()
+    @IsString()
+    fontColorParagraph?: string;
+
+    @ApiPropertyOptional({ example: '#999999' })
+    @IsOptional()
+    @IsString()
+    fontColorExtra?: string;
+
+    @ApiPropertyOptional({ example: '#ffffff' })
+    @IsOptional()
+    @IsString()
+    sectionBackground?: string;
+
+    @ApiPropertyOptional({ example: '#f5f5f5' })
+    @IsOptional()
+    @IsString()
+    Background?: string;
+
+    @ApiPropertyOptional({ example: '#eeeeee' })
+    @IsOptional()
+    @IsString()
+    sectionBackground2?: string;
+
+    @ApiPropertyOptional({ example: 'rgba(0,0,0,0.2)' })
+    @IsOptional()
+    @IsString()
+    dropShadow?: string;
+
+    @ApiPropertyOptional({ example: 2 })
+    @IsOptional()
+    @IsNumber()
+    shadowX?: number;
+
+    @ApiPropertyOptional({ example: 2 })
+    @IsOptional()
+    @IsNumber()
+    shadowY?: number;
+
+    @ApiPropertyOptional({ example: 5 })
+    @IsOptional()
+    @IsNumber()
+    shadowBlur?: number;
+
+    @ApiPropertyOptional({ example: 1 })
+    @IsOptional()
+    @IsNumber()
+    shadowSpread?: number;
+
+    @ApiPropertyOptional({ example: 10 })
+    @IsOptional()
+    @IsNumber()
+    cardRadius?: number;
+
+    @ApiPropertyOptional({ example: true, description: 'هل يتم عرض قسم تصميم البطاقة؟' })
+    @IsOptional()
+    @IsBoolean()
+    cardStyleSection?: boolean;
+
     @ApiPropertyOptional({ example: 'https://maps.google.com/?q=location' })
     @IsOptional()
     @IsString()

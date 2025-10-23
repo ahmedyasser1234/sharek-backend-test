@@ -50,7 +50,6 @@ export class EmployeeService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-
   async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
     const company = await this.companyRepo.findOne({ where: { id: companyId } });
     if (!company) throw new NotFoundException('Company not found');
@@ -78,6 +77,7 @@ export class EmployeeService {
       showWorkingHours,
       isOpen24Hours,
       workingHours,
+      cardStyleSection: dto.cardStyleSection ?? false,
       videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
       ? (dto.videoType as VideoType)
       : undefined,
@@ -117,7 +117,7 @@ export class EmployeeService {
     } as const;
 
     files = Array.isArray(files) ? files : [];
-    const validFiles = Array.isArray(files) ? files : [];
+    const validFiles = files.filter(file => file && file.buffer instanceof Buffer);
 
     function chunkArray<T>(array: T[], size: number): T[][] {
       const result: T[][] = [];
@@ -127,32 +127,23 @@ export class EmployeeService {
       return result;
     }
 
-    const batches = chunkArray(validFiles, 3);
+    const batches = chunkArray(validFiles, 2);
 
     for (const batch of batches) {
       await Promise.allSettled(
         batch.map(async (file) => {
           try {
-            if (!file || !file.buffer || !(file.buffer instanceof Buffer)) {
-              throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
+            if (file.size > 2 * 1024 * 1024) {
+              throw new BadRequestException('الملف أكبر من 2MB');
             }
 
-            if (!file || !file.buffer || !(file.buffer instanceof Buffer)) {
-              throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
-            }
+            const compressedBuffer = await sharp(file.buffer, { failOnError: false })
+            .resize({ width: 800 })
+            .webp({ quality: 70 })
+            .toBuffer();
 
-            const imageProcessor = sharp(file.buffer);
-            const resized = imageProcessor.resize({ width: 800 });
-            const formatted = resized.webp({ quality: 70 });
-            const compressedBuffer = await formatted.toBuffer();
-
-            const compressedFile = {
-              ...file,
-              buffer: compressedBuffer,
-            };
-
-            const result = await this.cloudinaryService.uploadImage(
-              compressedFile,
+            const result = await this.cloudinaryService.uploadBuffer(
+              compressedBuffer,
               `companies/${companyId}/employees`
             );
 
@@ -175,12 +166,11 @@ export class EmployeeService {
 
               await this.imageRepo.save(imageEntity);
             }
-          }  catch (error: unknown) {
+          } catch (error: unknown) {
             const errMsg =
             error instanceof Error && typeof error.message === 'string'
             ? error.message
             : 'Unknown error';
-
             const fileName =
             typeof file.originalname === 'string' ? file.originalname : 'غير معروف';
             this.logger.warn(`فشل رفع صورة ${fileName}: ${errMsg}`);
@@ -193,11 +183,26 @@ export class EmployeeService {
       saved.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
     }
 
-    const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved, dto.designId);
+    const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved, dto.designId, dto.qrStyle, {
+      fontColorHead: dto.fontColorHead,
+      fontColorHead2: dto.fontColorHead2,
+      fontColorParagraph: dto.fontColorParagraph,
+      fontColorExtra: dto.fontColorExtra,
+      sectionBackground: dto.sectionBackground,
+      Background: dto.Background,
+      sectionBackground2: dto.sectionBackground2,
+      dropShadow: dto.dropShadow,
+      shadowX: dto.shadowX,
+      shadowY: dto.shadowY,
+      shadowBlur: dto.shadowBlur,
+      shadowSpread: dto.shadowSpread,
+      cardRadius: dto.cardRadius,
+      cardStyleSection: dto.cardStyleSection,
+    });
+
     saved.cardUrl = cardUrl;
     saved.designId = designId;
     saved.qrCode = qrCode;
-
     saved = await this.employeeRepo.save(saved);
 
     return {
@@ -353,6 +358,7 @@ export class EmployeeService {
       showWorkingHours,
       isOpen24Hours,
       workingHours,
+      cardStyleSection: dto.cardStyleSection ?? employee.cardStyleSection,
       videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
       ? dto.videoType
       : employee.videoType,
@@ -423,7 +429,6 @@ export class EmployeeService {
             );
 
             const field = imageMap[file.fieldname as keyof typeof imageMap];
-
             if (field) {
               Object.assign(employee, { [field]: result.secure_url });
             } else {
@@ -445,8 +450,7 @@ export class EmployeeService {
             const errMsg =
             error instanceof Error && typeof error.message === 'string'
             ? error.message
-            : 'Unknown error';
-
+            : 'Unknown error'; 
             const fileName =
             typeof file.originalname === 'string' ? file.originalname : 'غير معروف';
             this.logger.warn(`فشل رفع صورة ${fileName}: ${errMsg}`);
@@ -472,7 +476,24 @@ export class EmployeeService {
     ) {
       const { cardUrl, designId } = await this.cardService.generateCard(
         saved,
-        dto.designId || saved.designId
+        dto.designId || saved.designId,
+        dto.qrStyle ?? saved.qrStyle,
+        {
+          fontColorHead: dto.fontColorHead,
+          fontColorHead2: dto.fontColorHead2,
+          fontColorParagraph: dto.fontColorParagraph,
+          fontColorExtra: dto.fontColorExtra,
+          sectionBackground: dto.sectionBackground,
+          Background: dto.Background,
+          sectionBackground2: dto.sectionBackground2,
+          dropShadow: dto.dropShadow,
+          shadowX: dto.shadowX,
+          shadowY: dto.shadowY,
+          shadowBlur: dto.shadowBlur,
+          shadowSpread: dto.shadowSpread,
+          cardRadius: dto.cardRadius,
+          cardStyleSection: dto.cardStyleSection,
+        }
       );
       saved.cardUrl = cardUrl;
       saved.designId = designId;
@@ -485,6 +506,7 @@ export class EmployeeService {
       data: saved,
     };
   }
+
 
   async remove(id: number) {
     const employeeRes = await this.findOne(id);

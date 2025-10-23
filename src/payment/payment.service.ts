@@ -24,6 +24,8 @@ import { PaymentProvider } from './payment-provider.enum';
 import { PaymentProof } from './entities/payment-proof.entity';
 import { CloudinaryService } from '../common/services/cloudinary.service';
 import * as nodemailer from 'nodemailer';
+import sharp from 'sharp';
+
 
 @Injectable()
 export class PaymentService {
@@ -132,51 +134,69 @@ export class PaymentService {
 
       await this.subRepo.save(subscription);
 
-      await this.sendDecisionEmail(transaction.company.email, transaction.company.name, transaction.plan.name, true);
+      // إرسال الإيميل في الخلفية
+      this.sendDecisionEmail(
+        transaction.company.email,
+        transaction.company.name,
+        transaction.plan.name,
+        true
+      ).catch(err => this.logger.error(`فشل إرسال إيميل التفعيل: ${String(err)}`));
     } catch (err) {
       this.logger.error(`فشل تأكيد المعاملة: ${String(err)}`);
       throw new HttpException('فشل تأكيد المعاملة', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-async handleManualTransferProof(
-  dto: { companyId: string; planId: string },
-  file: Express.Multer.File
-): Promise<{ message: string }> {
-  const company = await this.companyRepo.findOne({
-    where: { id: dto.companyId },
-    select: ['id', 'name', 'email'],
-  });
+  async handleManualTransferProof(
+    dto: { companyId: string; planId: string },
+    file: Express.Multer.File
+  ): Promise<{ message: string }> {
+    const [company, plan] = await Promise.all([
+      this.companyRepo.findOne({
+        where: { id: dto.companyId },
+        select: ['id', 'name', 'email'],
+      }),
+      this.planRepo.findOneBy({ id: dto.planId }),
+    ]);
 
-  if (!company) throw new HttpException('الشركة غير موجودة', HttpStatus.NOT_FOUND);
+    if (!company) throw new HttpException('الشركة غير موجودة', HttpStatus.NOT_FOUND);
+    if (!plan) throw new HttpException('الخطة غير موجودة', HttpStatus.NOT_FOUND);
 
-  const plan = await this.planRepo.findOneBy({ id: dto.planId });
-  if (!plan) throw new HttpException('الخطة غير موجودة', HttpStatus.NOT_FOUND);
+    let imageUrl: string;
+    let publicId: string;
 
-  let imageUrl: string;
-  let publicId: string;
+    try {
+      const compressedBuffer = await sharp(file.buffer)
+      .resize({ width: 1000 }) 
+      .jpeg({ quality: 70 })  
+      .toBuffer();
 
-  try {
-    const result = await this.cloudinaryService.uploadImage(file, 'payment_proofs');
-    imageUrl = result.secure_url;
-    publicId = result.public_id;
-  } catch (error) {
-    this.logger.error(`فشل رفع الصورة: ${String(error)}`);
-    throw new HttpException('فشل رفع الصورة', HttpStatus.INTERNAL_SERVER_ERROR);
+      const result = await this.cloudinaryService.uploadImage(
+        { ...file, buffer: compressedBuffer },
+        'payment_proofs'
+      );
+
+      imageUrl = result.secure_url;
+      publicId = result.public_id;
+    } catch (error) {
+      this.logger.error(`فشل رفع الصورة: ${String(error)}`);
+      throw new HttpException('فشل رفع الصورة', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    const proof = this.paymentProofRepo.create({
+      company,
+      plan,
+      imageUrl,
+      publicId,
+    });
+
+    await this.paymentProofRepo.save(proof);
+
+    this.sendProofNotification(company, plan, imageUrl)
+    .catch(err => this.logger.error(`فشل إرسال إشعار الإدارة: ${String(err)}`));
+
+    return { message: 'تم إرسال وصل التحويل، سيتم مراجعته من قبل الإدارة' };
   }
-
-  const proof = this.paymentProofRepo.create({
-    company,
-    plan,
-    imageUrl,
-    publicId, 
-  });
-
-  await this.paymentProofRepo.save(proof);
-  await this.sendProofNotification(company, plan, imageUrl);
-
-  return { message: 'تم إرسال وصل التحويل، سيتم مراجعته من قبل الإدارة' };
-}
 
   async sendProofNotification(company: Company, plan: Plan, imageUrl: string) {
     if (!company.email) {
@@ -225,20 +245,20 @@ async handleManualTransferProof(
     });
 
     const subject = accepted
-      ? ` تم قبول طلب الاشتراك في "${planName}"`
-      : ` تم رفض طلب الاشتراك في "${planName}"`;
+      ? `تم قبول طلب الاشتراك في "${planName}"`
+      : `تم رفض طلب الاشتراك في "${planName}"`;
 
-      const html = accepted
+    const html = accepted
       ? `<h3>مرحبًا ${companyName}</h3><p>تم قبول طلب الاشتراك في خطة "${planName}".</p><p>تم تفعيل الاشتراك بنجاح.</p>`
       : `<h3>مرحبًا ${companyName}</h3><p>نأسف، تم رفض طلب الاشتراك في خطة "${planName}".</p>
-      <p><strong>سبب الرفض:</strong> ${reason ?? 'غير محدد'}.
-      </p><p>يرجى التواصل مع الدعم لمزيد من التفاصيل.</p>`;
+         <p><strong>سبب الرفض:</strong> ${reason ?? 'غير محدد'}.</p>
+         <p>يرجى التواصل مع الدعم لمزيد من التفاصيل.</p>`;
 
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: email,
-        subject,
-        html,
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject,
+      html,
       });
   }
 
@@ -258,18 +278,18 @@ async handleManualTransferProof(
     proof.decisionNote = reason;
     await this.paymentProofRepo.save(proof);
 
-    this.logger.log(` تم رفض طلب التحويل: ${proofId} - الشركة ${proof.company.name} - السبب: ${reason}`);
+    this.logger.log(` تم رفض طلب التحويل: ${proofId} - الشركة: ${proof.company.name} - السبب: ${reason}`);
+
     if (proof.company.email) {
-      await this.sendDecisionEmail(
+      this.sendDecisionEmail(
         proof.company.email,
         proof.company.name,
         proof.plan.name,
         false,
         reason
-      );
+      ).catch(err => this.logger.error(`فشل إرسال إشعار الرفض: ${String(err)}`));
     }
-
-    return { message: ' تم رفض الطلب وإرسال إشعار للشركة' };
-  }
+    return { message: 'تم رفض الطلب وإرسال إشعار للشركة' };
+}
 
 }

@@ -27,9 +27,6 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { mkdirSync } from 'fs';
 import { memoryStorage } from 'multer';
 import { SubscriptionService } from '../subscription/subscription.service'; 
 import { InternalServerErrorException } from '@nestjs/common';
@@ -187,26 +184,23 @@ export class CompanyController {
 
   //  تحديث شركة
   @Put(':id')
-  @UseInterceptors(FileInterceptor('logo', {
-    storage: diskStorage({
-      destination: (req, file, cb) => {
-        const folder = `./uploads/companies/${req.params.id}`;
-        mkdirSync(folder, { recursive: true });
-        cb(null, folder);
-      },
-      filename: (_, file, cb) => {
-        const ext = extname(file.originalname);
-        cb(null, `logo-${Date.now()}${ext}`);
-      },
-    }),
-  }))
-  update(
-    @Param('id') id: string,
-    @Body() dto: UpdateCompanyDto,
-    @UploadedFile() logo: Express.Multer.File,
-  ) {
-    return this.companyService.updateCompany(id, dto, logo);
-  }
+@UseInterceptors(FileInterceptor('logo', {
+  storage: memoryStorage(),
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    cb(null, allowedTypes.includes(file.mimetype));
+  },
+}))
+@ApiOperation({ summary: 'تحديث بيانات الشركة' })
+@ApiResponse({ status: 200, description: 'تم تحديث بيانات الشركة بنجاح' })
+update(
+  @Param('id') id: string,
+  @Body() dto: UpdateCompanyDto,
+  @UploadedFile() logo: Express.Multer.File,
+) {
+  return this.companyService.updateCompany(id, dto, logo);
+}
+
 
   // حذف شركة (للمشرف فقط)
   @UseGuards(AdminJwtGuard)

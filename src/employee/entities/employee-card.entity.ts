@@ -52,6 +52,24 @@ export class EmployeeCard {
   @Column({ type: 'int', default: 1 })
   qrStyle: number;
 
+  @Column({ type: 'int', default: 1 })
+  shadowX : number;
+
+  @Column({ type: 'int', default: 1 })
+  shadowY : number;
+
+  @Column({ type: 'int', default: 1 })
+  shadowBlur : number;
+
+  @Column({ type: 'int', default: 1 })
+  shadowSpread : number;
+
+  @Column({ type: 'int', default: 1 })
+  cardRadius : number;
+
+  @Column({ type: 'boolean', default: false })
+  cardStyleSection: boolean;
+
   @ManyToOne(() => Employee, (employee) => employee.cards, {
     nullable: false,
     onDelete: 'CASCADE',

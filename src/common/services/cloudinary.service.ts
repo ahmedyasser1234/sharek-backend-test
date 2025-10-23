@@ -15,31 +15,36 @@ export class CloudinaryService {
     });
   }
 
+  private extractErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'object' && error !== null && 'message' in error)
+      return String((error as { message?: unknown }).message);
+    return JSON.stringify(error) || 'Unknown error';
+  }
+
   async uploadImage(
     file: Express.Multer.File,
     folder: string,
+    publicId?: string
   ): Promise<{ secure_url: string; public_id: string }> {
     return new Promise((resolve, reject) => {
       const uploadStream = cloudinary.uploader.upload_stream(
-        { folder },
+        {
+          folder,
+          public_id: publicId,
+          resource_type: 'image',
+        },
         (
           error: UploadApiErrorResponse | undefined,
           result: UploadApiResponse | undefined,
         ) => {
           if (error || !result) {
-            const reason =
-              error instanceof Error
-                ? error
-                : new Error(
-                    typeof error === 'object' && error !== null && 'message' in error
-                      ? String((error as { message?: unknown }).message)
-                      : JSON.stringify(error) || 'Unknown error',
-                  );
-            this.logger.error(`❌ فشل رفع الصورة: ${reason.message}`);
-            return reject(reason);
+            const reason = this.extractErrorMessage(error);
+            this.logger.error(` فشل رفع الصورة: ${reason}`);
+            return reject(new Error(reason));
           }
 
-          this.logger.log(`✅ تم رفع الصورة: ${result.secure_url}`);
+          this.logger.log(` تم رفع الصورة: ${result.secure_url}`);
           resolve({
             secure_url: result.secure_url,
             public_id: result.public_id,
@@ -51,25 +56,59 @@ export class CloudinaryService {
     });
   }
 
+  async uploadBuffer(
+    buffer: Buffer,
+    folder: string,
+    publicId?: string
+  ): Promise<{ secure_url: string; public_id: string }> {
+    return new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder,
+          public_id: publicId,
+          resource_type: 'image',
+        },
+        (
+          error: UploadApiErrorResponse | undefined,
+          result: UploadApiResponse | undefined,
+        ) => {
+          if (error || !result) {
+            const reason = this.extractErrorMessage(error);
+            this.logger.error(` فشل رفع الصورة من buffer: ${reason}`);
+            return reject(new Error(reason));
+          }
+
+          this.logger.log(`✅ تم رفع الصورة من buffer: ${result.secure_url}`);
+          resolve({
+            secure_url: result.secure_url,
+            public_id: result.public_id,
+          });
+        },
+      );
+
+      Readable.from(buffer).pipe(uploadStream);
+    });
+  }
+
   async uploadImageFromUrl(
     url: string,
     folder: string,
+    publicId?: string
   ): Promise<{ secure_url: string; public_id: string }> {
     try {
-      const result = await cloudinary.uploader.upload(url, { folder });
-      this.logger.log(`✅ تم رفع الصورة من رابط: ${result.secure_url}`);
+      const result = await cloudinary.uploader.upload(url, {
+        folder,
+        public_id: publicId,
+        resource_type: 'image',
+      });
+
+      this.logger.log(` تم رفع الصورة من رابط: ${result.secure_url}`);
       return {
         secure_url: result.secure_url,
         public_id: result.public_id,
       };
     } catch (error) {
-      const reason =
-        error instanceof Error
-          ? error.message
-          : typeof error === 'object' && error !== null && 'message' in error
-          ? String((error as { message?: unknown }).message)
-          : JSON.stringify(error) || 'Unknown error';
-
+      const reason = this.extractErrorMessage(error);
       this.logger.error(` فشل رفع الصورة من رابط: ${reason}`);
       throw new Error(`فشل رفع الصورة من الرابط: ${reason}`);
     }

@@ -23,7 +23,7 @@ export class PaymentTransaction {
   @JoinColumn({ name: 'companyId' })
   company: Company;
 
-  @ManyToOne(() => Plan, { nullable: true })
+  @ManyToOne(() => Plan, { nullable: true})
   @JoinColumn({ name: 'planId' })
   plan?: Plan;
 

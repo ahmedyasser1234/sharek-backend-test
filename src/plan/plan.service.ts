@@ -11,12 +11,16 @@ import { Plan } from './entities/plan.entity';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 import { PaymentProvider } from '../payment/payment-provider.enum'; 
+import { PaymentTransaction } from '../payment/entities/payment-transaction.entity';
 
 @Injectable()
 export class PlanService {
   constructor(
     @InjectRepository(Plan)
     private readonly planRepo: Repository<Plan>,
+      @InjectRepository(PaymentTransaction)
+  
+    private readonly transactionRepo: Repository<PaymentTransaction>,
   ) {}
 
   async findAll(): Promise<Plan[]> {
@@ -69,6 +73,11 @@ export class PlanService {
   async remove(id: string): Promise<{ message: string }> {
     try {
       const plan = await this.findOne(id);
+      const hasTransactions = await this.transactionRepo.count({ where: { plan: { id } } });
+      if (hasTransactions > 0) {
+        throw new BadRequestException('لا يمكن حذف الخطة لأنها مرتبطة بمعاملات دفع');
+      }
+
       await this.planRepo.remove(plan);
       return { message: 'تم حذف الخطة بنجاح' };
     } catch (err) {
