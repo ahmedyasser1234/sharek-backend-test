@@ -23,8 +23,7 @@ export class PaymentTransaction {
   @JoinColumn({ name: 'companyId' })
   company: Company;
 
-  @ManyToOne(() => Plan, { nullable: true})
-  @JoinColumn({ name: 'planId' })
+  @ManyToOne(() => Plan, { eager: true, nullable: true, onDelete: 'SET NULL' })
   plan?: Plan;
 
   @OneToOne(() => CompanySubscription, (sub) => sub.paymentTransaction, {
