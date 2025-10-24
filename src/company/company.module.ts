@@ -17,16 +17,16 @@ import { SubscriptionModule } from '../subscription/subscription.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      Company,           
-      CompanyToken,      
-      CompanyLoginLog,   
-      Employee,  
-      RevokedToken,      
+      Company,
+      CompanyToken,
+      CompanyLoginLog,
+      Employee,
+      RevokedToken, // ✅ مطلوب للحارس
     ]),
     forwardRef(() => SubscriptionModule),
     CloudinaryModule,
     JwtModule.register({
-      secret: 'your-secret-key', 
+      secret: process.env.JWT_SECRET || 'your-secret-key', // ✅ استخدم .env لو متاح
       signOptions: { expiresIn: '1d' },
     }),
   ],
@@ -38,9 +38,10 @@ import { SubscriptionModule } from '../subscription/subscription.module';
     AdminJwtGuard,
   ],
   exports: [
-    CompanyService,     
-    TypeOrmModule,       
+    CompanyService,
     CompanyJwtService,
+    CompanyJwtGuard,
+    JwtModule, // ✅ تصدير JwtModule علشان يشتغل في أي مكان يحتاج JwtService
   ],
 })
 export class CompanyModule {}

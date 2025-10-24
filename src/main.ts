@@ -24,16 +24,20 @@ async function bootstrap() {
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.enableCors();
 
+  // ❌ إزالة هذا السطر - سيعمل الـ Guard من خلال الـ APP_GUARD في AppModule
+  // app.useGlobalGuards(app.get(CompanyJwtGuard));
+
   app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
 
   app.use(bodyParser.json({ limit: '10mb' }));
   app.use(bodyParser.urlencoded({ limit: '10mb', extended: true }));
 
   app.use((req: Request, res: Response, next: NextFunction) => {
-  const size = req.headers['content-length'] || '0';
-  logger.verbose(`[Request Size] ${req.method} ${req.url} - ${size} bytes`);
-  next();
-});
+    const size = req.headers['content-length'] || '0';
+    logger.verbose(`[Request Size] ${req.method} ${req.url} - ${size} bytes`);
+    next();
+  });
+
   const config = new DocumentBuilder()
     .setTitle('Employee API')
     .setDescription('توثيق كامل لنظام الموظفيين')

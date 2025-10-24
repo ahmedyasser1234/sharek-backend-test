@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core'; // ✅ استيراد هذا
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -13,11 +14,16 @@ import { PlanModule } from './plan/plan.module';
 import { PaymentModule } from './payment/payment.module';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { CloudinaryService } from './common/services/cloudinary.service'
+import { CloudinaryService } from './common/services/cloudinary.service';
+import { CompanyJwtGuard } from './company/auth/company-jwt.guard';
+import { CompanyJwtService } from './company/auth/company-jwt.service';
+import { RevokedToken } from './company/entities/revoked-token.entity';
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(typeOrmConfig),
+    TypeOrmModule.forFeature([RevokedToken]), // ✅ مهم جدًا
     ScheduleModule.forRoot(), 
     AdminModule,
     CompanyModule,
@@ -30,8 +36,15 @@ import { CloudinaryService } from './common/services/cloudinary.service'
   ],
   controllers: [AppController],
   providers: [
-    AppService, CloudinaryService
+    AppService,
+    CloudinaryService,
+    CompanyJwtService,   // ✅ تسجيل خدمة JWT
+    
+    // ✅ إزالة CompanyJwtGuard من هنا وإضافة APP_GUARD بدلاً منه
+    {
+      provide: APP_GUARD,
+      useClass: CompanyJwtGuard,
+    },
   ],
-  exports: [],
 })
 export class AppModule {}

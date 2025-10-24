@@ -18,6 +18,7 @@ import {
   BadRequestException,
   InternalServerErrorException,
   Res,
+  SetMetadata, // ✅ أضف هذا
 } from '@nestjs/common';
 import { EmployeeService } from './employee.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
@@ -26,56 +27,96 @@ import { CompanyJwtGuard } from '../company/auth/company-jwt.guard';
 import { SubscriptionGuard } from '../subscription/subscription.guard';
 import type { Request, Response } from 'express';
 import { AnyFilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+import { diskStorage, memoryStorage } from 'multer';
 import { extname } from 'path';
 import {
   ApiTags,
-  ApiBearerAuth,
   ApiOperation,
   ApiResponse,
   ApiQuery,
   ApiParam,
 } from '@nestjs/swagger';
-// import { mkdirSync, existsSync } from 'fs';
-import { memoryStorage } from 'multer';
 
 interface CompanyRequest extends Request {
   user: { companyId: string };
 }
-/*
-// ============  Multer Storage Config ============
-function companyStorage() {
-  return diskStorage({
-    destination: (req, file, cb) => {
-      const companyId = (req as CompanyRequest).user?.companyId;
-      const fallback = './uploads/companies/unknown';
-      const dest = companyId ? `./uploads/companies/${companyId}` : fallback;
-      if (!existsSync(dest)) mkdirSync(dest, { recursive: true });
-      cb(null, dest);
-    },
-    filename: (req, file, cb) => {
-      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-      const ext = extname(file.originalname);
-      cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
-    },
-  });
-}
 
-const storage = companyStorage();
-*/
-// ===================================================
+// ✅ تعريف ثابت الـ Public
+const IS_PUBLIC_KEY = 'isPublic';
+const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
 @ApiTags('Employee')
-@ApiBearerAuth()
-@UseGuards(CompanyJwtGuard)
 @Controller('employee')
 export class EmployeeController {
   private readonly logger = new Logger(EmployeeController.name);
 
   constructor(private readonly employeeService: EmployeeService) {}
 
-  // إنشاء موظف جديد
-  @UseGuards(SubscriptionGuard)
+
+  @Public() // ✅ استخدام الـ Public الجديد
+  @Get(':id/google-wallet')
+  @ApiOperation({ summary: 'رابط Google Wallet للبطاقة' })
+  @ApiResponse({ status: 200, description: 'تم توليد رابط Google Wallet بنجاح' })
+  async getGoogleWalletLink(@Param('id', ParseIntPipe) id: number) {
+    return this.employeeService.generateGoogleWalletLink(id);
+  }
+
+  @Public() // ✅ استخدام الـ Public الجديد
+  @Get(':id/apple-wallet')
+  @ApiOperation({ summary: 'تحميل بطاقة Apple Wallet للموظف' })
+  @ApiResponse({ status: 200, description: 'تم توليد بطاقة Apple Wallet بنجاح' })
+  async getAppleWalletPass(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
+    try {
+      const passBuffer = await this.employeeService.generateAppleWalletPass(id);
+      res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
+      res.setHeader('Content-Disposition', 'attachment; filename=employee.pkpass');
+      res.send(passBuffer);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل إنشاء Apple Wallet pass: ${msg}`);
+      throw new InternalServerErrorException('حدث خطأ أثناء إنشاء Apple Wallet pass');
+    }
+  }
+
+
+  @Public()
+@Get('by-url')
+@ApiOperation({ summary: 'جلب موظف باستخدام رابط البطاقة الفريد' })
+@ApiQuery({ name: 'url', description: 'الرابط الفريد للبطاقة', type: String })
+@ApiQuery({ name: 'source', required: false, type: String })
+@ApiResponse({ status: 200, description: 'تم جلب بيانات البطاقة بنجاح' })
+async getByUniqueUrl(
+  @Query('url') encodedUrl: string,
+  @Query('source') source: string | undefined,
+  @Req() req: Request
+) {
+  try {
+    // ✅ إضافة logging للتحقق
+    this.logger.debug(`🔍 getByUniqueUrl called with URL: ${encodedUrl}`);
+    
+    if (!encodedUrl) {
+      throw new BadRequestException('URL parameter is required');
+    }
+
+    const uniqueUrl = decodeURIComponent(encodedUrl);
+    const finalSource = source || 'link';
+
+    const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
+    if (!result.data) throw new BadRequestException('Employee not found');
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Employee fetched by URL successfully',
+      data: result.data,
+    };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    this.logger.error(`فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
+    throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
+  }
+}
+
+  @UseGuards(CompanyJwtGuard, SubscriptionGuard)
   @Post()
   @UseInterceptors(
     AnyFilesInterceptor({
@@ -109,7 +150,7 @@ export class EmployeeController {
     }
   }
 
-  // جلب كل الموظفين
+  @UseGuards(CompanyJwtGuard)
   @Get()
   @ApiOperation({ summary: 'جلب قائمة الموظفين مع دعم البحث والتقسيم' })
   @ApiQuery({ name: 'page', required: false, type: Number })
@@ -139,7 +180,7 @@ export class EmployeeController {
     }
   }
 
-  // جلب موظف واحد
+  @UseGuards(CompanyJwtGuard)
   @Get(':id')
   @ApiOperation({ summary: 'جلب بيانات موظف حسب ID' })
   @ApiParam({ name: 'id', type: Number })
@@ -160,7 +201,7 @@ export class EmployeeController {
     }
   }
 
-  // تحديث موظف
+  @UseGuards(CompanyJwtGuard)
   @Put(':id')
   @UseInterceptors(
     AnyFilesInterceptor({
@@ -193,7 +234,7 @@ export class EmployeeController {
     }
   }
 
-  // حذف موظف
+  @UseGuards(CompanyJwtGuard)
   @Delete(':id')
   @ApiOperation({ summary: 'حذف موظف' })
   @ApiParam({ name: 'id', type: Number })
@@ -212,92 +253,51 @@ export class EmployeeController {
     }
   }
 
-  // جلب موظف بالرابط الفريد
-  @Get('by-url/:uniqueUrl')
-  @ApiOperation({ summary: 'جلب موظف باستخدام رابط البطاقة الفريد' })
-  @ApiParam({ name: 'uniqueUrl', type: String })
-  @ApiQuery({ name: 'source', required: false, type: String })
-  @ApiResponse({ status: 200, description: 'تم جلب بيانات البطاقة بنجاح' })
-  async getByUniqueUrl(@Param('uniqueUrl') uniqueUrl: string, @Req() req: Request) {
+  @UseGuards(CompanyJwtGuard)
+  @Get('export/excel')
+  async exportToExcel(@Req() req: CompanyRequest, @Res() res: Response) {
     try {
-      const source = (req.query.source as string) || 'link';
-      const result = await this.employeeService.findByUniqueUrl(uniqueUrl, source, req);
-      if (!result.data) throw new BadRequestException('Employee not found');
-      return {
-        statusCode: HttpStatus.OK,
-        message: 'Employee fetched by URL successfully',
-        data: result.data,
-      };
+      const buffer = await this.employeeService.exportToExcel(req.user.companyId);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', 'attachment; filename=employees.xlsx');
+      res.send(buffer);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب الموظف من الرابط ${uniqueUrl}: ${msg}`);
-      throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
+      this.logger.error(`فشل تصدير Excel: ${msg}`);
+      throw new InternalServerErrorException('حدث خطأ أثناء تصدير ملف Excel');
     }
   }
 
-  // تصدير Excel
- @Get('export/excel')
-async exportToExcel(@Req() req: CompanyRequest, @Res() res: Response) {
-  try {
-    const buffer = await this.employeeService.exportToExcel(req.user.companyId);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', 'attachment; filename=employees.xlsx');
-    res.send(buffer);
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`فشل تصدير Excel: ${msg}`);
-    throw new InternalServerErrorException('حدث خطأ أثناء تصدير ملف Excel');
-  }
-}
-
-@Post('import/excel')
-@UseInterceptors(FileInterceptor('file', {
-  storage: diskStorage({
-    destination: './uploads/excel',
-    filename: (req, file, cb) => {
-      const ext = extname(file.originalname);
-      cb(null, `import-${Date.now()}${ext}`);
-    },
-  }),
-}))
-@ApiOperation({ summary: 'استيراد موظفين من ملف Excel' })
-@ApiResponse({ status: 201, description: 'تم استيراد الموظفين بنجاح' })
-async importFromExcel(
-  @UploadedFile() file: Express.Multer.File,
-  @Req() req: CompanyRequest,
-) {
-  try {
-    const result = await this.employeeService.importFromExcel(file.path, req.user.companyId);
-    return {
-      statusCode: 201,
-      message: `تم استيراد ${result.count} موظف`,
-      data: result.imported,
-    };
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`فشل استيراد Excel: ${msg}`);
-    throw new InternalServerErrorException('حدث خطأ أثناء استيراد ملف Excel');
-  }
-}
-
-@Get(':id/google-wallet')
-async getGoogleWalletLink(@Param('id', ParseIntPipe) id: number) {
-  return this.employeeService.generateGoogleWalletLink(id);
-}
-
-@Get(':id/apple-wallet')
-async getAppleWalletPass(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
-  try {
-    const passBuffer = await this.employeeService.generateAppleWalletPass(id);
-    res.setHeader('Content-Type', 'application/vnd.apple.pkpass');
-    res.setHeader('Content-Disposition', 'attachment; filename=employee.pkpass');
-    res.send(passBuffer);
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`فشل إنشاء Apple Wallet pass: ${msg}`);
-    throw new InternalServerErrorException('حدث خطأ أثناء إنشاء Apple Wallet pass');
+  @UseGuards(CompanyJwtGuard)
+  @Post('import/excel')
+  @UseInterceptors(FileInterceptor('file', {
+    storage: diskStorage({
+      destination: './uploads/excel',
+      filename: (req, file, cb) => {
+        const ext = extname(file.originalname);
+        cb(null, `import-${Date.now()}${ext}`);
+      },
+    }),
+  }))
+  @ApiOperation({ summary: 'استيراد موظفين من ملف Excel' })
+  @ApiResponse({ status: 201, description: 'تم استيراد الموظفين بنجاح' })
+  async importFromExcel(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: CompanyRequest,
+  ) {
+    try {
+      const result = await this.employeeService.importFromExcel(file.path, req.user.companyId);
+      return {
+        statusCode: 201,
+        message: `تم استيراد ${result.count} موظف`,
+        data: result.imported,
+      };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل استيراد Excel: ${msg}`);
+      throw new InternalServerErrorException('حدث خطأ أثناء استيراد ملف Excel');
+    }
   }
 
-}
-
+  
 }

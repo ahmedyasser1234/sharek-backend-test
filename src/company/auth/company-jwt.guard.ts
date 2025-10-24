@@ -6,11 +6,13 @@ import {
   ForbiddenException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { CompanyJwtService, CompanyPayload } from './company-jwt.service';
 import { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RevokedToken } from '../entities/revoked-token.entity';
+import { IS_PUBLIC_KEY } from './public.decorator';
 
 interface CompanyRequest extends Request {
   user?: CompanyPayload;
@@ -22,19 +24,29 @@ export class CompanyJwtGuard implements CanActivate {
 
   constructor(
     private readonly jwtService: CompanyJwtService,
+    private readonly reflector: Reflector,
     @InjectRepository(RevokedToken)
     private readonly revokedTokenRepo: Repository<RevokedToken>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    
+    // ✅ إضافة logging للتحقق
+    this.logger.debug(`🔍 Checking endpoint: ${context.getHandler().name}`);
+    this.logger.debug(`🔍 Is Public: ${isPublic}`);
+    
+    if (isPublic) {
+      this.logger.debug('✅ Public endpoint - skipping auth');
+      return true;
+    }
+
     const req = context.switchToHttp().getRequest<CompanyRequest>();
-    const path = req.path;
-
-    // ✅ مسارات عامة
-    const publicPathRegex = /^(\/card\/[^/]+|\/employee\/by-url\/[^/]+)$/;
-    if (publicPathRegex.test(path)) return true;
-
     const authHeader = req.headers.authorization;
+
     if (!authHeader || !authHeader.startsWith('Bearer '))
       throw new ForbiddenException('Missing or malformed Authorization header');
 
