@@ -12,6 +12,7 @@ import {
   UseInterceptors,
   BadRequestException,
   UnauthorizedException,
+  SetMetadata, // ✅ أضف هذا
 } from '@nestjs/common';
 import { CompanyService } from './company.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
@@ -36,15 +37,20 @@ interface CompanyRequest extends Request {
   user?: { companyId: string; role: string };
 }
 
+// ✅ تعريف Public decorator
+const Public = () => SetMetadata('isPublic', true);
+
 @ApiTags('Company')
 @Controller('company')
 export class CompanyController {
-    private readonly logger = new Logger(CompanyController.name);
+  private readonly logger = new Logger(CompanyController.name);
+  
   constructor(
     private readonly companyService: CompanyService,
     private readonly subscriptionService: SubscriptionService
-    ) {}
+  ) {}
 
+  @Public() // ✅ إضافة Public للإنشاء
   @Post()
   @UseInterceptors(FileInterceptor('logo', {
     storage: memoryStorage(), 
@@ -53,14 +59,14 @@ export class CompanyController {
       cb(null, allowedTypes.includes(file.mimetype));
     },
   }))
-
   @ApiOperation({ summary: 'إنشاء شركة جديدة' })
   @ApiResponse({ status: 201, description: 'تم إنشاء الشركة بنجاح' })
   create(@Body() dto: CreateCompanyDto, @UploadedFile() logo: Express.Multer.File) {
     return this.companyService.createCompany(dto, logo);
   }
 
-  //  تسجيل دخول
+  // ✅ تسجيل دخول - public
+  @Public()
   @Post('login')
   @ApiOperation({ summary: 'تسجيل دخول الشركة بالبريد الإلكتروني' })
   login(@Body() dto: LoginCompanyDto, @Req() req: Request) {
@@ -68,7 +74,8 @@ export class CompanyController {
     return this.companyService.login(dto, ip);
   }
 
-  //  تسجيل دخول OAuth
+  // ✅ تسجيل دخول OAuth - public
+  @Public()
   @Post('oauth-login')
   @ApiOperation({ summary: 'تسجيل دخول باستخدام Google/Facebook/LinkedIn' })
   oauthLogin(
@@ -80,7 +87,8 @@ export class CompanyController {
     return this.companyService.oauthLogin(provider, token);
   }
 
-  //  إرسال كود تحقق
+  // ✅ إرسال كود تحقق - public
+  @Public()
   @Post('send-verification-code')
   @ApiOperation({ summary: 'إرسال كود تحقق إلى البريد الإلكتروني' })
   sendVerificationCode(@Body('email') email: string) {
@@ -88,7 +96,8 @@ export class CompanyController {
     return this.companyService.sendVerificationCode(email);
   }
 
-  //  تفعيل البريد الإلكتروني
+  // ✅ تفعيل البريد الإلكتروني - public
+  @Public()
   @Post('verify-code')
   @ApiOperation({ summary: 'تفعيل البريد الإلكتروني عبر الكود' })
   verifyCode(@Body() body: { email: string; code: string }) {
@@ -98,7 +107,8 @@ export class CompanyController {
     return this.companyService.verifyCode(email, code);
   }
 
-  //  طلب إعادة تعيين كلمة المرور
+  // ✅ طلب إعادة تعيين كلمة المرور - public
+  @Public()
   @Post('request-password-reset')
   @ApiOperation({ summary: 'طلب كود إعادة تعيين كلمة المرور' })
   requestPasswordReset(@Body('email') email: string) {
@@ -106,7 +116,8 @@ export class CompanyController {
     return this.companyService.requestPasswordReset(email);
   }
 
-  //  تنفيذ إعادة تعيين كلمة المرور
+  // ✅ تنفيذ إعادة تعيين كلمة المرور - public
+  @Public()
   @Post('reset-password')
   @ApiOperation({ summary: 'تنفيذ إعادة تعيين كلمة المرور' })
   resetPassword(@Body() body: { email: string; code: string; newPassword: string }) {
@@ -116,7 +127,8 @@ export class CompanyController {
     return this.companyService.resetPassword(email, code, newPassword);
   }
 
-  // تحديث التوكن
+  // ✅ تحديث التوكن - public (عادةً يكون public)
+  @Public()
   @Post('refresh')
   @ApiOperation({ summary: 'تحديث التوكن' })
   refresh(@Req() req: Request) {
@@ -126,7 +138,9 @@ export class CompanyController {
     return this.companyService.refresh(refreshToken);
   }
 
-  //  تسجيل خروج
+  // ❌ تسجيل خروج - محمي (يحتاج token)
+  @UseGuards(CompanyJwtGuard)
+  @ApiBearerAuth()
   @Post('logout')
   @ApiOperation({ summary: 'تسجيل خروج الشركة' })
   logout(@Req() req: Request) {
@@ -144,6 +158,7 @@ export class CompanyController {
     return this.companyService.logout(refreshToken, ip, accessToken);
   }
 
+  // ❌ البروفايل - محمي
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
   @Get('profile')
@@ -166,7 +181,7 @@ export class CompanyController {
     }
   }
 
-  //  جلب جميع الشركات (للمشرف فقط)
+  // ❌ جلب جميع الشركات - محمي (للمشرف فقط)
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @Get('all')
@@ -175,34 +190,36 @@ export class CompanyController {
     return this.companyService.findAll();
   }
 
-  //  جلب شركة حسب ID
+  // ✅ جلب شركة حسب ID - public (يمكن أن يكون public حسب متطلباتك)
+  @Public()
   @Get(':id')
   @ApiOperation({ summary: 'جلب شركة حسب ID' })
   findOne(@Param('id') id: string) {
     return this.companyService.findById(id);
   }
 
-  //  تحديث شركة
+  // ❌ تحديث شركة - محمي
+  @UseGuards(CompanyJwtGuard)
+  @ApiBearerAuth()
   @Put(':id')
-@UseInterceptors(FileInterceptor('logo', {
-  storage: memoryStorage(),
-  fileFilter: (req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    cb(null, allowedTypes.includes(file.mimetype));
-  },
-}))
-@ApiOperation({ summary: 'تحديث بيانات الشركة' })
-@ApiResponse({ status: 200, description: 'تم تحديث بيانات الشركة بنجاح' })
-update(
-  @Param('id') id: string,
-  @Body() dto: UpdateCompanyDto,
-  @UploadedFile() logo: Express.Multer.File,
-) {
-  return this.companyService.updateCompany(id, dto, logo);
-}
+  @UseInterceptors(FileInterceptor('logo', {
+    storage: memoryStorage(),
+    fileFilter: (req, file, cb) => {
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      cb(null, allowedTypes.includes(file.mimetype));
+    },
+  }))
+  @ApiOperation({ summary: 'تحديث بيانات الشركة' })
+  @ApiResponse({ status: 200, description: 'تم تحديث بيانات الشركة بنجاح' })
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateCompanyDto,
+    @UploadedFile() logo: Express.Multer.File,
+  ) {
+    return this.companyService.updateCompany(id, dto, logo);
+  }
 
-
-  // حذف شركة (للمشرف فقط)
+  // ❌ حذف شركة - محمي (للمشرف فقط)
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @Delete(':id')

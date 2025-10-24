@@ -18,7 +18,7 @@ import {
   BadRequestException,
   InternalServerErrorException,
   Res,
-  SetMetadata, // ✅ أضف هذا
+  SetMetadata,
 } from '@nestjs/common';
 import { EmployeeService } from './employee.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
@@ -52,8 +52,43 @@ export class EmployeeController {
 
   constructor(private readonly employeeService: EmployeeService) {}
 
+  @Public()
+  @Get('by-url')
+  @ApiOperation({ summary: 'جلب موظف باستخدام رابط البطاقة الفريد' })
+  @ApiQuery({ name: 'url', description: 'الرابط الفريد للبطاقة', type: String })
+  @ApiQuery({ name: 'source', required: false, type: String })
+  @ApiResponse({ status: 200, description: 'تم جلب بيانات البطاقة بنجاح' })
+  async getByUniqueUrl(
+    @Query('url') encodedUrl: string,
+    @Query('source') source: string | undefined,
+    @Req() req: Request
+  ) {
+    try {
+      this.logger.debug(`🔍 getByUniqueUrl called with URL: ${encodedUrl}`);
+      
+      if (!encodedUrl) {
+        throw new BadRequestException('URL parameter is required');
+      }
 
-  @Public() // ✅ استخدام الـ Public الجديد
+      const uniqueUrl = decodeURIComponent(encodedUrl);
+      const finalSource = source || 'link';
+
+      const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
+      if (!result.data) throw new BadRequestException('Employee not found');
+
+      return {
+        statusCode: HttpStatus.OK,
+        message: 'Employee fetched by URL successfully',
+        data: result.data,
+      };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
+      throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
+    }
+  }
+
+  @Public()
   @Get(':id/google-wallet')
   @ApiOperation({ summary: 'رابط Google Wallet للبطاقة' })
   @ApiResponse({ status: 200, description: 'تم توليد رابط Google Wallet بنجاح' })
@@ -61,7 +96,7 @@ export class EmployeeController {
     return this.employeeService.generateGoogleWalletLink(id);
   }
 
-  @Public() // ✅ استخدام الـ Public الجديد
+  @Public()
   @Get(':id/apple-wallet')
   @ApiOperation({ summary: 'تحميل بطاقة Apple Wallet للموظف' })
   @ApiResponse({ status: 200, description: 'تم توليد بطاقة Apple Wallet بنجاح' })
@@ -77,44 +112,6 @@ export class EmployeeController {
       throw new InternalServerErrorException('حدث خطأ أثناء إنشاء Apple Wallet pass');
     }
   }
-
-
-  @Public()
-@Get('by-url')
-@ApiOperation({ summary: 'جلب موظف باستخدام رابط البطاقة الفريد' })
-@ApiQuery({ name: 'url', description: 'الرابط الفريد للبطاقة', type: String })
-@ApiQuery({ name: 'source', required: false, type: String })
-@ApiResponse({ status: 200, description: 'تم جلب بيانات البطاقة بنجاح' })
-async getByUniqueUrl(
-  @Query('url') encodedUrl: string,
-  @Query('source') source: string | undefined,
-  @Req() req: Request
-) {
-  try {
-    // ✅ إضافة logging للتحقق
-    this.logger.debug(`🔍 getByUniqueUrl called with URL: ${encodedUrl}`);
-    
-    if (!encodedUrl) {
-      throw new BadRequestException('URL parameter is required');
-    }
-
-    const uniqueUrl = decodeURIComponent(encodedUrl);
-    const finalSource = source || 'link';
-
-    const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
-    if (!result.data) throw new BadRequestException('Employee not found');
-
-    return {
-      statusCode: HttpStatus.OK,
-      message: 'Employee fetched by URL successfully',
-      data: result.data,
-    };
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
-    throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
-  }
-}
 
   @UseGuards(CompanyJwtGuard, SubscriptionGuard)
   @Post()
@@ -298,6 +295,4 @@ async getByUniqueUrl(
       throw new InternalServerErrorException('حدث خطأ أثناء استيراد ملف Excel');
     }
   }
-
-  
 }

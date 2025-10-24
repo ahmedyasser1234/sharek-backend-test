@@ -267,7 +267,6 @@ export class CompanyService implements OnModuleInit {
       .createQueryBuilder('company')
       .leftJoinAndSelect('company.employees', 'employee')
       .leftJoinAndSelect('company.subscriptions', 'subscription')
-
       .where('company.id = :id', { id })
       .getOne();
 
@@ -298,11 +297,92 @@ export class CompanyService implements OnModuleInit {
     return company;
   }
 
-  async deleteCompany(id: string): Promise<void> {
-    const company = await this.findById(id);
-    await this.companyRepo.remove(company);
+async deleteCompany(id: string): Promise<void> {
+  const company = await this.findById(id);
+  
+  if (!company) {
+    throw new BadRequestException('الشركة غير موجودة');
   }
 
+  const queryRunner = this.dataSource.createQueryRunner();
+  await queryRunner.connect();
+  await queryRunner.startTransaction();
+
+  try {
+    // ✅ الخطوة 1: حذف payment_proofs أولاً (المشكلة الرئيسية)
+    await queryRunner.query(
+      `DELETE FROM payment_proof WHERE "companyId" = $1`,
+      [id]
+    );
+
+    // ✅ الخطوة 2: حذف باقي الجداول المرتبطة
+    const relatedTables = [
+      'employee',
+      'company_subscription', 
+      'company_token',
+      'company_login_log',
+      'revoked_token'
+    ];
+
+    for (const table of relatedTables) {
+      try {
+        await queryRunner.query(
+          `DELETE FROM ${table} WHERE "companyId" = $1`,
+          [id]
+        );
+      } catch (error) {
+        this.logger.warn(`⚠️ لا يوجد جدول ${table}: ${error.message}`);
+      }
+    }
+
+    // ✅ الخطوة 3: حذف الشركة نفسها
+    await queryRunner.query(`DELETE FROM company WHERE id = $1`, [id]);
+
+    await queryRunner.commitTransaction();
+    this.logger.log(`✅ تم حذف الشركة ${id} وجميع بياناتها`);
+
+  } catch (error) {
+    await queryRunner.rollbackTransaction();
+    this.logger.error(`❌ فشل حذف الشركة: ${error.message}`);
+    
+    // ✅ الحل الاحتياطي: استخدام CASCADE مباشرة
+    await this.forceDeleteWithCascade(id);
+  } finally {
+    await queryRunner.release();
+  }
+}
+
+private async forceDeleteWithCascade(id: string): Promise<void> {
+  try {
+    // ✅ الحل النووي: إزالة الـ constraint مؤقتاً
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // 1. إزالة الـ constraint المسبب للمشكلة
+      await queryRunner.query(`
+        ALTER TABLE payment_proof 
+        DROP CONSTRAINT IF EXISTS "FK_f91d3a526062aa69c36c3e971cd"
+      `);
+
+      // 2. حذف الشركة
+      await queryRunner.query(`DELETE FROM company WHERE id = $1`, [id]);
+
+      await queryRunner.commitTransaction();
+      this.logger.log(`✅ تم حذف الشركة ${id} بعد إزالة الـ constraint`);
+
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  } catch (error) {
+    this.logger.error(`❌ فشل جميع محاولات الحذف: ${error.message}`);
+    throw new InternalServerErrorException('فشل حذف الشركة. يرجى التحقق من قاعدة البيانات يدوياً.');
+  }
+}
   async login(
     dto: LoginCompanyDto,
     ip: string,

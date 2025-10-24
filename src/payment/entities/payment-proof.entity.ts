@@ -13,11 +13,14 @@ export class PaymentProof {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-
   @Column({ nullable: true }) 
   publicId: string;
 
-  @ManyToOne(() => Company, { eager: true })
+  // ✅ أضف onDelete: 'CASCADE' هنا
+  @ManyToOne(() => Company, { 
+    eager: true,
+    onDelete: 'CASCADE' // ✅ هذا هو الحل الأساسي
+  })
   company: Company;
 
   @ManyToOne(() => Plan, { eager: true })
@@ -37,5 +40,4 @@ export class PaymentProof {
 
   @Column({ nullable: true })
   decisionNote: string;
-
 }

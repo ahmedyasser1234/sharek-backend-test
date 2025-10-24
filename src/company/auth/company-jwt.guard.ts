@@ -12,7 +12,6 @@ import { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { RevokedToken } from '../entities/revoked-token.entity';
-import { IS_PUBLIC_KEY } from './public.decorator';
 
 interface CompanyRequest extends Request {
   user?: CompanyPayload;
@@ -30,12 +29,11 @@ export class CompanyJwtGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+    const isPublic = this.reflector.getAllAndOverride<boolean>('isPublic', [
       context.getHandler(),
       context.getClass(),
     ]);
     
-    // ✅ إضافة logging للتحقق
     this.logger.debug(`🔍 Checking endpoint: ${context.getHandler().name}`);
     this.logger.debug(`🔍 Is Public: ${isPublic}`);
     
