@@ -50,181 +50,277 @@ export class EmployeeService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-  async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
-    this.logger.log(` محاولة إنشاء موظف جديد للشركة: ${companyId}`);
+async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
+    this.logger.log(`🎯 محاولة إنشاء موظف جديد للشركة: ${companyId}`);
+    
+    // البحث عن الشركة
+    this.logger.log(`🔍 جاري البحث عن الشركة: ${companyId}`);
     const company = await this.companyRepo.findOne({ where: { id: companyId } });
-    if (!company) throw new NotFoundException('Company not found');
-    const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
-    if (allowedCount <= 0) {
-      this.logger.error(` الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
-      throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد - يرجى تجديد الاشتراك');
+    if (!company) {
+        this.logger.error(`❌ الشركة غير موجودة: ${companyId}`);
+        throw new NotFoundException('Company not found');
     }
-    this.logger.log(` الشركة ${companyId} لديها إذن لإضافة موظفين (متبقي: ${allowedCount})`);
+    this.logger.log(`✅ تم العثور على الشركة: ${company.name}`);
 
+    // التحقق من الاشتراك
+    this.logger.log(`📊 جاري التحقق من الحد المسموح للموظفين...`);
+    const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
+    this.logger.log(`📋 الحد المسموح: ${allowedCount}`);
+    
+    if (allowedCount <= 0) {
+        this.logger.error(`🚫 الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
+        throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد - يرجى تجديد الاشتراك');
+    }
+    this.logger.log(`✅ الشركة ${companyId} لديها إذن لإضافة موظفين (متبقي: ${allowedCount})`);
+
+    // معالجة ساعات العمل
+    this.logger.log(`⏰ جاري معالجة ساعات العمل...`);
     let workingHours: Record<string, { from: string; to: string }> | null = null;
     let isOpen24Hours = false;
     let showWorkingHours = dto.showWorkingHours ?? false;
+    
     if (showWorkingHours) {
-      if (dto.isOpen24Hours) {
-        isOpen24Hours = true;
-      } else if (dto.workingHours && Object.keys(dto.workingHours).length > 0) {
-        workingHours = dto.workingHours;
-      } else {
-        showWorkingHours = false;
-      }
+        if (dto.isOpen24Hours) {
+            isOpen24Hours = true;
+            this.logger.log(`🏪 الموظف يعمل 24 ساعة`);
+        } else if (dto.workingHours && Object.keys(dto.workingHours).length > 0) {
+            workingHours = dto.workingHours;
+            this.logger.log(`🕒 تم تعيين ساعات العمل: ${Object.keys(workingHours).join(', ')}`);
+        } else {
+            showWorkingHours = false;
+            this.logger.log(`⚠️ تم إيقاف عرض ساعات العمل لعدم وجود بيانات`);
+        }
     }
 
+    // تحضير بيانات الموظف
+    this.logger.log(`📝 جاري تحضير بيانات الموظف...`);
     const employeeData: Partial<Employee> = {
-      ...dto,
-      company,
-      showWorkingHours,
-      isOpen24Hours,
-      workingHours,
-      cardStyleSection: dto.cardStyleSection ?? false,
-      videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
-      ? (dto.videoType as VideoType)
-      : undefined,
-      contactFormDisplayType: allowedContactFormDisplayTypes.includes(dto.contactFormDisplayType as ContactFormDisplayType)
-      ? (dto.contactFormDisplayType as ContactFormDisplayType)
-      : undefined,
-      contactFieldType: allowedContactFieldTypes.includes(dto.contactFieldType as ContactFieldType)
-      ? (dto.contactFieldType as ContactFieldType)
-      : undefined,
-      feedbackIconType: allowedFeedbackIconTypes.includes(dto.feedbackIconType as FeedbackIconType)
-      ? (dto.feedbackIconType as FeedbackIconType)
-      : undefined,
+        ...dto,
+        company,
+        showWorkingHours,
+        isOpen24Hours,
+        workingHours,
+        cardStyleSection: dto.cardStyleSection ?? false,
+        videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
+            ? (dto.videoType as VideoType)
+            : undefined,
+        contactFormDisplayType: allowedContactFormDisplayTypes.includes(dto.contactFormDisplayType as ContactFormDisplayType)
+            ? (dto.contactFormDisplayType as ContactFormDisplayType)
+            : undefined,
+        contactFieldType: allowedContactFieldTypes.includes(dto.contactFieldType as ContactFieldType)
+            ? (dto.contactFieldType as ContactFieldType)
+            : undefined,
+        feedbackIconType: allowedFeedbackIconTypes.includes(dto.feedbackIconType as FeedbackIconType)
+            ? (dto.feedbackIconType as FeedbackIconType)
+            : undefined,
     };
 
+    this.logger.log(`👤 بيانات الموظف: ${employeeData.name}`);
+
+    // إنشاء وحفظ الموظف
+    this.logger.log(`💾 جاري إنشاء الموظف في قاعدة البيانات...`);
     const employee = this.employeeRepo.create(employeeData);
     let saved = await this.employeeRepo.save(employee);
+    this.logger.log(`✅ تم حفظ الموظف: ${saved.name} (ID: ${saved.id})`);
 
+    // خريطة الصور - معدلة بناءً على أسماء الحقول الفعلية
     const imageMap = {
-      profileImage: 'profileImageUrl',
-      secondaryImage: 'secondaryImageUrl',
-      facebookImage: 'facebookImageUrl',
-      instagramImage: 'instagramImageUrl',
-      tiktokImage: 'tiktokImageUrl',
-      snapchatImage: 'snapchatImageUrl',
-      xImage: 'xImageUrl',
-      linkedinImage: 'linkedinImageUrl',
-      customImage: 'customImageUrl',
-      testimonialImage: 'testimonialImageUrl',
-      workingHoursImage: 'workingHoursImageUrl',
-      contactFormHeaderImage: 'contactFormHeaderImageUrl',
-      pdfThumbnail: 'pdfThumbnailUrl',
-      workLinkImage: 'workLinkImageUrl',
-      workLinkkImage: 'workLinkkImageUrl',
-      workLinkkkImage: 'workLinkkkImageUrl',
-      workLinkkkkImage: 'workLinkkkkImageUrl',
-      workLinkkkkkImage: 'workLinkkkkkImageUrl',
-      backgroundImage: 'backgroundImage',
+        // الحقول الأساسية
+        'profileImageUrl': 'profileImageUrl',
+        'secondaryImageUrl': 'secondaryImageUrl',
+        
+        // وسائل التواصل
+        'facebookImageUrl': 'facebookImageUrl',
+        'instagramImageUrl': 'instagramImageUrl', 
+        'tiktokImageUrl': 'tiktokImageUrl',
+        'snapchatImageUrl': 'snapchatImageUrl',
+        'xImageUrl': 'xImageUrl',
+        'linkedinImageUrl': 'linkedinImageUrl',
+        
+        // الصور المخصصة
+        'customImageUrl': 'customImageUrl',
+        'testimonialImageUrl': 'testimonialImageUrl',
+        'workingHoursImageUrl': 'workingHoursImageUrl',
+        'contactFormHeaderImageUrl': 'contactFormHeaderImageUrl',
+        'pdfThumbnailUrl': 'pdfThumbnailUrl',
+        
+        // روابط العمل
+        'workLinkImageUrl': 'workLinkImageUrl',
+        'workLinkkImageUrl': 'workLinkkImageUrl',
+        'workLinkkkImageUrl': 'workLinkkkImageUrl',
+        'workLinkkkkImageUrl': 'workLinkkkkImageUrl',
+        'workLinkkkkkImageUrl': 'workLinkkkkkImageUrl',
+        
+        // الحقول الجديدة من الـ logs
+        'workLinkImageUrl_1': 'workLinkImageUrl',
+        'workLinkImageUrl_2': 'workLinkkImageUrl',
+        'workLinkImageUrl_3': 'workLinkkkImageUrl',
+        
+        // الخلفية
+        'backgroundImageUrl': 'backgroundImage',
     } as const;
 
+    this.logger.log(`🗺️ خريطة الصور جاهزة: ${Object.keys(imageMap).join(', ')}`);
+
+    // معالجة الملفات
     files = Array.isArray(files) ? files : [];
+    this.logger.log(`📁 عدد الملفات المستلمة: ${files.length}`);
+    
     const validFiles = files.filter(file => file && file.buffer instanceof Buffer);
+    this.logger.log(`✅ عدد الملفات الصالحة: ${validFiles.length}`);
+
+    // تسجيل معلومات الملفات
+    this.logger.log(`🔍 أسماء حقول الملفات المستلمة:`);
+    validFiles.forEach((file, index) => {
+        this.logger.log(`   📄 ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.size} bytes`);
+    });
 
     function chunkArray<T>(array: T[], size: number): T[][] {
-      const result: T[][] = [];
-      for (let i = 0; i < array.length; i += size) {
-        result.push(array.slice(i, i + size));
-      }
-      return result;
+        const result: T[][] = [];
+        for (let i = 0; i < array.length; i += size) {
+            result.push(array.slice(i, i + size));
+        }
+        return result;
     }
 
     const batches = chunkArray(validFiles, 2);
+    this.logger.log(`🔄 تم تقسيم الملفات إلى ${batches.length} مجموعة`);
 
     let backgroundImageUrl: string | null = null;
+    let uploadedImagesCount = 0;
 
-    for (const batch of batches) {
-      await Promise.allSettled(
-        batch.map(async (file) => {
-          try {
-            if (file.size > 3 * 1024 * 1024) {
-              throw new BadRequestException('الملف أكبر من 3MB');
-            }
+    // معالجة كل مجموعة من الملفات
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        this.logger.log(`--- معالجة المجموعة ${batchIndex + 1}/${batches.length} (${batch.length} ملف) ---`);
 
-            const compressedBuffer = await sharp(file.buffer, { failOnError: false })
-            .resize({ width: 800 })
-            .webp({ quality: 70 })
-            .toBuffer();
+        await Promise.allSettled(
+            batch.map(async (file, fileIndex) => {
+                try {
+                    this.logger.log(`📤 جاري رفع الملف ${fileIndex + 1} في المجموعة: ${file.fieldname} - ${file.originalname}`);
 
-            const result = await this.cloudinaryService.uploadBuffer(
-              compressedBuffer,
-              `companies/${companyId}/employees`
-            );
+                    if (file.size > 3 * 1024 * 1024) {
+                        throw new BadRequestException('الملف أكبر من 3MB');
+                    }
 
-            const field = imageMap[file.fieldname as keyof typeof imageMap];
+                    // ضغط الصورة
+                    this.logger.log(`🖼️ جاري ضغط الصورة: ${file.originalname}`);
+                    const compressedBuffer = await sharp(file.buffer, { failOnError: false })
+                        .resize({ width: 800 })
+                        .webp({ quality: 70 })
+                        .toBuffer();
+                    this.logger.log(`✅ تم ضغط الصورة: ${file.originalname}`);
 
-            if (field) {
-              if (field === 'backgroundImage') {
-                backgroundImageUrl = result.secure_url;
-              } else {
-                Object.assign(saved, { [field]: result.secure_url });
-              }
-            } else {
-              const label =
-              typeof file.originalname === 'string'
-              ? file.originalname.split('.')[0]
-              : 'image';
+                    // رفع إلى Cloudinary
+                    this.logger.log(`☁️ جاري رفع الصورة إلى Cloudinary...`);
+                    const result = await this.cloudinaryService.uploadBuffer(
+                        compressedBuffer,
+                        `companies/${companyId}/employees`
+                    );
+                    this.logger.log(`✅ تم رفع الصورة: ${result.secure_url}`);
 
-              const imageEntity = this.imageRepo.create({
-                imageUrl: result.secure_url,
-                publicId: result.public_id,
-                label,
-                employee: saved,
-              });
+                    const field = imageMap[file.fieldname as keyof typeof imageMap];
+                    this.logger.log(`🔍 حقل الصورة: ${field} للملف: ${file.fieldname}`);
 
-              await this.imageRepo.save(imageEntity);
-            }
-          } catch (error: unknown) {
-            const errMsg =
-            error instanceof Error && typeof error.message === 'string'
-            ? error.message
-            : 'Unknown error';
-            const fileName =
-            typeof file.originalname === 'string' ? file.originalname : 'غير معروف';
-            this.logger.warn(`فشل رفع صورة ${fileName}: ${errMsg}`);
-          }
-        })
-      );
+                    if (field) {
+                        if (field === 'backgroundImage') {
+                            backgroundImageUrl = result.secure_url;
+                            this.logger.log(`🎨 تم رفع صورة الخلفية: ${backgroundImageUrl}`);
+                        } else {
+                            // تحديث مباشر في قاعدة البيانات
+                            this.logger.log(`🔄 تحديث حقل ${field} في قاعدة البيانات...`);
+                            await this.employeeRepo.update(saved.id, { 
+                                [field]: result.secure_url 
+                            });
+                            // تحديث الكائن المحلي أيضاً
+                            saved[field] = result.secure_url;
+                            this.logger.log(`✅ تم تحديث ${field}: ${result.secure_url}`);
+                            uploadedImagesCount++;
+                        }
+                    } else {
+                        this.logger.log(`📸 حفظ الصورة في جدول الصور المنفصل...`);
+                        const label = typeof file.originalname === 'string'
+                            ? file.originalname.split('.')[0]
+                            : 'image';
+
+                        const imageEntity = this.imageRepo.create({
+                            imageUrl: result.secure_url,
+                            publicId: result.public_id,
+                            label,
+                            employee: saved,
+                        });
+
+                        await this.imageRepo.save(imageEntity);
+                        this.logger.log(`✅ تم حفظ الصورة في الجدول المنفصل: ${label}`);
+                        uploadedImagesCount++;
+                    }
+
+                } catch (error: unknown) {
+                    const errMsg = error instanceof Error && typeof error.message === 'string'
+                        ? error.message
+                        : 'Unknown error';
+                    const fileName = typeof file.originalname === 'string' ? file.originalname : 'غير معروف';
+                    this.logger.error(`💥 فشل رفع صورة ${fileName}: ${errMsg}`);
+                }
+            })
+        );
+        this.logger.log(`✅ انتهت معالجة المجموعة ${batchIndex + 1}`);
     }
 
+    this.logger.log(`📊 إجمالي الصور المرفوعة: ${uploadedImagesCount}`);
+
+    // الصورة الافتراضية إذا لم توجد صورة شخصية
     if (!saved.profileImageUrl) {
-      saved.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
+        this.logger.log(`👤 استخدام الصورة الافتراضية للملف الشخصي`);
+        saved.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
+        await this.employeeRepo.update(saved.id, { profileImageUrl: saved.profileImageUrl });
     }
 
+    // إنشاء بطاقة الموظف
+    this.logger.log(`🎴 جاري إنشاء بطاقة الموظف...`);
     const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved, dto.designId, dto.qrStyle, {
-      fontColorHead: dto.fontColorHead,
-      fontColorHead2: dto.fontColorHead2,
-      fontColorParagraph: dto.fontColorParagraph,
-      fontColorExtra: dto.fontColorExtra,
-      sectionBackground: dto.sectionBackground,
-      Background: dto.Background,
-      sectionBackground2: dto.sectionBackground2,
-      dropShadow: dto.dropShadow,
-      shadowX: dto.shadowX,
-      shadowY: dto.shadowY,
-      shadowBlur: dto.shadowBlur,
-      shadowSpread: dto.shadowSpread,
-      cardRadius: dto.cardRadius,
-      cardStyleSection: dto.cardStyleSection,
-      backgroundImage: backgroundImageUrl,
+        fontColorHead: dto.fontColorHead,
+        fontColorHead2: dto.fontColorHead2,
+        fontColorParagraph: dto.fontColorParagraph,
+        fontColorExtra: dto.fontColorExtra,
+        sectionBackground: dto.sectionBackground,
+        Background: dto.Background,
+        sectionBackground2: dto.sectionBackground2,
+        dropShadow: dto.dropShadow,
+        shadowX: dto.shadowX,
+        shadowY: dto.shadowY,
+        shadowBlur: dto.shadowBlur,
+        shadowSpread: dto.shadowSpread,
+        cardRadius: dto.cardRadius,
+        cardStyleSection: dto.cardStyleSection,
+        backgroundImage: backgroundImageUrl,
     });
 
+    this.logger.log(`✅ تم إنشاء البطاقة: ${cardUrl}`);
+
+    // تحديث بيانات الموظف النهائية
+    this.logger.log(`🔄 جاري تحديث بيانات الموظف النهائية...`);
     saved.cardUrl = cardUrl;
     saved.designId = designId;
     saved.qrCode = qrCode;
     saved = await this.employeeRepo.save(saved);
-    this.logger.log(` تم إنشاء الموظف بنجاح للشركة: ${companyId}`);
+
+    this.logger.log(`🎉 تم إنشاء الموظف بنجاح للشركة: ${companyId}`);
+    this.logger.log(`========================================`);
+    this.logger.log(`📊 ملخص إنشاء الموظف:`);
+    this.logger.log(`   👤 الاسم: ${saved.name}`);
+    this.logger.log(`   🆔 الرقم: ${saved.id}`);
+    this.logger.log(`   🎴 رابط البطاقة: ${saved.cardUrl}`);
+    this.logger.log(`   🖼️ الصور المرفوعة: ${uploadedImagesCount}`);
+    this.logger.log(`   🎨 صورة الخلفية: ${backgroundImageUrl ? 'نعم' : 'لا'}`);
+    this.logger.log(`========================================`);
 
     return {
-      statusCode: HttpStatus.CREATED,
-      message: 'تم إنشاء الموظف بنجاح',
-      data: { ...saved, qrCode },
+        statusCode: HttpStatus.CREATED,
+        message: 'تم إنشاء الموظف بنجاح',
+        data: { ...saved, qrCode },
     };
-
-  }
-
+}
   async findAll(companyId: string, page = 1, limit = 10, search?: string) {
     const query = this.employeeRepo
     .createQueryBuilder('employee')
@@ -872,7 +968,6 @@ async importFromExcel(
     }
   }
 
-  // النتيجة النهائية
   this.logger.log(`========================================`);
   this.logger.log(`🎯 نتيجة الاستيراد النهائية:`);
   this.logger.log(`   ✅ تم إضافة: ${imported.length} موظف`);
