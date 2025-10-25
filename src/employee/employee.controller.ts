@@ -118,8 +118,22 @@ export class EmployeeController {
     AnyFilesInterceptor({
       storage: memoryStorage(),
       fileFilter: (req, file, cb) => {
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-        cb(null, allowedTypes.includes(file.mimetype));
+        // السماح بملفات PDF بالإضافة للصور
+        const allowedTypes = [
+          'image/jpeg', 
+          'image/png', 
+          'image/webp',
+          'application/pdf' // 👈 دعم ملفات PDF
+        ];
+        
+        if (allowedTypes.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException(`نوع الملف غير مدعوم: ${file.mimetype}`), false);
+        }
+      },
+      limits: {
+        fileSize: 3 * 1024 * 1024, // 3MB لكل ملف
       },
     }),
   )
@@ -132,6 +146,15 @@ export class EmployeeController {
   ) {
     try {
       this.logger.log(`إنشاء موظف جديد للشركة: ${req.user.companyId}`);
+      
+      // 🔥 تحقق من الملفات المستلمة
+      this.logger.log(`📁 عدد الملفات المستلمة في الـ Controller: ${files?.length || 0}`);
+      if (files && files.length > 0) {
+        files.forEach((file, index) => {
+          this.logger.log(`   📄 ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.mimetype} - ${file.size} bytes`);
+        });
+      }
+      
       const result = await this.employeeService.create(dto, req.user.companyId, files);
       this.logger.log(`تم إنشاء الموظف: ${result.data?.id}`);
       return {
@@ -203,8 +226,22 @@ export class EmployeeController {
     AnyFilesInterceptor({
       storage: memoryStorage(),
       fileFilter: (req, file, cb) => {
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-        cb(null, allowedTypes.includes(file.mimetype));
+        // السماح بملفات PDF بالإضافة للصور
+        const allowedTypes = [
+          'image/jpeg', 
+          'image/png', 
+          'image/webp',
+          'application/pdf' // 👈 دعم ملفات PDF
+        ];
+        
+        if (allowedTypes.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException(`نوع الملف غير مدعوم: ${file.mimetype}`), false);
+        }
+      },
+      limits: {
+        fileSize: 3 * 1024 * 1024, // 3MB لكل ملف
       },
     }),
   )
@@ -316,12 +353,11 @@ export class EmployeeController {
         }
       } catch {
       // تنظيف صامت
+      }
     }
   }
-}
 
-private getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'Unknown error';
-}
-
+  private getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Unknown error';
+  }
 }

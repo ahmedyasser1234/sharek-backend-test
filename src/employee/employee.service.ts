@@ -23,7 +23,8 @@ import jwt from 'jsonwebtoken';
 import { createEmployeePass } from '../wallet/passkit.adapter';
 import { CloudinaryService } from '../common/services/cloudinary.service';
 import sharp from 'sharp';
-
+import * as path from 'path';
+import * as fs from 'fs';
 
 type VideoType = 'youtube' | 'vimeo';
 type ContactFormDisplayType = 'overlay' | 'inline';
@@ -50,7 +51,7 @@ export class EmployeeService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
+ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
     this.logger.log(`🎯 محاولة إنشاء موظف جديد للشركة: ${companyId}`);
     
     this.logger.log(`🔍 جاري البحث عن الشركة: ${companyId}`);
@@ -134,6 +135,8 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
         'workingHoursImageUrl': 'workingHoursImageUrl',
         'contactFormHeaderImageUrl': 'contactFormHeaderImageUrl',
         'pdfThumbnailUrl': 'pdfThumbnailUrl',
+        'pdfFile': 'pdfFileUrl', // 👈 دعم حقل pdfFile من الفرونت
+        'pdfFileUrl': 'pdfFileUrl', // 👈 ودعم pdfFileUrl أيضاً
         
         'workLinkImageUrl': 'workLinkImageUrl',
         'workLinkkImageUrl': 'workLinkkImageUrl',
@@ -161,6 +164,55 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
         this.logger.log(`   📄 ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.size} bytes`);
     });
 
+    // 🔥 تحليل مفصل لحقول الملفات
+    this.logger.log(`🔍 تحليل مفصل لحقول الملفات:`);
+    validFiles.forEach((file, index) => {
+        const isPdf = file.originalname.toLowerCase().endsWith('.pdf');
+        const isPdfField = file.fieldname.includes('pdf');
+        
+        this.logger.log(`   📋 ${index + 1}. ${file.fieldname}`);
+        this.logger.log(`      📄 الاسم: ${file.originalname}`);
+        this.logger.log(`      📊 الحجم: ${file.size} bytes`);
+        this.logger.log(`      🎯 نوع الملف: ${isPdf ? 'PDF' : 'صورة'}`);
+        this.logger.log(`      🔍 حقل PDF: ${isPdfField ? 'نعم' : 'لا'}`);
+        this.logger.log(`      🗺️ موجود في imageMap: ${file.fieldname in imageMap ? 'نعم' : 'لا'}`);
+        
+        if (isPdf && isPdfField) {
+            this.logger.log(`      ⚠️ ملف PDF في حقل: ${file.fieldname}`);
+        }
+    });
+
+    // تحقق من وجود ملف PDF في أي حقل
+    const pdfFiles = validFiles.filter(file => 
+        file.originalname.toLowerCase().endsWith('.pdf')
+    );
+
+    if (pdfFiles.length > 0) {
+        this.logger.log(`📄 تم العثور على ${pdfFiles.length} ملف PDF:`);
+        pdfFiles.forEach((file, index) => {
+            this.logger.log(`   ${index + 1}. الحقل: "${file.fieldname}" - الملف: "${file.originalname}"`);
+        });
+    } else {
+        this.logger.warn(`❌ لم يتم العثور على أي ملف PDF في الطلب`);
+    }
+
+    // تحقق من الحقول المتاحة في imageMap
+    const pdfFieldsInMap = Object.keys(imageMap).filter(key => key.includes('pdf'));
+    this.logger.log(`🗺️ حقول PDF في imageMap: ${pdfFieldsInMap.join(', ')}`);
+
+    // 🔥 التعديل: تحقق إذا كان فيه ملف PDF في الـ request (يدعم كلا الحقلين)
+    const hasPdfFile = validFiles.some(file => 
+        (file.fieldname === 'pdfFileUrl' || file.fieldname === 'pdfFile') && 
+        file.originalname.toLowerCase().endsWith('.pdf')
+    );
+    
+    if (!hasPdfFile) {
+        this.logger.warn(`⚠️ لم يتم إرسال ملف PDF في حقل pdfFile أو pdfFileUrl`);
+        this.logger.warn(`📝 سيتم تعيين pdfFileUrl إلى null في قاعدة البيانات`);
+    } else {
+        this.logger.log(`✅ تم العثور على ملف PDF في الطلب`);
+    }
+
     function chunkArray<T>(array: T[], size: number): T[][] {
         const result: T[][] = [];
         for (let i = 0; i < array.length; i += size) {
@@ -175,6 +227,21 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
     let backgroundImageUrl: string | null = null;
     let uploadedImagesCount = 0;
 
+    interface FileUploadResult {
+        secure_url: string;
+        public_id: string;
+    }
+
+    // إنشاء فولدرات محلية للـ PDF
+    const baseUploadsDir: string = path.join(process.cwd(), 'uploads');
+    const companyPdfsDir: string = path.join(baseUploadsDir, companyId, 'pdfs');
+    
+    // تأكد من وجود فولدر الـ PDFs
+    if (!fs.existsSync(companyPdfsDir)) {
+        fs.mkdirSync(companyPdfsDir, { recursive: true });
+        this.logger.log(`📁 تم إنشاء فولدر PDFs: ${companyPdfsDir}`);
+    }
+
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
         const batch = batches[batchIndex];
         this.logger.log(`--- معالجة المجموعة ${batchIndex + 1}/${batches.length} (${batch.length} ملف) ---`);
@@ -188,19 +255,45 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
                         throw new BadRequestException('الملف أكبر من 3MB');
                     }
 
-                    this.logger.log(`🖼️ جاري ضغط الصورة: ${file.originalname}`);
-                    const compressedBuffer = await sharp(file.buffer, { failOnError: false })
-                        .resize({ width: 800 })
-                        .webp({ quality: 70 })
-                        .toBuffer();
-                    this.logger.log(`✅ تم ضغط الصورة: ${file.originalname}`);
+                    let result: FileUploadResult;
+                    
+                    // تحقق إذا كان الملف PDF
+                    if (file.originalname.toLowerCase().endsWith('.pdf')) {
+                        this.logger.log(`📄 جاري حفظ ملف PDF محلياً: ${file.originalname}`);
+                        
+                        // حفظ PDF محلياً في فولدر uploads
+                        const fileExtension: string = path.extname(file.originalname);
+                        const uniqueFileName: string = `pdf_${Date.now()}_${saved.id}${fileExtension}`;
+                        const filePath: string = path.join(companyPdfsDir, uniqueFileName);
+                        
+                        // حفظ ملف PDF مباشرة في الفولدر المحلي
+                        await fs.promises.writeFile(filePath, file.buffer);
+                        
+                        const fileUrl: string = `/uploads/${companyId}/pdfs/${uniqueFileName}`;
+                        
+                        result = {
+                            secure_url: fileUrl,
+                            public_id: uniqueFileName
+                        };
+                        this.logger.log(`✅ تم حفظ PDF محلياً: ${result.secure_url}`);
+                        this.logger.log(`📁 مسار الملف المحلي: ${filePath}`);
+                        
+                    } else {
+                        this.logger.log(`🖼️ جاري ضغط الصورة: ${file.originalname}`);
+                        const compressedBuffer = await sharp(file.buffer, { failOnError: false })
+                            .resize({ width: 800 })
+                            .webp({ quality: 70 })
+                            .toBuffer();
+                        this.logger.log(`✅ تم ضغط الصورة: ${file.originalname}`);
 
-                    this.logger.log(`☁️ جاري رفع الصورة إلى Cloudinary...`);
-                    const result = await this.cloudinaryService.uploadBuffer(
-                        compressedBuffer,
-                        `companies/${companyId}/employees`
-                    );
-                    this.logger.log(`✅ تم رفع الصورة: ${result.secure_url}`);
+                        this.logger.log(`☁️ جاري رفع الصورة إلى Cloudinary...`);
+                        const uploadResult = await this.cloudinaryService.uploadBuffer(
+                            compressedBuffer,
+                            `companies/${companyId}/employees`
+                        ) as FileUploadResult;
+                        result = uploadResult;
+                        this.logger.log(`✅ تم رفع الصورة: ${result.secure_url}`);
+                    }
 
                     const field = imageMap[file.fieldname as keyof typeof imageMap];
                     this.logger.log(`🔍 حقل الصورة: ${field} للملف: ${file.fieldname}`);
@@ -214,15 +307,15 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
                             await this.employeeRepo.update(saved.id, { 
                                 [field]: result.secure_url 
                             });
-                            saved[field] = result.secure_url;
+                            (saved as any)[field] = result.secure_url;
                             this.logger.log(`✅ تم تحديث ${field}: ${result.secure_url}`);
                             uploadedImagesCount++;
                         }
                     } else {
-                        this.logger.log(`📸 حفظ الصورة في جدول الصور المنفصل...`);
+                        this.logger.log(`📸 حفظ الملف في جدول الصور المنفصل...`);
                         const label = typeof file.originalname === 'string'
                             ? file.originalname.split('.')[0]
-                            : 'image';
+                            : 'file';
 
                         const imageEntity = this.imageRepo.create({
                             imageUrl: result.secure_url,
@@ -232,7 +325,7 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
                         });
 
                         await this.imageRepo.save(imageEntity);
-                        this.logger.log(`✅ تم حفظ الصورة في الجدول المنفصل: ${label}`);
+                        this.logger.log(`✅ تم حفظ الملف في الجدول المنفصل: ${label}`);
                         uploadedImagesCount++;
                     }
 
@@ -241,7 +334,7 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
                         ? error.message
                         : 'Unknown error';
                     const fileName = typeof file.originalname === 'string' ? file.originalname : 'غير معروف';
-                    this.logger.error(`💥 فشل رفع صورة ${fileName}: ${errMsg}`);
+                    this.logger.error(`💥 فشل رفع ملف ${fileName}: ${errMsg}`);
                 }
             })
         );
@@ -291,6 +384,8 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
     this.logger.log(`   🎴 رابط البطاقة: ${saved.cardUrl}`);
     this.logger.log(`   🖼️ الصور المرفوعة: ${uploadedImagesCount}`);
     this.logger.log(`   🎨 صورة الخلفية: ${backgroundImageUrl ? 'نعم' : 'لا'}`);
+    this.logger.log(`   📁 فولدر PDFs المحلي: /uploads/${companyId}/pdfs/`);
+    this.logger.log(`   📄 ملف PDF: ${hasPdfFile ? 'تم رفعه' : 'لم يتم رفعه'}`);
     this.logger.log(`========================================`);
 
     return {

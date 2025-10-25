@@ -135,31 +135,41 @@ export class UpdateEmployeeDto {
     dropShadow?: string;
 
     @ApiPropertyOptional({ example: 2 })
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     shadowX?: number;
 
     @ApiPropertyOptional({ example: 2 })
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     shadowY?: number;
 
     @ApiPropertyOptional({ example: 5 })
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     shadowBlur?: number;
 
     @ApiPropertyOptional({ example: 1 })
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     shadowSpread?: number;
 
     @ApiPropertyOptional({ example: 10 })
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     cardRadius?: number;
 
     @ApiPropertyOptional({ example: true, description: 'هل يتم عرض قسم تصميم البطاقة؟' })
+    @Transform(({ value }) => {
+      if (value === 'true' || value === true || value === 1 || value === '1') return true;
+      if (value === 'false' || value === false || value === 0 || value === '0') return false;
+      return value;
+    })
     @IsOptional()
     @IsBoolean()
     cardStyleSection?: boolean;
@@ -435,14 +445,22 @@ export class UpdateEmployeeDto {
       example: true,
       description: 'هل يتم عرض مواعيد العمل للموظف؟',
     })
+    @Transform(({ value }) => {
+      if (value === 'true' || value === true || value === 1 || value === '1') return true;
+      if (value === 'false' || value === false || value === 0 || value === '0') return false;
+      return value;
+    })
     @IsOptional()
-    @Transform(({ value }) => value === 'true' || value === true)
     @IsBoolean()
     showWorkingHours?: boolean;
   
     @ApiPropertyOptional({ example: true })
+    @Transform(({ value }) => {
+      if (value === 'true' || value === true || value === 1 || value === '1') return true;
+      if (value === 'false' || value === false || value === 0 || value === '0') return false;
+      return value;
+    })
     @IsOptional()
-    @Transform(({ value }) => value === 'true' || value === true)
     @IsBoolean()
     isOpen24Hours?: boolean;
   
@@ -586,6 +604,11 @@ export class UpdateEmployeeDto {
     contactFormDisplayType?: string;
   
     @ApiPropertyOptional({ example: true })
+    @Transform(({ value }) => {
+      if (value === 'true' || value === true || value === 1 || value === '1') return true;
+      if (value === 'false' || value === false || value === 0 || value === '0') return false;
+      return value;
+    })
     @IsOptional()
     @IsBoolean()
     preventMultipleFormViews?: boolean;
@@ -619,6 +642,11 @@ export class UpdateEmployeeDto {
     contactFieldType?: string;
   
     @ApiPropertyOptional({ example: true })
+    @Transform(({ value }) => {
+      if (value === 'true' || value === true || value === 1 || value === '1') return true;
+      if (value === 'false' || value === false || value === 0 || value === '0') return false;
+      return value;
+    })
     @IsOptional()
     @IsBoolean()
     contactFieldRequired?: boolean;
@@ -642,6 +670,7 @@ export class UpdateEmployeeDto {
     feedbackDescription?: string;
   
     @ApiPropertyOptional({ example: 5 })
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     feedbackMaxRating?: number;
@@ -652,6 +681,11 @@ export class UpdateEmployeeDto {
     feedbackIconType?: string;
   
     @ApiPropertyOptional({ example: true })
+    @Transform(({ value }) => {
+      if (value === 'true' || value === true || value === 1 || value === '1') return true;
+      if (value === 'false' || value === false || value === 0 || value === '0') return false;
+      return value;
+    })
     @IsOptional()
     @IsBoolean()
     showRatingLabels?: boolean;
@@ -667,6 +701,11 @@ export class UpdateEmployeeDto {
     highestRatingLabel?: string;
   
     @ApiPropertyOptional({ example: true })
+    @Transform(({ value }) => {
+      if (value === 'true' || value === true || value === 1 || value === '1') return true;
+      if (value === 'false' || value === false || value === 0 || value === '0') return false;
+      return value;
+    })
     @IsOptional()
     @IsBoolean()
     collectFeedbackOnLowRating?: boolean;
@@ -693,11 +732,17 @@ export class UpdateEmployeeDto {
     highRatingRedirectUrl?: string;
   
     @ApiPropertyOptional({ example: 5 })
+    @Type(() => Number)
     @IsOptional()
     @IsNumber()
     autoRedirectAfterSeconds?: number;
   
     @ApiPropertyOptional({ example: true })
+    @Transform(({ value }) => {
+      if (value === 'true' || value === true || value === 1 || value === '1') return true;
+      if (value === 'false' || value === false || value === 0 || value === '0') return false;
+      return value;
+    })
     @IsOptional()
     @IsBoolean()
     enableAutoRedirect?: boolean;
