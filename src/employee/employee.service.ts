@@ -664,17 +664,40 @@ async importFromExcel(
   filePath: string,
   companyId: string
 ): Promise<{ count: number; imported: Employee[]; skipped: string[]; limitReached: boolean }> {
+  this.logger.log(`📁 بدء استيراد ملف Excel: ${filePath} للشركة: ${companyId}`);
+  
   const workbook = new ExcelJS.Workbook();
   
   await workbook.xlsx.readFile(filePath);
   const sheet = workbook.getWorksheet('Employees');
   if (!sheet) {
+    this.logger.error('❌ شيت "Employees" غير موجود في الملف');
     throw new Error('شيت "Employees" غير موجود');
   }
 
+  this.logger.log(`📊 عدد الصفوف في الشيت: ${sheet.rowCount}`);
+
   const company = await this.companyRepo.findOne({ where: { id: companyId } });
   if (!company) {
+    this.logger.error(`❌ الشركة غير موجودة: ${companyId}`);
     throw new Error('الشركة غير موجودة');
+  }
+
+  this.logger.log(`🔍 جاري حساب عدد الموظفين الحاليين...`);
+  const currentEmployeeCount = await this.employeeRepo.count({ 
+    where: { company: { id: companyId } } 
+  });
+  this.logger.log(`👥 عدد الموظفين الحاليين: ${currentEmployeeCount}`);
+
+  this.logger.log(`🔍 جاري التحقق من الحد المسموح في الخطة...`);
+  const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
+  this.logger.log(`📋 الحد المسموح في الخطة: ${allowedCount}`);
+
+  const availableSlots = allowedCount - currentEmployeeCount;
+  this.logger.log(`🎯 العدد الفاضل للإضافة: ${availableSlots}`);
+
+  if (availableSlots <= 0) {
+    this.logger.warn(`⚠️ لا يوجد أماكن فارغة - العدد الفاضل: ${availableSlots}`);
   }
 
   const imported: Employee[] = [];
@@ -701,6 +724,8 @@ async importFromExcel(
 
   const headerRow = sheet.getRow(1).values as (string | null)[];
   const headers = (headerRow.slice(1) as string[]).map(h => h?.trim().toLowerCase() || '');
+  
+  this.logger.log(`📝 العناوين الموجودة في الشيت: ${headers.join(', ')}`);
 
   const entityColumns = this.employeeRepo.metadata.columns.map(c => c.propertyName);
   const normalizedEntityColumns = entityColumns.map(c => c.toLowerCase());
@@ -724,12 +749,29 @@ async importFromExcel(
     'profileimageurl': 'profileImageUrl',
   };
 
+  this.logger.log(`🔄 بدء معالجة الصفوف من 2 إلى ${sheet.rowCount}...`);
+
   for (let i = 2; i <= sheet.rowCount; i++) {
-    const row = sheet.getRow(i);
-    if (!row || row.cellCount === 0) {
-      skipped.push(`Row ${i} skipped: empty row`);
+    this.logger.log(`--- معالجة الصف ${i} ---`);
+
+    // التحقق من الوصول للحد
+    if (imported.length >= availableSlots) {
+      const skipMsg = `Row ${i} skipped: تم الوصول للحد الأقصى (${availableSlots} موظف)`;
+      this.logger.warn(`⏹️ ${skipMsg}`);
+      skipped.push(skipMsg);
+      limitReached = true;
       continue;
     }
+
+    const row = sheet.getRow(i);
+    if (!row || row.cellCount === 0) {
+      const skipMsg = `Row ${i} skipped: صف فارغ`;
+      this.logger.warn(`📭 ${skipMsg}`);
+      skipped.push(skipMsg);
+      continue;
+    }
+
+    this.logger.log(`🔍 فحص بيانات الصف ${i}...`);
 
     const rowData: Record<string, string | number | null> = {};
 
@@ -738,45 +780,52 @@ async importFromExcel(
       const normalizedCol = col.trim().toLowerCase();
       const mappedCol = columnMapping[normalizedCol] || normalizedCol;
       const entityIndex = normalizedEntityColumns.indexOf(mappedCol.toLowerCase());
-      if (entityIndex === -1) return;
+      if (entityIndex === -1) {
+        this.logger.debug(`❌ العمود "${col}" غير معروف - تم تخطيه`);
+        return;
+      }
       const actualEntityKey = entityColumns[entityIndex];
-      rowData[actualEntityKey] = normalize(row.getCell(index + 1).value);
+      const cellValue = normalize(row.getCell(index + 1).value);
+      rowData[actualEntityKey] = cellValue;
+      this.logger.debug(`📋 ${actualEntityKey}: ${cellValue}`);
     });
 
     if (!rowData['name']) {
-      skipped.push(`Row ${i} skipped: يجب إضافة اسم`);
+      const skipMsg = `Row ${i} skipped: يجب إضافة اسم`;
+      this.logger.warn(`🚫 ${skipMsg}`);
+      skipped.push(skipMsg);
       continue;
     }
 
-    const currentCount = await this.employeeRepo.count({ where: { company: { id: companyId } } });
-    const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
-
-    if (currentCount >= allowedCount) {
-      skipped.push(`Row ${i} skipped: subscription limit reached`);
-      limitReached = true;
-      continue;
-    }
+    this.logger.log(`✅ الصف ${i} يحتوي على اسم: "${rowData['name']}" - جاري المحاولة...`);
 
     try {
+      // معالجة الصور
       const imageFields = Object.keys(rowData).filter(key =>
         key.toLowerCase().includes('imageurl') ||
         key.toLowerCase().includes('image') ||
         key.toLowerCase().includes('thumbnail')
       );
 
+      this.logger.log(`🖼️ حقول الصور الموجودة: ${imageFields.join(', ')}`);
+
       for (const field of imageFields) {
         const imgUrl = rowData[field] ? String(rowData[field]).trim() : null;
         const isProfile = field === 'profileImageUrl';
 
         if (imgUrl && imgUrl.startsWith('http')) {
+          this.logger.log(`🌐 صورة ${field}: ${imgUrl}`);
           rowData[field] = imgUrl;
         } else if (isProfile && (!imgUrl || imgUrl === '')) {
           rowData[field] = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
+          this.logger.log(`👤 استخدام الصورة الافتراضية للملف الشخصي`);
         } else {
           rowData[field] = null;
+          this.logger.log(`❌ صورة ${field}: غير صالحة`);
         }
       }
 
+      // تنظيف البيانات
       Object.keys(rowData).forEach(key => {
         if (rowData[key] === '' || rowData[key] === undefined) {
           rowData[key] = null;
@@ -796,11 +845,15 @@ async importFromExcel(
 
       if (!finalData['email']) {
         finalData['email'] = `employee-${Date.now()}-${i}@company.com`;
+        this.logger.log(`📧 إنشاء إيميل افتراضي: ${finalData['email']}`);
       }
 
+      this.logger.log(`💾 جاري حفظ الموظف في قاعدة البيانات...`);
       const employee = this.employeeRepo.create(finalData);
       const saved = await this.employeeRepo.save(employee);
+      this.logger.log(`✅ تم حفظ الموظف: ${saved.name} (ID: ${saved.id})`);
 
+      this.logger.log(`🎴 جاري إنشاء بطاقة الموظف...`);
       const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved);
       saved.cardUrl = cardUrl;
       saved.qrCode = qrCode;
@@ -809,12 +862,25 @@ async importFromExcel(
       await this.employeeRepo.save(saved);
       imported.push(saved);
 
+      this.logger.log(`🎉 تم إضافة ${saved.name} بنجاح (${imported.length}/${availableSlots})`);
+
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : JSON.stringify(err);
-      skipped.push(`Row ${i} skipped: save error: ${msg}`);
+      const skipMsg = `Row ${i} skipped: خطأ في الحفظ: ${msg}`;
+      this.logger.error(`💥 ${skipMsg}`);
+      skipped.push(skipMsg);
     }
   }
 
+  // النتيجة النهائية
+  this.logger.log(`========================================`);
+  this.logger.log(`🎯 نتيجة الاستيراد النهائية:`);
+  this.logger.log(`   ✅ تم إضافة: ${imported.length} موظف`);
+  this.logger.log(`   ⏹️ تم تخطي: ${skipped.length} صف`);
+  this.logger.log(`   📊 الوصول للحد: ${limitReached ? 'نعم' : 'لا'}`);
+  this.logger.log(`   👥 الإجمالي بعد الاستيراد: ${currentEmployeeCount + imported.length}/${allowedCount}`);
+  this.logger.log(`========================================`);
+  
   return { 
     count: imported.length, 
     imported, 

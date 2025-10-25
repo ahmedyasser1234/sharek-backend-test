@@ -213,43 +213,43 @@ export class SubscriptionService {
   }
 
   async getAllowedEmployees(companyId: string): Promise<number> {
-    try {
-      this.logger.debug(`🔍 التحقق من الحد المسموح للموظفين للشركة: ${companyId}`);
-      
-      const activeSubscription = await this.subscriptionRepo.findOne({
-        where: { 
-          company: { id: companyId },
-          status: SubscriptionStatus.ACTIVE
-        },
-        relations: ['plan']
-      });
+  try {
+    this.logger.debug(`🔍 التحقق من الحد المسموح للموظفين للشركة: ${companyId}`);
+    
+    const activeSubscription = await this.subscriptionRepo.findOne({
+      where: { 
+        company: { id: companyId },
+        status: SubscriptionStatus.ACTIVE
+      },
+      relations: ['plan']
+    });
 
-      if (!activeSubscription) {
-        this.logger.warn(` الشركة ${companyId} ليس لديها اشتراك نشط`);
-        return 0; 
-      }
-
-      const currentEmployees = await this.employeeRepo.count({
-        where: { company: { id: companyId } }
-      });
-
-      const maxEmployees = activeSubscription.customMaxEmployees ?? activeSubscription.plan?.maxEmployees ?? 0;
-      const remainingEmployees = maxEmployees - currentEmployees;
-
-      this.logger.debug(` إحصائيات الموظفين للشركة ${companyId}:
-        - الموظفين الحاليين: ${currentEmployees}
-        - الحد المسموح: ${maxEmployees}
-        - المتبقي: ${remainingEmployees}
-        - حالة الاشتراك: ${activeSubscription.status}`);
-
-      return remainingEmployees > 0 ? remainingEmployees : 0;
-
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل حساب الحد المسموح للموظفين للشركة ${companyId}: ${errorMessage}`);
-      throw new InternalServerErrorException('فشل حساب الحد المسموح للموظفين');
+    if (!activeSubscription) {
+      this.logger.warn(` الشركة ${companyId} ليس لديها اشتراك نشط`);
+      return 0; 
     }
+
+    const currentEmployees = await this.employeeRepo.count({
+      where: { company: { id: companyId } }
+    });
+
+    const maxEmployees = activeSubscription.customMaxEmployees ?? activeSubscription.plan?.maxEmployees ?? 0;
+    const remainingEmployees = maxEmployees - currentEmployees;
+
+    this.logger.debug(` إحصائيات الموظفين للشركة ${companyId}:
+      - الموظفين الحاليين: ${currentEmployees}
+      - الحد المسموح: ${maxEmployees}
+      - المتبقي: ${remainingEmployees}
+      - حالة الاشتراك: ${activeSubscription.status}`);
+
+    return maxEmployees;
+
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    this.logger.error(` فشل حساب الحد المسموح للموظفين للشركة ${companyId}: ${errorMessage}`);
+    throw new InternalServerErrorException('فشل حساب الحد المسموح للموظفين');
   }
+}
 
   async getUsage(companyId: string): Promise<any> {
     try {
