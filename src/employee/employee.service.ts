@@ -51,12 +51,15 @@ export class EmployeeService {
   ) {}
 
   async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
+    this.logger.log(` محاولة إنشاء موظف جديد للشركة: ${companyId}`);
     const company = await this.companyRepo.findOne({ where: { id: companyId } });
     if (!company) throw new NotFoundException('Company not found');
-
-    const currentCount = await this.employeeRepo.count({ where: { company: { id: companyId } } });
     const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
-    if (currentCount >= allowedCount) throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد');
+    if (allowedCount <= 0) {
+      this.logger.error(` الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
+      throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد - يرجى تجديد الاشتراك');
+    }
+    this.logger.log(` الشركة ${companyId} لديها إذن لإضافة موظفين (متبقي: ${allowedCount})`);
 
     let workingHours: Record<string, { from: string; to: string }> | null = null;
     let isOpen24Hours = false;
@@ -114,6 +117,7 @@ export class EmployeeService {
       workLinkkkImage: 'workLinkkkImageUrl',
       workLinkkkkImage: 'workLinkkkkImageUrl',
       workLinkkkkkImage: 'workLinkkkkkImageUrl',
+      backgroundImage: 'backgroundImage',
     } as const;
 
     files = Array.isArray(files) ? files : [];
@@ -129,12 +133,14 @@ export class EmployeeService {
 
     const batches = chunkArray(validFiles, 2);
 
+    let backgroundImageUrl: string | null = null;
+
     for (const batch of batches) {
       await Promise.allSettled(
         batch.map(async (file) => {
           try {
-            if (file.size > 2 * 1024 * 1024) {
-              throw new BadRequestException('الملف أكبر من 2MB');
+            if (file.size > 3 * 1024 * 1024) {
+              throw new BadRequestException('الملف أكبر من 3MB');
             }
 
             const compressedBuffer = await sharp(file.buffer, { failOnError: false })
@@ -150,7 +156,11 @@ export class EmployeeService {
             const field = imageMap[file.fieldname as keyof typeof imageMap];
 
             if (field) {
-              Object.assign(saved, { [field]: result.secure_url });
+              if (field === 'backgroundImage') {
+                backgroundImageUrl = result.secure_url;
+              } else {
+                Object.assign(saved, { [field]: result.secure_url });
+              }
             } else {
               const label =
               typeof file.originalname === 'string'
@@ -198,18 +208,21 @@ export class EmployeeService {
       shadowSpread: dto.shadowSpread,
       cardRadius: dto.cardRadius,
       cardStyleSection: dto.cardStyleSection,
+      backgroundImage: backgroundImageUrl,
     });
 
     saved.cardUrl = cardUrl;
     saved.designId = designId;
     saved.qrCode = qrCode;
     saved = await this.employeeRepo.save(saved);
+    this.logger.log(` تم إنشاء الموظف بنجاح للشركة: ${companyId}`);
 
     return {
       statusCode: HttpStatus.CREATED,
       message: 'تم إنشاء الموظف بنجاح',
       data: { ...saved, qrCode },
     };
+
   }
 
   async findAll(companyId: string, page = 1, limit = 10, search?: string) {
@@ -647,143 +660,167 @@ export class EmployeeService {
     }
   }
 
-  async importFromExcel(
-    filePath: string,
-    companyId: string
-  ): Promise<{ count: number; imported: Employee[]; skipped: string[] }> {
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(filePath);
-    const sheet = workbook.getWorksheet('Employees');
-    if (!sheet) throw new Error('شيت "Employees" غير موجود');
+async importFromExcel(
+  filePath: string,
+  companyId: string
+): Promise<{ count: number; imported: Employee[]; skipped: string[]; limitReached: boolean }> {
+  const workbook = new ExcelJS.Workbook();
+  
+  await workbook.xlsx.readFile(filePath);
+  const sheet = workbook.getWorksheet('Employees');
+  if (!sheet) {
+    throw new Error('شيت "Employees" غير موجود');
+  }
 
-    const company = await this.companyRepo.findOne({ where: { id: companyId } });
-    if (!company) throw new Error('الشركة غير موجودة');
+  const company = await this.companyRepo.findOne({ where: { id: companyId } });
+  if (!company) {
+    throw new Error('الشركة غير موجودة');
+  }
 
-    const imported: Employee[] = [];
-    const skipped: string[] = [];
+  const imported: Employee[] = [];
+  const skipped: string[] = [];
+  let limitReached = false;
 
-    type ExcelCellObject = { text?: string; hyperlink?: string; richText?: { text: string }[] };
+  type ExcelCellObject = { text?: string; hyperlink?: string; richText?: { text: string }[] };
 
-    const normalize = (value: ExcelJS.CellValue): string | number | undefined => {
-      if (value === null || value === undefined) return undefined;
-      if (typeof value === 'object' && value !== null) {
-        const cellObj = value as ExcelCellObject;
-        const rawText =
-        cellObj.text ||
-        cellObj.hyperlink ||
-        (Array.isArray(cellObj.richText) ? cellObj.richText.map(t => t.text).join('') : '');
-        return rawText?.trim() || undefined;
-      }
-      if (typeof value === 'string') return value.trim() || undefined;
-      if (typeof value === 'number') return value.toString();
-      if (typeof value === 'boolean') return value ? 'true' : 'false';
-      return undefined;
-    };
+  const normalize = (value: ExcelJS.CellValue): string | number | null => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'object' && value !== null) {
+      const cellObj = value as ExcelCellObject;
+      const rawText =
+      cellObj.text ||
+      cellObj.hyperlink ||
+      (Array.isArray(cellObj.richText) ? cellObj.richText.map(t => t.text).join('') : '');
+      return rawText?.trim() || null;
+    }
+    if (typeof value === 'string') return value.trim() || null;
+    if (typeof value === 'number') return value.toString();
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    return null;
+  };
 
-    const headerRow = sheet.getRow(1).values as (string | null)[];
-    const headers = (headerRow.slice(1) as string[]).map(h => h?.trim().toLowerCase() || '');
+  const headerRow = sheet.getRow(1).values as (string | null)[];
+  const headers = (headerRow.slice(1) as string[]).map(h => h?.trim().toLowerCase() || '');
 
-    const entityColumns = this.employeeRepo.metadata.columns.map(c => c.propertyName);
-    const normalizedEntityColumns = entityColumns.map(c => c.toLowerCase());
+  const entityColumns = this.employeeRepo.metadata.columns.map(c => c.propertyName);
+  const normalizedEntityColumns = entityColumns.map(c => c.toLowerCase());
 
-    const columnMapping: Record<string, string> = {
-      'full name': 'name',
-      'employee name': 'name',
-      'e-mail': 'email',
-      'mail': 'email',
-      'phone number': 'phone',
-      'mobile': 'phone',
-      'position': 'jobTitle',
-      'job title': 'jobTitle',
-      'jobtitle': 'jobTitle',
-      'design id': 'designId',
-      'designid': 'designId',
-      'image': 'imageUrl',
-      'image url': 'imageUrl',
-      'imageurl': 'imageUrl',
-      'profile image': 'profileImageUrl',
-      'profileimageurl': 'profileImageUrl',
-    };
+  const columnMapping: Record<string, string> = {
+    'full name': 'name',
+    'employee name': 'name',
+    'e-mail': 'email',
+    'mail': 'email',
+    'phone number': 'phone',
+    'mobile': 'phone',
+    'position': 'jobTitle',
+    'job title': 'jobTitle',
+    'jobtitle': 'jobTitle',
+    'design id': 'designId',
+    'designid': 'designId',
+    'image': 'imageUrl',
+    'image url': 'imageUrl',
+    'imageurl': 'imageUrl',
+    'profile image': 'profileImageUrl',
+    'profileimageurl': 'profileImageUrl',
+  };
 
-    for (let i = 2; i <= sheet.rowCount; i++) {
-      const row = sheet.getRow(i);
-      if (!row || row.cellCount === 0) continue;
-
-      const rowData: Record<string, string | number | undefined> = {};
-
-      headers.forEach((col, index) => {
-        if (!col) return;
-        const normalizedCol = col.trim().toLowerCase();
-        const mappedCol = columnMapping[normalizedCol] || normalizedCol;
-        const entityIndex = normalizedEntityColumns.indexOf(mappedCol.toLowerCase());
-        if (entityIndex === -1) return;
-        const actualEntityKey = entityColumns[entityIndex];
-        rowData[actualEntityKey] = normalize(row.getCell(index + 1).value);
-      });
-
-      if (!rowData['name'] || !rowData['email']) {
-        skipped.push(`Row ${i} skipped: missing name/email`);
-        continue;
-      }
-
-      const existing = await this.employeeRepo.findOne({ where: { email: String(rowData['email']) } });
-      if (existing) {
-        skipped.push(`Row ${i} skipped: duplicate email ${rowData['email']}`);
-        continue;
-
-      }
-
-      const currentCount = await this.employeeRepo.count({ where: { company: { id: companyId } } });
-      const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
-      if (currentCount >= allowedCount) {
-        skipped.push(`Row ${i} skipped: subscription limit reached`);
-        continue;
-      }
-
-      try {
-        const imageFields = Object.keys(rowData).filter(key =>
-          key.toLowerCase().includes('imageurl') ||
-          key.toLowerCase().includes('image') ||
-          key.toLowerCase().includes('thumbnail')
-        );
-
-        for (const field of imageFields) {
-          const imgUrl = String(rowData[field] ?? '').trim();
-          const isProfile = field === 'profileImageUrl';
-
-          if (imgUrl && imgUrl.startsWith('http')) {
-            rowData[field] = imgUrl;
-          } else if (isProfile) {
-            rowData[field] = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
-          } else {
-            rowData[field] = undefined;
-          }
-        }
-
-        const finalData = {
-          ...rowData,
-          name: String(rowData['name']),
-          email: String(rowData['email']),
-          company,
-        };
-
-        const employee = this.employeeRepo.create(finalData);
-        const saved = await this.employeeRepo.save(employee);
-
-        const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved);
-        saved.cardUrl = cardUrl;
-        saved.qrCode = qrCode;
-        if (!saved.designId) saved.designId = designId;
-
-        await this.employeeRepo.save(saved);
-        imported.push(saved);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : JSON.stringify(err);
-        skipped.push(`Row ${i} skipped: save error: ${msg}`);
-      }
+  for (let i = 2; i <= sheet.rowCount; i++) {
+    const row = sheet.getRow(i);
+    if (!row || row.cellCount === 0) {
+      skipped.push(`Row ${i} skipped: empty row`);
+      continue;
     }
 
-    return { count: imported.length, imported, skipped };
+    const rowData: Record<string, string | number | null> = {};
+
+    headers.forEach((col, index) => {
+      if (!col) return;
+      const normalizedCol = col.trim().toLowerCase();
+      const mappedCol = columnMapping[normalizedCol] || normalizedCol;
+      const entityIndex = normalizedEntityColumns.indexOf(mappedCol.toLowerCase());
+      if (entityIndex === -1) return;
+      const actualEntityKey = entityColumns[entityIndex];
+      rowData[actualEntityKey] = normalize(row.getCell(index + 1).value);
+    });
+
+    if (!rowData['name']) {
+      skipped.push(`Row ${i} skipped: يجب إضافة اسم`);
+      continue;
+    }
+
+    const currentCount = await this.employeeRepo.count({ where: { company: { id: companyId } } });
+    const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
+
+    if (currentCount >= allowedCount) {
+      skipped.push(`Row ${i} skipped: subscription limit reached`);
+      limitReached = true;
+      continue;
+    }
+
+    try {
+      const imageFields = Object.keys(rowData).filter(key =>
+        key.toLowerCase().includes('imageurl') ||
+        key.toLowerCase().includes('image') ||
+        key.toLowerCase().includes('thumbnail')
+      );
+
+      for (const field of imageFields) {
+        const imgUrl = rowData[field] ? String(rowData[field]).trim() : null;
+        const isProfile = field === 'profileImageUrl';
+
+        if (imgUrl && imgUrl.startsWith('http')) {
+          rowData[field] = imgUrl;
+        } else if (isProfile && (!imgUrl || imgUrl === '')) {
+          rowData[field] = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
+        } else {
+          rowData[field] = null;
+        }
+      }
+
+      Object.keys(rowData).forEach(key => {
+        if (rowData[key] === '' || rowData[key] === undefined) {
+          rowData[key] = null;
+        }
+      });
+
+      const finalData: Record<string, any> = {
+        name: String(rowData['name']),
+        company,
+      };
+
+      Object.keys(rowData).forEach(key => {
+        if (key !== 'name') {
+          finalData[key] = rowData[key];
+        }
+      });
+
+      if (!finalData['email']) {
+        finalData['email'] = `employee-${Date.now()}-${i}@company.com`;
+      }
+
+      const employee = this.employeeRepo.create(finalData);
+      const saved = await this.employeeRepo.save(employee);
+
+      const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved);
+      saved.cardUrl = cardUrl;
+      saved.qrCode = qrCode;
+      if (!saved.designId) saved.designId = designId;
+
+      await this.employeeRepo.save(saved);
+      imported.push(saved);
+
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : JSON.stringify(err);
+      skipped.push(`Row ${i} skipped: save error: ${msg}`);
+    }
   }
+
+  return { 
+    count: imported.length, 
+    imported, 
+    skipped,
+    limitReached 
+  };
+}
 
 }

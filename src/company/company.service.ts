@@ -1,5 +1,5 @@
-/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
   Injectable,
   NotFoundException,
@@ -62,7 +62,7 @@ export class CompanyService implements OnModuleInit {
     const email = 'admin2@company.com';
     const exists = await this.companyRepo.findOne({ where: { email } });
     if (exists) {
-      this.logger.warn(`⚠️ الشركة الافتراضية موجودة بالفعل: ${email}`);
+      this.logger.warn(`الشركة الافتراضية موجودة بالفعل: ${email}`);
       return;
     }
 
@@ -122,10 +122,7 @@ export class CompanyService implements OnModuleInit {
         const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${tempId}/logo`);
         logoUrl = result.secure_url;
       } catch (error: unknown) {
-        const errorMessage =
-        error instanceof Error && typeof error.message === 'string'
-        ? error.message
-        : 'Unknown error';
+        const errorMessage = this.getErrorMessage(error);
         this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
         throw new InternalServerErrorException('فشل رفع صورة الشعار');
       }
@@ -152,10 +149,7 @@ export class CompanyService implements OnModuleInit {
     try {
       await this.sendVerificationCode(saved.email);
     } catch (error: unknown) {
-      const errorMessage =
-      error instanceof Error && typeof error.message === 'string'
-      ? error.message
-      : 'Unknown error';
+      const errorMessage = this.getErrorMessage(error);
       this.logger.error(`فشل إرسال كود التحقق: ${errorMessage}`);
     }
     return saved;
@@ -189,10 +183,10 @@ export class CompanyService implements OnModuleInit {
 
     try {
       await transporter.sendMail(mailOptions);
-      return `✅ تم إرسال كود التحقق إلى ${email}`;
+      return `تم إرسال كود التحقق إلى ${email}`;
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`❌ فشل إرسال البريد: ${errorMessage}`);
+      const errorMessage = this.getErrorMessage(error);
+      this.logger.error(`فشل إرسال البريد: ${errorMessage}`);
       throw new BadRequestException('فشل إرسال البريد الإلكتروني');
     }
   }
@@ -201,13 +195,13 @@ export class CompanyService implements OnModuleInit {
     const company = await this.companyRepo.findOne({ where: { email } });
     if (!company) throw new NotFoundException('Company not found');
     if (company.verificationCode !== code)
-      throw new UnauthorizedException('❌ كود غير صحيح');
+      throw new UnauthorizedException('كود غير صحيح');
 
     company.isVerified = true;
     company.verificationCode = null;
     await this.companyRepo.save(company);
 
-    return '✅ تم تفعيل البريد الإلكتروني بنجاح';
+    return 'تم تفعيل البريد الإلكتروني بنجاح';
   }
 
   async updateCompany(id: string, dto: UpdateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
@@ -237,10 +231,7 @@ export class CompanyService implements OnModuleInit {
         const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
         logoUrl = result.secure_url;
       } catch (error: unknown) {
-        const errorMessage =
-        error instanceof Error && typeof error.message === 'string'
-        ? error.message
-        : 'Unknown error';
+        const errorMessage = this.getErrorMessage(error);
         this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
         throw new InternalServerErrorException('فشل رفع صورة الشعار');
       }
@@ -297,92 +288,94 @@ export class CompanyService implements OnModuleInit {
     return company;
   }
 
-async deleteCompany(id: string): Promise<void> {
-  const company = await this.findById(id);
-  
-  if (!company) {
-    throw new BadRequestException('الشركة غير موجودة');
-  }
-
-  const queryRunner = this.dataSource.createQueryRunner();
-  await queryRunner.connect();
-  await queryRunner.startTransaction();
-
-  try {
-    // ✅ الخطوة 1: حذف payment_proofs أولاً (المشكلة الرئيسية)
-    await queryRunner.query(
-      `DELETE FROM payment_proof WHERE "companyId" = $1`,
-      [id]
-    );
-
-    // ✅ الخطوة 2: حذف باقي الجداول المرتبطة
-    const relatedTables = [
-      'employee',
-      'company_subscription', 
-      'company_token',
-      'company_login_log',
-      'revoked_token'
-    ];
-
-    for (const table of relatedTables) {
-      try {
-        await queryRunner.query(
-          `DELETE FROM ${table} WHERE "companyId" = $1`,
-          [id]
-        );
-      } catch (error) {
-        this.logger.warn(`⚠️ لا يوجد جدول ${table}: ${error.message}`);
-      }
+  async deleteCompany(id: string): Promise<void> {
+    const company = await this.findById(id);
+    
+    if (!company) {
+      throw new BadRequestException('الشركة غير موجودة');
     }
 
-    // ✅ الخطوة 3: حذف الشركة نفسها
-    await queryRunner.query(`DELETE FROM company WHERE id = $1`, [id]);
-
-    await queryRunner.commitTransaction();
-    this.logger.log(`✅ تم حذف الشركة ${id} وجميع بياناتها`);
-
-  } catch (error) {
-    await queryRunner.rollbackTransaction();
-    this.logger.error(`❌ فشل حذف الشركة: ${error.message}`);
-    
-    // ✅ الحل الاحتياطي: استخدام CASCADE مباشرة
-    await this.forceDeleteWithCascade(id);
-  } finally {
-    await queryRunner.release();
-  }
-}
-
-private async forceDeleteWithCascade(id: string): Promise<void> {
-  try {
-    // ✅ الحل النووي: إزالة الـ constraint مؤقتاً
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      // 1. إزالة الـ constraint المسبب للمشكلة
-      await queryRunner.query(`
-        ALTER TABLE payment_proof 
-        DROP CONSTRAINT IF EXISTS "FK_f91d3a526062aa69c36c3e971cd"
-      `);
+      await queryRunner.query(
+        `DELETE FROM payment_proof WHERE "companyId" = $1`,
+        [id]
+      );
 
-      // 2. حذف الشركة
+      const relatedTables = [
+        'employee',
+        'company_subscription', 
+        'company_token',
+        'company_login_log',
+        'revoked_token'
+      ];
+
+      for (const table of relatedTables) {
+        try {
+          await queryRunner.query(
+            `DELETE FROM ${table} WHERE "companyId" = $1`,
+            [id]
+          );
+        } catch (tableError: unknown) {
+          const errorMessage = this.getErrorMessage(tableError);
+          this.logger.warn(`لا يوجد جدول ${table}: ${errorMessage}`);
+        }
+      }
+
       await queryRunner.query(`DELETE FROM company WHERE id = $1`, [id]);
 
       await queryRunner.commitTransaction();
-      this.logger.log(`✅ تم حذف الشركة ${id} بعد إزالة الـ constraint`);
+      this.logger.log(`تم حذف الشركة ${id} وجميع بياناتها`);
 
-    } catch (error) {
+    } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      throw error;
+      const errorMessage = this.getErrorMessage(error);
+      this.logger.error(`فشل حذف الشركة: ${errorMessage}`);
+      
+      await this.forceDeleteWithCascade(id);
     } finally {
       await queryRunner.release();
     }
-  } catch (error) {
-    this.logger.error(`❌ فشل جميع محاولات الحذف: ${error.message}`);
-    throw new InternalServerErrorException('فشل حذف الشركة. يرجى التحقق من قاعدة البيانات يدوياً.');
   }
-}
+
+  private async forceDeleteWithCascade(id: string): Promise<void> {
+    try {
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      try {
+        await queryRunner.query(`
+          ALTER TABLE payment_proof 
+          DROP CONSTRAINT IF EXISTS "FK_f91d3a526062aa69c36c3e971cd"
+        `);
+
+        await queryRunner.query(`DELETE FROM company WHERE id = $1`, [id]);
+
+        await queryRunner.commitTransaction();
+        this.logger.log(`تم حذف الشركة ${id} بعد إزالة الـ constraint`);
+
+      } catch (innerError: unknown) {
+        await queryRunner.rollbackTransaction();
+        const errorMessage = this.getErrorMessage(innerError);
+        throw new Error(errorMessage);
+      } finally {
+        await queryRunner.release();
+      }
+    } catch (error: unknown) {
+      const errorMessage = this.getErrorMessage(error);
+      this.logger.error(`فشل جميع محاولات الحذف: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل حذف الشركة. يرجى التحقق من قاعدة البيانات يدوياً.');
+    }
+  }
+
+  private getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Unknown error';
+  }
+
   async login(
     dto: LoginCompanyDto,
     ip: string,
@@ -481,8 +474,8 @@ private async forceDeleteWithCascade(id: string): Promise<void> {
     try {
       return await this.jwtService.verifyAsync<CompanyPayload>(token);
     } catch (err: unknown) {
-      const error = err as Error;
-      this.logger.error(`❌ خطأ في التحقق من Refresh Token: ${error.message}`);
+      const errorMessage = this.getErrorMessage(err);
+      this.logger.error(`خطأ في التحقق من Refresh Token: ${errorMessage}`);
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }
@@ -503,14 +496,14 @@ private async forceDeleteWithCascade(id: string): Promise<void> {
     });
 
     if (!existing) {
-      this.logger.warn(` التوكن غير موجود`);
+      this.logger.warn(`التوكن غير موجود`);
       throw new NotFoundException('Refresh token غير صالح');
     }
 
     const companyId = existing.company?.id;
 
     if (!companyId || typeof companyId !== 'string') {
-      this.logger.error(` companyId غير موجود أو غير صالح`);
+      this.logger.error(`companyId غير موجود أو غير صالح`);
       throw new InternalServerErrorException('فشل استخراج معرف الشركة');
     }
 
@@ -525,7 +518,7 @@ private async forceDeleteWithCascade(id: string): Promise<void> {
         });
         await this.revokedTokenRepo.save(revoked);
       } catch {
-        this.logger.warn(` التوكن غير صالح للتسجيل كـ ملغي`);
+        this.logger.warn(`التوكن غير صالح للتسجيل كـ ملغي`);
       }
     }
     await this.loginLogRepo.save({
@@ -579,14 +572,10 @@ private async forceDeleteWithCascade(id: string): Promise<void> {
 
     try {
       await transporter.sendMail(mailOptions);
-      return '✅ تم إرسال كود إعادة تعيين كلمة المرور';
-    } catch (err) {
-      const errorMessage =
-        typeof err === 'object' && err !== null && 'message' in err
-          ? String((err as { message: unknown }).message)
-          : 'Unknown error';
-
-      this.logger.error(`❌ فشل إرسال البريد: ${errorMessage}`);
+      return 'تم إرسال كود إعادة تعيين كلمة المرور';
+    } catch (err: unknown) {
+      const errorMessage = this.getErrorMessage(err);
+      this.logger.error(`فشل إرسال البريد: ${errorMessage}`);
       throw new BadRequestException('فشل إرسال البريد الإلكتروني');
     }
   }
@@ -595,12 +584,12 @@ private async forceDeleteWithCascade(id: string): Promise<void> {
     const company = await this.companyRepo.findOne({ where: { email } });
     if (!company) throw new NotFoundException('Company not found');
     if (company.verificationCode !== code)
-      throw new UnauthorizedException('❌ كود غير صحيح');
+      throw new UnauthorizedException('كود غير صحيح');
 
     company.password = await bcrypt.hash(newPassword, 10);
     company.verificationCode = null;
     await this.companyRepo.save(company);
 
-    return '✅ تم تغيير كلمة المرور بنجاح';
+    return 'تم تغيير كلمة المرور بنجاح';
   }
 }

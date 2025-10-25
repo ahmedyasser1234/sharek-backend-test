@@ -27,15 +27,13 @@ export class CardService {
     @InjectRepository(EmployeeCard)
     private readonly cardRepo: Repository<EmployeeCard>,
   ) {}
-
-  async generateCard(
+ async generateCard(
     employee: Employee,
     designId?: string,
     qrStyle?: number,
     extra?: Partial<EmployeeCard>
   ): Promise<{ cardUrl: string; qrCode: string; designId: string; qrStyle: number }> {
-    const finalDesignId =
-    designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
+    const finalDesignId = designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
 
     const finalQrStyle = qrStyle ?? 1;
     const uniqueUrl = randomUUID();
@@ -45,22 +43,22 @@ export class CardService {
 
     switch (finalQrStyle) {
       case 2:
-      qrCode = await QRCode.toDataURL(cardUrl, {
-        color: { dark: '#FF0000', light: '#FFFFFF' },
-      });
-      break;
+        qrCode = await QRCode.toDataURL(cardUrl, {
+          color: { dark: '#FF0000', light: '#FFFFFF' },
+        });
+        break;
       case 3:
-      qrCode = await QRCode.toDataURL(cardUrl, {
-        margin: 4,
-        scale: 10,
-      });
-      break;
+        qrCode = await QRCode.toDataURL(cardUrl, {
+          margin: 4,
+          scale: 10,
+        });
+        break;
       default:
-      qrCode = await QRCode.toDataURL(cardUrl);
-      if (![1, 2, 3].includes(finalQrStyle)) {
-        this.logger.warn(`qrStyle غير معروف (${finalQrStyle})، تم استخدام الشكل العادي`);
-      }
-      break;
+        qrCode = await QRCode.toDataURL(cardUrl);
+        if (![1, 2, 3].includes(finalQrStyle)) {
+          this.logger.warn(`qrStyle غير معروف (${finalQrStyle})، تم استخدام الشكل العادي`);
+        }
+        break;
     }
 
     const card = this.cardRepo.create({
@@ -70,7 +68,7 @@ export class CardService {
       designId: finalDesignId,
       qrStyle: finalQrStyle,
       employee,
-      ...extra, 
+      ...extra, // سيتم تضمين backgroundImage هنا إذا كانت موجودة
     });
 
     await this.cardRepo.save(card);
@@ -81,5 +79,4 @@ export class CardService {
       qrStyle: finalQrStyle,
     };
   }
-
 }

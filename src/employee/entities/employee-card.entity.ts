@@ -70,6 +70,9 @@ export class EmployeeCard {
   @Column({ type: 'boolean', default: false })
   cardStyleSection: boolean;
 
+  @Column({ type: 'varchar', nullable: true })
+  backgroundImage: string | null;
+
   @ManyToOne(() => Employee, (employee) => employee.cards, {
     nullable: false,
     onDelete: 'CASCADE',

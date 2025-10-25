@@ -14,9 +14,10 @@ import { PaymentTransaction } from '../../payment/entities/payment-transaction.e
 
 export enum SubscriptionStatus {
   ACTIVE = 'active',
-  CANCELLED = 'cancelled',
-  EXPIRED = 'expired',
+  INACTIVE = 'inactive', 
   PENDING = 'pending',
+  CANCELLED = 'cancelled',
+  EXPIRED = 'expired'
 }
 
 @Entity('company_subscriptions')

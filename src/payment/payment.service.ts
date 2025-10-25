@@ -25,7 +25,8 @@ import { PaymentProof } from './entities/payment-proof.entity';
 import { CloudinaryService } from '../common/services/cloudinary.service';
 import * as nodemailer from 'nodemailer';
 import sharp from 'sharp';
-
+import { PaymentProofStatus } from './entities/payment-proof-status.enum';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class PaymentService {
@@ -49,6 +50,7 @@ export class PaymentService {
     @InjectRepository(PaymentProof)
     private readonly paymentProofRepo: Repository<PaymentProof>,
     private readonly cloudinaryService: CloudinaryService,
+    private readonly notificationService: NotificationService,  
   ) {}
 
   async generateCheckoutUrl(
@@ -134,13 +136,18 @@ export class PaymentService {
 
       await this.subRepo.save(subscription);
 
-      // إرسال الإيميل في الخلفية
-      this.sendDecisionEmail(
-        transaction.company.email,
-        transaction.company.name,
-        transaction.plan.name,
-        true
-      ).catch(err => this.logger.error(`فشل إرسال إيميل التفعيل: ${String(err)}`));
+      this.notificationService.notifyPaymentSuccess(transaction.company, transaction.plan);
+
+      try {
+        await this.sendDecisionEmail(
+          transaction.company.email,
+          transaction.company.name,
+          transaction.plan.name,
+          true
+        );
+      } catch (err) {
+        this.logger.error(`فشل إرسال إيميل التفعيل: ${String(err)}`);
+      }
     } catch (err) {
       this.logger.error(`فشل تأكيد المعاملة: ${String(err)}`);
       throw new HttpException('فشل تأكيد المعاملة', HttpStatus.INTERNAL_SERVER_ERROR);
@@ -167,9 +174,9 @@ export class PaymentService {
 
     try {
       const compressedBuffer = await sharp(file.buffer)
-      .resize({ width: 1000 }) 
-      .jpeg({ quality: 70 })  
-      .toBuffer();
+        .resize({ width: 1000 }) 
+        .jpeg({ quality: 70 })  
+        .toBuffer();
 
       const result = await this.cloudinaryService.uploadImage(
         { ...file, buffer: compressedBuffer },
@@ -188,17 +195,115 @@ export class PaymentService {
       plan,
       imageUrl,
       publicId,
+      status: PaymentProofStatus.PENDING,
     });
 
     await this.paymentProofRepo.save(proof);
 
-    this.sendProofNotification(company, plan, imageUrl)
-    .catch(err => this.logger.error(`فشل إرسال إشعار الإدارة: ${String(err)}`));
+    this.notificationService.notifyNewSubscriptionRequest(proof);
+
+    try {
+      await this.sendProofNotification(company, plan, imageUrl);
+    } catch (err) {
+      this.logger.error(`فشل إرسال إشعار الإدارة: ${String(err)}`);
+    }
 
     return { message: 'تم إرسال وصل التحويل، سيتم مراجعته من قبل الإدارة' };
   }
 
-  async sendProofNotification(company: Company, plan: Plan, imageUrl: string) {
+  async approveProof(proofId: string): Promise<{ message: string }> {
+    const proof = await this.paymentProofRepo.findOne({
+      where: { id: proofId },
+      relations: ['company', 'plan'],
+    });
+
+    if (!proof) {
+      this.logger.warn(`طلب غير موجود: ${proofId}`);
+      throw new NotFoundException('الطلب غير موجود');
+    }
+
+    proof.status = PaymentProofStatus.APPROVED;
+    proof.reviewed = true;
+    proof.rejected = false;
+    await this.paymentProofRepo.save(proof);
+
+    const subscription = this.subRepo.create({
+      company: proof.company,
+      plan: proof.plan,
+      startDate: new Date(),
+      endDate: new Date(Date.now() + proof.plan.durationInDays * 24 * 60 * 60 * 1000),
+      price: proof.plan.price,
+      currency: proof.plan.currency || 'SAR',
+      status: SubscriptionStatus.ACTIVE,
+    });
+
+    await this.subRepo.save(subscription);
+
+    proof.company.subscriptionStatus = 'active';
+    proof.company.planId = proof.plan.id;
+    proof.company.paymentProvider = 'manual_transfer';
+    proof.company.subscribedAt = new Date();
+    await this.companyRepo.save(proof.company);
+
+    this.logger.log(` تم قبول طلب التحويل: ${proofId} - الشركة: ${proof.company.name}`);
+
+    this.notificationService.notifySubscriptionApproved(proof);
+
+    if (proof.company.email) {
+      try {
+        await this.sendDecisionEmail(
+          proof.company.email,
+          proof.company.name,
+          proof.plan.name,
+          true
+        );
+      } catch (err) {
+        this.logger.error(`فشل إرسال إشعار القبول: ${String(err)}`);
+      }
+    }
+
+    return { message: 'تم قبول الطلب وتفعيل الاشتراك بنجاح' };
+  }
+
+  async rejectProof(proofId: string, reason: string): Promise<{ message: string }> {
+    const proof = await this.paymentProofRepo.findOne({
+      where: { id: proofId },
+      relations: ['company', 'plan'],
+    });
+
+    if (!proof) {
+      this.logger.warn(`طلب غير موجود: ${proofId}`);
+      throw new NotFoundException('الطلب غير موجود');
+    }
+
+    proof.status = PaymentProofStatus.REJECTED;
+    proof.rejected = true;
+    proof.reviewed = true;
+    proof.decisionNote = reason;
+    await this.paymentProofRepo.save(proof);
+
+    this.logger.log(` تم رفض طلب التحويل: ${proofId} - الشركة: ${proof.company.name} - السبب: ${reason}`);
+
+    this.notificationService.notifySubscriptionRejected(proof);
+
+    if (proof.company.email) {
+      try {
+        await this.sendDecisionEmail(
+          proof.company.email,
+          proof.company.name,
+          proof.plan.name,
+          false,
+          reason
+        );
+      } catch (err) {
+        this.logger.error(`فشل إرسال إشعار الرفض: ${String(err)}`);
+      }
+    }
+
+    return { message: 'تم رفض الطلب وإرسال إشعار للشركة' };
+  }
+
+  async sendProofNotification(company: Company, plan: Plan, imageUrl: string): Promise<void> {
     if (!company.email) {
       throw new HttpException('لا يوجد إيميل للشركة', HttpStatus.BAD_REQUEST);
     }
@@ -233,7 +338,7 @@ export class PaymentService {
     planName: string,
     accepted: boolean,
     reason?: string,
-  ) {
+  ): Promise<void> {
     if (!email) return;
 
     const transporter = nodemailer.createTransport({
@@ -259,37 +364,6 @@ export class PaymentService {
       to: email,
       subject,
       html,
-      });
-  }
-
-  async rejectProof(proofId: string, reason: string): Promise<{ message: string }> {
-    const proof = await this.paymentProofRepo.findOne({
-      where: { id: proofId },
-      relations: ['company', 'plan'],
     });
-
-    if (!proof) {
-      this.logger.warn(`طلب غير موجود: ${proofId}`);
-      throw new NotFoundException('الطلب غير موجود');
-    }
-
-    proof.rejected = true;
-    proof.reviewed = true;
-    proof.decisionNote = reason;
-    await this.paymentProofRepo.save(proof);
-
-    this.logger.log(` تم رفض طلب التحويل: ${proofId} - الشركة: ${proof.company.name} - السبب: ${reason}`);
-
-    if (proof.company.email) {
-      this.sendDecisionEmail(
-        proof.company.email,
-        proof.company.name,
-        proof.plan.name,
-        false,
-        reason
-      ).catch(err => this.logger.error(`فشل إرسال إشعار الرفض: ${String(err)}`));
-    }
-    return { message: 'تم رفض الطلب وإرسال إشعار للشركة' };
-}
-
+  }
 }

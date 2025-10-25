@@ -8,7 +8,6 @@ import {
   IsObject,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
 import { Transform } from 'class-transformer';
 
 export class CreateEmployeeDto {
@@ -75,9 +74,14 @@ export class CreateEmployeeDto {
   @IsString()
   designId?: string;
 
-  @ApiPropertyOptional({ enum: [1, 2, 3], example: 2 })
-  @Type(() => Number)
+  @ApiPropertyOptional({})
   @IsOptional()
+  @IsString()
+  backgroundImage?: string;
+
+  @ApiPropertyOptional({ enum: [1, 2, 3], example: 2 })
+  @IsOptional()
+  @Transform(({ value }) => value ? Number(value) : undefined)
   @IsNumber()
   qrStyle?: number;
 
@@ -123,31 +127,41 @@ export class CreateEmployeeDto {
 
   @ApiPropertyOptional({ example: 2 })
   @IsOptional()
+  @Transform(({ value }) => value ? Number(value) : undefined)
   @IsNumber()
   shadowX?: number;
 
   @ApiPropertyOptional({ example: 2 })
   @IsOptional()
+  @Transform(({ value }) => value ? Number(value) : undefined)
   @IsNumber()
   shadowY?: number;
 
   @ApiPropertyOptional({ example: 5 })
   @IsOptional()
+  @Transform(({ value }) => value ? Number(value) : undefined)
   @IsNumber()
   shadowBlur?: number;
 
   @ApiPropertyOptional({ example: 1 })
   @IsOptional()
+  @Transform(({ value }) => value ? Number(value) : undefined)
   @IsNumber()
   shadowSpread?: number;
 
   @ApiPropertyOptional({ example: 10 })
   @IsOptional()
+  @Transform(({ value }) => value ? Number(value) : undefined)
   @IsNumber()
   cardRadius?: number;
 
   @ApiPropertyOptional({ example: true, description: 'هل يتم عرض قسم تصميم البطاقة؟' })
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    return Boolean(value);
+  })
   @IsBoolean()
   cardStyleSection?: boolean;
 
@@ -448,7 +462,7 @@ export class CreateEmployeeDto {
   @Transform(({ value }) => {
     if (typeof value === 'string') {
       try {
-        return JSON.parse(value) as {
+        const parsedValue = JSON.parse(value) as {
           monday?: { from: string; to: string };
           tuesday?: { from: string; to: string };
           wednesday?: { from: string; to: string };
@@ -457,6 +471,7 @@ export class CreateEmployeeDto {
           saturday?: { from: string; to: string };
           sunday?: { from: string; to: string };
         };
+        return parsedValue;
       } catch {
         return undefined;
       }
@@ -574,6 +589,7 @@ export class CreateEmployeeDto {
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   preventMultipleFormViews?: boolean;
 
@@ -607,6 +623,7 @@ export class CreateEmployeeDto {
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   contactFieldRequired?: boolean;
 
@@ -630,6 +647,7 @@ export class CreateEmployeeDto {
 
   @ApiPropertyOptional({ example: 5 })
   @IsOptional()
+  @Transform(({ value }) => value ? Number(value) : undefined)
   @IsNumber()
   feedbackMaxRating?: number;
 
@@ -640,6 +658,7 @@ export class CreateEmployeeDto {
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   showRatingLabels?: boolean;
 
@@ -655,6 +674,7 @@ export class CreateEmployeeDto {
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   collectFeedbackOnLowRating?: boolean;
 
@@ -681,121 +701,123 @@ export class CreateEmployeeDto {
 
   @ApiPropertyOptional({ example: 5 })
   @IsOptional()
+  @Transform(({ value }) => value ? Number(value) : undefined)
   @IsNumber()
   autoRedirectAfterSeconds?: number;
 
   @ApiPropertyOptional({ example: true })
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   enableAutoRedirect?: boolean;
 
-    @ApiPropertyOptional({ example: 'تابعني على  موقعى ' })
-    @IsOptional()
-    @IsString()
-    linksTitle?: string;
-  
-    @ApiPropertyOptional({ example: 'أشارك محتوى تقني' })
-    @IsOptional()
-    @IsString()
-    linksDescription?: string;
-  
-    @ApiPropertyOptional({ example: 'https://example.com/work' })
-    @IsOptional()
-    @IsString()
-    workLink?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkTitle?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkSubtitle?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkImageUrl?: string;
+  @ApiPropertyOptional({ example: 'تابعني على  موقعى ' })
+  @IsOptional()
+  @IsString()
+  linksTitle?: string;
 
-    @ApiPropertyOptional({ example: 'https://example.com/work' })
-    @IsOptional()
-    @IsString()
-    workLinkk?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkTitle?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkSubtitle?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkImageUrl?: string;
+  @ApiPropertyOptional({ example: 'أشارك محتوى تقني' })
+  @IsOptional()
+  @IsString()
+  linksDescription?: string;
 
-    @ApiPropertyOptional({ example: 'https://example.com/work' })
-    @IsOptional()
-    @IsString()
-    workLinkkk?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkkTitle?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkkSubtitle?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkkImageUrl?: string;
+  @ApiPropertyOptional({ example: 'https://example.com/work' })
+  @IsOptional()
+  @IsString()
+  workLink?: string;
 
-    @ApiPropertyOptional({ example: 'https://example.com/work' })
-    @IsOptional()
-    @IsString()
-    workLinkkkk?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkkkTitle?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkkkSubtitle?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkkkImageUrl?: string;
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkTitle?: string;
 
-    @ApiPropertyOptional({ example: 'https://example.com/work' })
-    @IsOptional()
-    @IsString()
-    workLinkkkkk?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkkkkTitle?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkkkkSubtitle?: string;
-  
-    @ApiPropertyOptional({})
-    @IsOptional()
-    @IsString()
-    workLinkkkkkImageUrl?: string;
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkSubtitle?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkImageUrl?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/work' })
+  @IsOptional()
+  @IsString()
+  workLinkk?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkTitle?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkSubtitle?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkImageUrl?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/work' })
+  @IsOptional()
+  @IsString()
+  workLinkkk?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkkTitle?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkkSubtitle?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkkImageUrl?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/work' })
+  @IsOptional()
+  @IsString()
+  workLinkkkk?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkkkTitle?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkkkSubtitle?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkkkImageUrl?: string;
+
+  @ApiPropertyOptional({ example: 'https://example.com/work' })
+  @IsOptional()
+  @IsString()
+  workLinkkkkk?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkkkkTitle?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkkkkSubtitle?: string;
+
+  @ApiPropertyOptional({})
+  @IsOptional()
+  @IsString()
+  workLinkkkkkImageUrl?: string;
 }

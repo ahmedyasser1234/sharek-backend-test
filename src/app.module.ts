@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-// import { APP_GUARD } from '@nestjs/core'; // ❌ علّق هذا
+// import { APP_GUARD } from '@nestjs/core'; 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -18,6 +18,8 @@ import { CloudinaryService } from './common/services/cloudinary.service';
 import { CompanyJwtGuard } from './company/auth/company-jwt.guard';
 import { CompanyJwtService } from './company/auth/company-jwt.service';
 import { RevokedToken } from './company/entities/revoked-token.entity';
+import { NotificationModule } from './notification/notification.module';
+
 
 @Module({
   imports: [
@@ -33,15 +35,15 @@ import { RevokedToken } from './company/entities/revoked-token.entity';
     CardModule,
     PlanModule,
     PaymentModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [
     AppService,
     CloudinaryService,
     CompanyJwtService,
-    CompanyJwtGuard, // ✅ أضف Guard كـ provider عادي
+    CompanyJwtGuard, 
     
-    // ❌ علّق الـ APP_GUARD مؤقتاً
     // {
     //   provide: APP_GUARD,
     //   useClass: CompanyJwtGuard,

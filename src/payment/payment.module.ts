@@ -15,6 +15,7 @@ import { PaymentController } from './payment.controller';
 import { PlanModule } from '../plan/plan.module';
 import { PaymentProof } from './entities/payment-proof.entity';
 import { CloudinaryModule } from '../common/services/cloudinary.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { CloudinaryModule } from '../common/services/cloudinary.module';
     ]),
     CloudinaryModule,
     PlanModule,
+    NotificationModule,
   ],
   providers: [
     PaymentService,

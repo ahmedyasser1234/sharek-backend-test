@@ -17,6 +17,9 @@ import { CompanyService } from '../company/company.service';
 import { PaymentService } from '../payment/payment.service';
 import * as nodemailer from 'nodemailer';
 import { Cron } from '@nestjs/schedule';
+import { Employee } from '../employee/entities/employee.entity'; 
+import { PaymentProof } from '../payment/entities/payment-proof.entity';
+import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
 
 @Injectable()
 export class SubscriptionService {
@@ -25,10 +28,19 @@ export class SubscriptionService {
   constructor(
     @InjectRepository(CompanySubscription)
     private readonly subscriptionRepo: Repository<CompanySubscription>,
+    
     @InjectRepository(Company)
     public readonly companyRepo: Repository<Company>,
+    
     @InjectRepository(Plan)
     private readonly planRepo: Repository<Plan>,
+    
+    @InjectRepository(Employee)
+    private readonly employeeRepo: Repository<Employee>,
+    
+    @InjectRepository(PaymentProof) 
+    private readonly paymentProofRepo: Repository<PaymentProof>,
+    
     private readonly companyService: CompanyService,
     private readonly paymentService: PaymentService,
   ) {}
@@ -44,114 +56,146 @@ export class SubscriptionService {
   }
 
   async subscribe(companyId: string, planId: string, isAdminOverride = false): Promise<any> {
-  try {
-    this.logger.log(` بدء الاشتراك: الشركة ${companyId} في الخطة ${planId}`);
+    try {
+      this.logger.log(` بدء الاشتراك: الشركة ${companyId} في الخطة ${planId}`);
 
-    const company = await this.companyRepo.findOne({ where: { id: companyId } });
-    if (!company) throw new NotFoundException('Company not found');
+      const company = await this.companyRepo.findOne({ where: { id: companyId } });
+      if (!company) throw new NotFoundException('Company not found');
 
-    const newPlan = await this.planRepo.findOne({ where: { id: planId } });
-    if (!newPlan) throw new NotFoundException('Plan not found');
+      const newPlan = await this.planRepo.findOne({ where: { id: planId } });
+      if (!newPlan) throw new NotFoundException('Plan not found');
 
-    const planPrice = parseFloat(String(newPlan.price));
-    if (isNaN(planPrice)) throw new BadRequestException('السعر غير صالح للخطة');
+      const planPrice = parseFloat(String(newPlan.price));
+      if (isNaN(planPrice)) throw new BadRequestException('السعر غير صالح للخطة');
 
-    if (newPlan.isTrial) {
-      const previousTrial = await this.subscriptionRepo.findOne({
-        where: {
-          company: { id: companyId },
-          plan: { isTrial: true },
-        },
-        relations: ['plan', 'company'],
+      if (newPlan.isTrial) {
+        const previousTrial = await this.subscriptionRepo.findOne({
+          where: {
+            company: { id: companyId },
+            plan: { isTrial: true },
+          },
+          relations: ['plan', 'company'],
+        });
+        if (previousTrial) throw new BadRequestException('لا يمكن استخدام الخطة التجريبية أكثر من مرة');
+      }
+
+      const startDate = new Date();
+      const endDate = new Date();
+      endDate.setDate(startDate.getDate() + newPlan.durationInDays);
+
+      const existingSub = await this.subscriptionRepo.findOne({
+        where: { company: { id: companyId } },
+        order: { startDate: 'DESC' },
+        relations: ['plan'],
       });
-      if (previousTrial) throw new BadRequestException('لا يمكن استخدام الخطة التجريبية أكثر من مرة');
-    }
 
-    const startDate = new Date();
-    const endDate = new Date();
-    endDate.setDate(startDate.getDate() + newPlan.durationInDays);
-
-    const existingSub = await this.subscriptionRepo.findOne({
-      where: { company: { id: companyId } },
-      order: { startDate: 'DESC' },
-      relations: ['plan'],
-    });
-
-    const subscriptionData: Partial<CompanySubscription> = {
-      company,
-      plan: newPlan,
-      startDate,
-      endDate,
-      price: planPrice,
-      status: SubscriptionStatus.ACTIVE,
-    };
-
-    if (planPrice === 0 || isAdminOverride) {
-      const subscription = existingSub
-        ? Object.assign(existingSub, subscriptionData)
-        : this.subscriptionRepo.create(subscriptionData);
-
-      const saved = await this.subscriptionRepo.save(subscription);
-
-      company.subscriptionStatus = 'active';
-      company.subscribedAt = new Date();
-      company.planId = newPlan.id;
-      company.paymentProvider = newPlan.paymentProvider?.toString() ?? '';
-      await this.companyRepo.save(company);
-
-      return {
-        message: isAdminOverride
-          ? ' تم تفعيل الاشتراك يدويًا بواسطة الأدمن'
-          : ' تم الاشتراك في الخطة المجانية بنجاح',
-        redirectToDashboard: true,
-        subscription: saved,
+      const subscriptionData: Partial<CompanySubscription> = {
+        company,
+        plan: newPlan,
+        startDate,
+        endDate,
+        price: planPrice,
+        status: SubscriptionStatus.ACTIVE,
       };
+
+      if (planPrice === 0 || isAdminOverride) {
+        const subscription = existingSub
+          ? Object.assign(existingSub, subscriptionData)
+          : this.subscriptionRepo.create(subscriptionData);
+
+        const saved = await this.subscriptionRepo.save(subscription);
+
+        company.subscriptionStatus = 'active';
+        company.subscribedAt = new Date();
+        company.planId = newPlan.id;
+        company.paymentProvider = newPlan.paymentProvider?.toString() ?? '';
+        await this.companyRepo.save(company);
+
+        if (isAdminOverride) {
+          await this.updateRelatedPaymentProof(companyId, planId);
+        }
+
+        return {
+          message: isAdminOverride
+            ? ' تم تفعيل الاشتراك يدويًا بواسطة الأدمن'
+            : ' تم الاشتراك في الخطة المجانية بنجاح',
+          redirectToDashboard: true,
+          subscription: saved,
+        };
+      }
+
+      if (planPrice > 0) {
+        const provider = newPlan.paymentProvider;
+        if (!provider) throw new BadRequestException('مزود الدفع مطلوب للخطط المدفوعة');
+
+        const checkoutUrl = await this.paymentService.generateCheckoutUrl(
+          provider,
+          newPlan,
+          companyId,
+        );
+
+        return {
+          message: 'يتطلب دفع',
+          redirectToPayment: true,
+          checkoutUrl,
+        };
+      }
+
+      throw new BadRequestException('لم يتم الاشتراك');
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(` فشل الاشتراك: ${msg}`);
+      throw error;
     }
+  }
 
-    if (planPrice > 0) {
-      const provider = newPlan.paymentProvider;
-      if (!provider) throw new BadRequestException('مزود الدفع مطلوب للخطط المدفوعة');
+  private async updateRelatedPaymentProof(companyId: string, planId: string): Promise<void> {
+    try {
+      const latestProof = await this.paymentProofRepo.findOne({
+        where: { 
+          company: { id: companyId },
+          plan: { id: planId },
+          status: PaymentProofStatus.PENDING 
+        },
+        order: { createdAt: 'DESC' },
+        relations: ['company', 'plan'],
+      });
+      
+      if (latestProof) {
+        latestProof.status = PaymentProofStatus.APPROVED;
+        latestProof.reviewed = true;
+        latestProof.rejected = false;
+        await this.paymentProofRepo.save(latestProof);
+        
+        this.logger.log(` تم تحديث حالة الـ Proof: ${latestProof.id} من pending إلى approved`);
+        this.logger.log(` الشركة: ${latestProof.company.name}, الخطة: ${latestProof.plan.name}`);
+      } else {
+        this.logger.warn(` لم يتم العثور على proof pending للشركة ${companyId} والخطة ${planId}`);
+      }
+    } catch (error) {
+      this.logger.error(` فشل تحديث حالة الـ Proof: ${String(error)}`);
+    }
+  }
 
-      const checkoutUrl = await this.paymentService.generateCheckoutUrl(
-        provider,
-        newPlan,
-        companyId,
-      );
+  async updateCompanyEmployeeLimit(companyId: string, newLimit: number): Promise<any> {
+    try {
+      const subscription = await this.getCompanySubscription(companyId);
+      if (!subscription) throw new NotFoundException('لا يوجد اشتراك للشركة');
 
+      subscription.customMaxEmployees = newLimit;
+      await this.subscriptionRepo.save(subscription);
+
+      this.logger.log(`✅ تم تعديل الحد المسموح للموظفين للشركة ${companyId} إلى ${newLimit}`);
       return {
-        message: 'يتطلب دفع',
-        redirectToPayment: true,
-        checkoutUrl,
+        message: `تم تعديل الحد المسموح للموظفين إلى ${newLimit}`,
+        subscription,
       };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(` فشل تعديل الحد للموظفين للشركة ${companyId}: ${msg}`);
+      throw new InternalServerErrorException('فشل تعديل الحد للموظفين');
     }
-
-    throw new BadRequestException('لم يتم الاشتراك');
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(` فشل الاشتراك: ${msg}`);
-    throw error;
   }
-}
-
-async updateCompanyEmployeeLimit(companyId: string, newLimit: number): Promise<any> {
-  try {
-    const subscription = await this.getCompanySubscription(companyId);
-    if (!subscription) throw new NotFoundException('لا يوجد اشتراك للشركة');
-
-    subscription.customMaxEmployees = newLimit;
-    await this.subscriptionRepo.save(subscription);
-
-    this.logger.log(`✅ تم تعديل الحد المسموح للموظفين للشركة ${companyId} إلى ${newLimit}`);
-    return {
-      message: `تم تعديل الحد المسموح للموظفين إلى ${newLimit}`,
-      subscription,
-    };
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(` فشل تعديل الحد للموظفين للشركة ${companyId}: ${msg}`);
-    throw new InternalServerErrorException('فشل تعديل الحد للموظفين');
-  }
-}
 
   async getCompanySubscription(companyId: string): Promise<CompanySubscription | null> {
     try {
@@ -168,15 +212,44 @@ async updateCompanyEmployeeLimit(companyId: string, newLimit: number): Promise<a
     }
   }
 
- async getAllowedEmployees(companyId: string): Promise<number> {
-  try {
-    const subscription = await this.getCompanySubscription(companyId);
-    return subscription?.customMaxEmployees ?? subscription?.plan?.maxEmployees ?? 0;
-  } catch (error: unknown) {
-    this.logger.error(` فشل حساب الحد المسموح للموظفين للشركة ${companyId}`, error as any);
-    throw new InternalServerErrorException('فشل حساب الحد المسموح للموظفين');
+  async getAllowedEmployees(companyId: string): Promise<number> {
+    try {
+      this.logger.debug(`🔍 التحقق من الحد المسموح للموظفين للشركة: ${companyId}`);
+      
+      const activeSubscription = await this.subscriptionRepo.findOne({
+        where: { 
+          company: { id: companyId },
+          status: SubscriptionStatus.ACTIVE
+        },
+        relations: ['plan']
+      });
+
+      if (!activeSubscription) {
+        this.logger.warn(` الشركة ${companyId} ليس لديها اشتراك نشط`);
+        return 0; 
+      }
+
+      const currentEmployees = await this.employeeRepo.count({
+        where: { company: { id: companyId } }
+      });
+
+      const maxEmployees = activeSubscription.customMaxEmployees ?? activeSubscription.plan?.maxEmployees ?? 0;
+      const remainingEmployees = maxEmployees - currentEmployees;
+
+      this.logger.debug(` إحصائيات الموظفين للشركة ${companyId}:
+        - الموظفين الحاليين: ${currentEmployees}
+        - الحد المسموح: ${maxEmployees}
+        - المتبقي: ${remainingEmployees}
+        - حالة الاشتراك: ${activeSubscription.status}`);
+
+      return remainingEmployees > 0 ? remainingEmployees : 0;
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(` فشل حساب الحد المسموح للموظفين للشركة ${companyId}: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل حساب الحد المسموح للموظفين');
+    }
   }
-}
 
   async getUsage(companyId: string): Promise<any> {
     try {
@@ -199,18 +272,91 @@ async updateCompanyEmployeeLimit(companyId: string, newLimit: number): Promise<a
     }
   }
 
-  async cancelSubscription(companyId: string): Promise<any> {
-    try {
-      const sub = await this.getCompanySubscription(companyId);
-      if (!sub) throw new NotFoundException('لا يوجد اشتراك لإلغائه');
-      sub.status = SubscriptionStatus.CANCELLED;
+ async cancelSubscription(companyId: string): Promise<any> {
+  this.logger.log(` بدء عملية إلغاء اشتراك الشركة: ${companyId}`);
+
+  try {
+    this.logger.debug(` البحث عن اشتراكات الشركة: ${companyId}`);
+    const subscriptions = await this.subscriptionRepo.find({
+      where: { 
+        company: { id: companyId },
+        status: SubscriptionStatus.ACTIVE
+      },
+      relations: ['plan', 'company']
+    });
+
+    this.logger.log(` تم العثور على ${subscriptions.length} اشتراك نشط للشركة`);
+
+    if (subscriptions.length === 0) {
+      this.logger.warn(` لا يوجد اشتراكات نشطة للشركة: ${companyId}`);
+      throw new NotFoundException('لا يوجد اشتراكات نشطة للشركة');
+    }
+
+    this.logger.log(` بدء تحديث ${subscriptions.length} اشتراك إلى inactive`);
+    
+    const updatePromises = subscriptions.map(async (sub, index) => {
+      this.logger.debug(`📝 تحديث الاشتراك ${index + 1}: 
+        - ID: ${sub.id}
+        - الحالة السابقة: ${sub.status}
+        - الخطة: ${sub.plan?.name}
+        - الشركة: ${sub.company?.name}`);
+      
+      const oldStatus = sub.status;
+      sub.status = 'inactive' as SubscriptionStatus;
+      
       await this.subscriptionRepo.save(sub);
-      return { message: 'تم إلغاء الاشتراك بنجاح', subscription: sub };
-    } catch (error: unknown) {
-      this.logger.error(` فشل إلغاء الاشتراك للشركة ${companyId}`, error as any);
+      this.logger.debug(` تم تحديث الاشتراك ${sub.id} من ${oldStatus} إلى inactive`);
+      
+      return sub;
+    });
+
+    await Promise.all(updatePromises);
+    this.logger.log(` تم تحديث ${subscriptions.length} اشتراك إلى inactive بنجاح`);
+
+    const company = subscriptions[0].company;
+    if (company) {
+      this.logger.debug(` تحديث حالة الشركة: ${company.id} من ${company.subscriptionStatus} إلى inactive`);
+      
+      const oldStatus = company.subscriptionStatus;
+      company.subscriptionStatus = 'inactive';
+      company.planId = null;
+      company.paymentProvider = '';
+      company.subscribedAt = null as unknown as Date; 
+      
+      await this.companyRepo.save(company);
+      this.logger.debug(` تم تحديث حالة الشركة من ${oldStatus} إلى inactive`);
+    }
+
+    const planNames = [...new Set(subscriptions.map(sub => sub.plan?.name).filter(Boolean))];
+    this.logger.debug(` الخطط التي تم إلغاء تفعيلها: ${planNames.join(', ')}`);
+
+    this.logger.log(` النتيجة النهائية:
+      - الاشتراكات المحدثة: ${subscriptions.length}
+      - الخطط التي تم إلغاء تفعيلها: ${planNames.length}
+      - حالة الشركة: inactive`);
+
+    const result = { 
+      message: 'تم إلغاء جميع اشتراكات الشركة بنجاح', 
+      updatedSubscriptions: subscriptions.length,
+      disconnectedPlans: planNames,
+      companyStatus: 'inactive - غير قادرة على إضافة موظفين',
+      note: 'الشركة لن تتمكن من إضافة موظفين جدد حتى تشترك في خطة جديدة'
+    };
+
+    this.logger.log(` عملية إلغاء الاشتراك اكتملت بنجاح للشركة: ${companyId}`);
+    return result;
+
+  } catch (error: unknown) {
+    this.logger.error(` فشل إلغاء الاشتراكات للشركة ${companyId}`, error as any);
+    
+    if (error instanceof NotFoundException) {
+      this.logger.warn(` الشركة ${companyId} ليس لديها اشتراكات نشطة لإلغائها`);
       throw error;
     }
+    
+    throw new InternalServerErrorException('حدث خطأ أثناء إلغاء الاشتراك');
   }
+}
 
   async extendSubscription(companyId: string): Promise<any> {
     try {
@@ -242,27 +388,28 @@ async updateCompanyEmployeeLimit(companyId: string, newLimit: number): Promise<a
       throw error;
     }
   }
-async getExpiringSubscriptions(daysThreshold: number = 30): Promise<CompanySubscription[]> {
-  try {
-    const now = new Date();
-    const thresholdDate = new Date(now.getTime() + daysThreshold * 86400000);
 
-    const subscriptions = await this.subscriptionRepo
-      .createQueryBuilder('sub')
-      .leftJoinAndSelect('sub.company', 'company')
-      .leftJoinAndSelect('sub.plan', 'plan')
-      .where('sub.status = :status', { status: SubscriptionStatus.ACTIVE })
-      .andWhere('sub.endDate <= :thresholdDate', { thresholdDate })
-      .orderBy('sub.endDate', 'ASC')
-      .getMany();
+  async getExpiringSubscriptions(daysThreshold: number = 30): Promise<CompanySubscription[]> {
+    try {
+      const now = new Date();
+      const thresholdDate = new Date(now.getTime() + daysThreshold * 86400000);
 
-    this.logger.log(` تم جلب ${subscriptions.length} اشتراكًا ينتهي خلال ${daysThreshold} يوم`);
-    return subscriptions;
-  } catch (error: unknown) {
-    this.logger.error(` فشل جلب الاشتراكات القريبة من الانتهاء: ${String(error)}`);
-    throw new InternalServerErrorException('فشل جلب الاشتراكات القريبة من الانتهاء');
+      const subscriptions = await this.subscriptionRepo
+        .createQueryBuilder('sub')
+        .leftJoinAndSelect('sub.company', 'company')
+        .leftJoinAndSelect('sub.plan', 'plan')
+        .where('sub.status = :status', { status: SubscriptionStatus.ACTIVE })
+        .andWhere('sub.endDate <= :thresholdDate', { thresholdDate })
+        .orderBy('sub.endDate', 'ASC')
+        .getMany();
+
+      this.logger.log(` تم جلب ${subscriptions.length} اشتراكًا ينتهي خلال ${daysThreshold} يوم`);
+      return subscriptions;
+    } catch (error: unknown) {
+      this.logger.error(` فشل جلب الاشتراكات القريبة من الانتهاء: ${String(error)}`);
+      throw new InternalServerErrorException('فشل جلب الاشتراكات القريبة من الانتهاء');
+    }
   }
-}
 
   async getSubscriptionHistory(companyId: string): Promise<CompanySubscription[]> {
     try {

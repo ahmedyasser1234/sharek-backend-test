@@ -7,8 +7,9 @@ import {
 } from 'typeorm';
 import { Company } from '../../company/entities/company.entity';
 import { Plan } from '../../plan/entities/plan.entity';
+import { PaymentProofStatus } from './payment-proof-status.enum';
 
-@Entity()
+@Entity('payment_proofs')
 export class PaymentProof {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -16,10 +17,9 @@ export class PaymentProof {
   @Column({ nullable: true }) 
   publicId: string;
 
-  // ✅ أضف onDelete: 'CASCADE' هنا
   @ManyToOne(() => Company, { 
     eager: true,
-    onDelete: 'CASCADE' // ✅ هذا هو الحل الأساسي
+    onDelete: 'CASCADE'
   })
   company: Company;
 
@@ -40,4 +40,11 @@ export class PaymentProof {
 
   @Column({ nullable: true })
   decisionNote: string;
+
+  @Column({
+    type: 'enum',
+    enum: PaymentProofStatus,
+    default: PaymentProofStatus.PENDING
+  })
+  status: PaymentProofStatus;
 }

@@ -41,7 +41,6 @@ interface CompanyRequest extends Request {
   user: { companyId: string };
 }
 
-// ✅ تعريف ثابت الـ Public
 const IS_PUBLIC_KEY = 'isPublic';
 const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 
@@ -272,7 +271,8 @@ export class EmployeeController {
       destination: './uploads/excel',
       filename: (req, file, cb) => {
         const ext = extname(file.originalname);
-        cb(null, `import-${Date.now()}${ext}`);
+        const filename = `import-${Date.now()}${ext}`;
+        cb(null, filename);
       },
     }),
   }))
@@ -284,15 +284,44 @@ export class EmployeeController {
   ) {
     try {
       const result = await this.employeeService.importFromExcel(file.path, req.user.companyId);
+
+      let message = `تم استيراد ${result.count} موظف`;
+      if (result.limitReached) {
+        const limitSkipped = result.skipped.filter(s => s.includes('subscription limit reached')).length;
+        message += ` وتم رفض ${limitSkipped} موظف بسبب تجاوز الحد في الخطة`;
+      }
       return {
         statusCode: 201,
-        message: `تم استيراد ${result.count} موظف`,
-        data: result.imported,
+        message: message,
+        data: {
+          imported: result.imported,
+          skipped: result.skipped,
+          summary: {
+            totalImported: result.count,
+            totalSkipped: result.skipped.length,
+            limitReached: result.limitReached,
+            limitSkippedCount: result.skipped.filter(s => s.includes('subscription limit reached')).length,
+            successRate: Math.round((result.count / (result.count + result.skipped.length)) * 100)
+          }
+        },
       };
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل استيراد Excel: ${msg}`);
+      console.error('Excel import error:', error);
       throw new InternalServerErrorException('حدث خطأ أثناء استيراد ملف Excel');
+    } finally {
+      try {
+        if (file?.path) {
+          const fs = await import('fs/promises');
+          await fs.unlink(file.path);
+        }
+      } catch {
+      // تنظيف صامت
     }
   }
+}
+
+private getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error';
+}
+
 }

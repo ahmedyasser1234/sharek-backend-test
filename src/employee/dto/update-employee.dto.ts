@@ -89,6 +89,11 @@ export class UpdateEmployeeDto {
     @IsNumber()
     qrStyle?: number;
 
+    @ApiPropertyOptional({})
+    @IsOptional()
+    @IsString()
+    backgroundImage?: string;
+
     @ApiPropertyOptional({ example: '#000000' })
     @IsOptional()
     @IsString()

@@ -12,6 +12,7 @@ import { PaymentModule } from '../payment/payment.module';
 import { JwtModule } from '@nestjs/jwt';
 import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard'; 
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
+import { Employee } from '../employee/entities/employee.entity'; 
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { PaymentProof } from '../payment/entities/payment-proof.entity';
       Plan,
       PaymentTransaction,
       PaymentProof, 
+       Employee,
     ]),
     forwardRef(() => CompanyModule),
      PaymentModule,
