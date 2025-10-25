@@ -53,7 +53,6 @@ export class EmployeeService {
 async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
     this.logger.log(`🎯 محاولة إنشاء موظف جديد للشركة: ${companyId}`);
     
-    // البحث عن الشركة
     this.logger.log(`🔍 جاري البحث عن الشركة: ${companyId}`);
     const company = await this.companyRepo.findOne({ where: { id: companyId } });
     if (!company) {
@@ -62,7 +61,6 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
     }
     this.logger.log(`✅ تم العثور على الشركة: ${company.name}`);
 
-    // التحقق من الاشتراك
     this.logger.log(`📊 جاري التحقق من الحد المسموح للموظفين...`);
     const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
     this.logger.log(`📋 الحد المسموح: ${allowedCount}`);
@@ -73,7 +71,6 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
     }
     this.logger.log(`✅ الشركة ${companyId} لديها إذن لإضافة موظفين (متبقي: ${allowedCount})`);
 
-    // معالجة ساعات العمل
     this.logger.log(`⏰ جاري معالجة ساعات العمل...`);
     let workingHours: Record<string, { from: string; to: string }> | null = null;
     let isOpen24Hours = false;
@@ -92,7 +89,6 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
         }
     }
 
-    // تحضير بيانات الموظف
     this.logger.log(`📝 جاري تحضير بيانات الموظف...`);
     const employeeData: Partial<Employee> = {
         ...dto,
@@ -117,19 +113,15 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
 
     this.logger.log(`👤 بيانات الموظف: ${employeeData.name}`);
 
-    // إنشاء وحفظ الموظف
     this.logger.log(`💾 جاري إنشاء الموظف في قاعدة البيانات...`);
     const employee = this.employeeRepo.create(employeeData);
     let saved = await this.employeeRepo.save(employee);
     this.logger.log(`✅ تم حفظ الموظف: ${saved.name} (ID: ${saved.id})`);
 
-    // خريطة الصور - معدلة بناءً على أسماء الحقول الفعلية
     const imageMap = {
-        // الحقول الأساسية
         'profileImageUrl': 'profileImageUrl',
         'secondaryImageUrl': 'secondaryImageUrl',
         
-        // وسائل التواصل
         'facebookImageUrl': 'facebookImageUrl',
         'instagramImageUrl': 'instagramImageUrl', 
         'tiktokImageUrl': 'tiktokImageUrl',
@@ -137,39 +129,33 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
         'xImageUrl': 'xImageUrl',
         'linkedinImageUrl': 'linkedinImageUrl',
         
-        // الصور المخصصة
         'customImageUrl': 'customImageUrl',
         'testimonialImageUrl': 'testimonialImageUrl',
         'workingHoursImageUrl': 'workingHoursImageUrl',
         'contactFormHeaderImageUrl': 'contactFormHeaderImageUrl',
         'pdfThumbnailUrl': 'pdfThumbnailUrl',
         
-        // روابط العمل
         'workLinkImageUrl': 'workLinkImageUrl',
         'workLinkkImageUrl': 'workLinkkImageUrl',
         'workLinkkkImageUrl': 'workLinkkkImageUrl',
         'workLinkkkkImageUrl': 'workLinkkkkImageUrl',
         'workLinkkkkkImageUrl': 'workLinkkkkkImageUrl',
         
-        // الحقول الجديدة من الـ logs
         'workLinkImageUrl_1': 'workLinkImageUrl',
         'workLinkImageUrl_2': 'workLinkkImageUrl',
         'workLinkImageUrl_3': 'workLinkkkImageUrl',
         
-        // الخلفية
         'backgroundImageUrl': 'backgroundImage',
     } as const;
 
     this.logger.log(`🗺️ خريطة الصور جاهزة: ${Object.keys(imageMap).join(', ')}`);
 
-    // معالجة الملفات
     files = Array.isArray(files) ? files : [];
     this.logger.log(`📁 عدد الملفات المستلمة: ${files.length}`);
     
     const validFiles = files.filter(file => file && file.buffer instanceof Buffer);
     this.logger.log(`✅ عدد الملفات الصالحة: ${validFiles.length}`);
 
-    // تسجيل معلومات الملفات
     this.logger.log(`🔍 أسماء حقول الملفات المستلمة:`);
     validFiles.forEach((file, index) => {
         this.logger.log(`   📄 ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.size} bytes`);
@@ -189,7 +175,6 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
     let backgroundImageUrl: string | null = null;
     let uploadedImagesCount = 0;
 
-    // معالجة كل مجموعة من الملفات
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
         const batch = batches[batchIndex];
         this.logger.log(`--- معالجة المجموعة ${batchIndex + 1}/${batches.length} (${batch.length} ملف) ---`);
@@ -203,7 +188,6 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
                         throw new BadRequestException('الملف أكبر من 3MB');
                     }
 
-                    // ضغط الصورة
                     this.logger.log(`🖼️ جاري ضغط الصورة: ${file.originalname}`);
                     const compressedBuffer = await sharp(file.buffer, { failOnError: false })
                         .resize({ width: 800 })
@@ -211,7 +195,6 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
                         .toBuffer();
                     this.logger.log(`✅ تم ضغط الصورة: ${file.originalname}`);
 
-                    // رفع إلى Cloudinary
                     this.logger.log(`☁️ جاري رفع الصورة إلى Cloudinary...`);
                     const result = await this.cloudinaryService.uploadBuffer(
                         compressedBuffer,
@@ -227,12 +210,10 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
                             backgroundImageUrl = result.secure_url;
                             this.logger.log(`🎨 تم رفع صورة الخلفية: ${backgroundImageUrl}`);
                         } else {
-                            // تحديث مباشر في قاعدة البيانات
                             this.logger.log(`🔄 تحديث حقل ${field} في قاعدة البيانات...`);
                             await this.employeeRepo.update(saved.id, { 
                                 [field]: result.secure_url 
                             });
-                            // تحديث الكائن المحلي أيضاً
                             saved[field] = result.secure_url;
                             this.logger.log(`✅ تم تحديث ${field}: ${result.secure_url}`);
                             uploadedImagesCount++;
@@ -269,14 +250,12 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
 
     this.logger.log(`📊 إجمالي الصور المرفوعة: ${uploadedImagesCount}`);
 
-    // الصورة الافتراضية إذا لم توجد صورة شخصية
     if (!saved.profileImageUrl) {
         this.logger.log(`👤 استخدام الصورة الافتراضية للملف الشخصي`);
         saved.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
         await this.employeeRepo.update(saved.id, { profileImageUrl: saved.profileImageUrl });
     }
 
-    // إنشاء بطاقة الموظف
     this.logger.log(`🎴 جاري إنشاء بطاقة الموظف...`);
     const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved, dto.designId, dto.qrStyle, {
         fontColorHead: dto.fontColorHead,
@@ -298,7 +277,6 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
 
     this.logger.log(`✅ تم إنشاء البطاقة: ${cardUrl}`);
 
-    // تحديث بيانات الموظف النهائية
     this.logger.log(`🔄 جاري تحديث بيانات الموظف النهائية...`);
     saved.cardUrl = cardUrl;
     saved.designId = designId;
