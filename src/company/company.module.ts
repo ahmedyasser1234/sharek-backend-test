@@ -21,12 +21,12 @@ import { SubscriptionModule } from '../subscription/subscription.module';
       CompanyToken,
       CompanyLoginLog,
       Employee,
-      RevokedToken, // ✅ مطلوب للحارس
+      RevokedToken, 
     ]),
     forwardRef(() => SubscriptionModule),
     CloudinaryModule,
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key', // ✅ استخدم .env لو متاح
+      secret: process.env.JWT_SECRET || 'your-secret-key', 
       signOptions: { expiresIn: '1d' },
     }),
   ],
@@ -41,7 +41,7 @@ import { SubscriptionModule } from '../subscription/subscription.module';
     CompanyService,
     CompanyJwtService,
     CompanyJwtGuard,
-    JwtModule, // ✅ تصدير JwtModule علشان يشتغل في أي مكان يحتاج JwtService
+    JwtModule, 
   ],
 })
 export class CompanyModule {}

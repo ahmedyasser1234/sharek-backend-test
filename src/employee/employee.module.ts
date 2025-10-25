@@ -4,7 +4,7 @@ import { Employee } from './entities/employee.entity';
 import { EmployeeCard } from './entities/employee-card.entity';
 import { EmployeeImage } from './entities/EmployeeImage.entity';
 import { Company } from '../company/entities/company.entity';
-import { RevokedToken } from '../company/entities/revoked-token.entity'; // ✅ ضروري للحارس
+import { RevokedToken } from '../company/entities/revoked-token.entity'; 
 import { EmployeeService } from './employee.service';
 import { EmployeeController } from './employee.controller';
 import { CompanyModule } from '../company/company.module';
@@ -19,10 +19,10 @@ import { CloudinaryModule } from '../common/services/cloudinary.module';
       Employee,
       EmployeeCard,
       EmployeeImage,
-      Company,       // ✅ علشان InjectRepository(Company)
-      RevokedToken,  // ✅ علشان InjectRepository(RevokedToken) في الحارس
+      Company,       
+      RevokedToken, 
     ]),
-    forwardRef(() => CompanyModule), // ✅ لو فيه تبادل بين Employee و Company
+    forwardRef(() => CompanyModule), 
     SubscriptionModule,
     CardModule,
     VisitModule, 
@@ -31,7 +31,6 @@ import { CloudinaryModule } from '../common/services/cloudinary.module';
   controllers: [EmployeeController],
   providers: [
     EmployeeService,
-    // ❌ لا تسجل CompanyJwtGuard هنا، لأنه مسجل في CompanyModule ويستخدم كـ Global
   ],
   exports: [EmployeeService],
 })

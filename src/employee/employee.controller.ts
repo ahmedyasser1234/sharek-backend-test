@@ -63,7 +63,7 @@ export class EmployeeController {
     @Req() req: Request
   ) {
     try {
-      this.logger.debug(`🔍 getByUniqueUrl called with URL: ${encodedUrl}`);
+      this.logger.debug(` getByUniqueUrl called with URL: ${encodedUrl}`);
       
       if (!encodedUrl) {
         throw new BadRequestException('URL parameter is required');

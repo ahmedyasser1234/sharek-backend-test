@@ -12,7 +12,7 @@ import {
   UseInterceptors,
   BadRequestException,
   UnauthorizedException,
-  SetMetadata, // ✅ أضف هذا
+  SetMetadata, 
 } from '@nestjs/common';
 import { CompanyService } from './company.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
@@ -37,7 +37,6 @@ interface CompanyRequest extends Request {
   user?: { companyId: string; role: string };
 }
 
-// ✅ تعريف Public decorator
 const Public = () => SetMetadata('isPublic', true);
 
 @ApiTags('Company')
@@ -50,7 +49,7 @@ export class CompanyController {
     private readonly subscriptionService: SubscriptionService
   ) {}
 
-  @Public() // ✅ إضافة Public للإنشاء
+  @Public()   
   @Post()
   @UseInterceptors(FileInterceptor('logo', {
     storage: memoryStorage(), 
@@ -65,7 +64,7 @@ export class CompanyController {
     return this.companyService.createCompany(dto, logo);
   }
 
-  // ✅ تسجيل دخول - public
+  //  تسجيل دخول 
   @Public()
   @Post('login')
   @ApiOperation({ summary: 'تسجيل دخول الشركة بالبريد الإلكتروني' })
@@ -74,7 +73,7 @@ export class CompanyController {
     return this.companyService.login(dto, ip);
   }
 
-  // ✅ تسجيل دخول OAuth - public
+  //  تسجيل دخول OAuth 
   @Public()
   @Post('oauth-login')
   @ApiOperation({ summary: 'تسجيل دخول باستخدام Google/Facebook/LinkedIn' })
@@ -87,7 +86,7 @@ export class CompanyController {
     return this.companyService.oauthLogin(provider, token);
   }
 
-  // ✅ إرسال كود تحقق - public
+  //  إرسال كود تحقق 
   @Public()
   @Post('send-verification-code')
   @ApiOperation({ summary: 'إرسال كود تحقق إلى البريد الإلكتروني' })
@@ -96,7 +95,7 @@ export class CompanyController {
     return this.companyService.sendVerificationCode(email);
   }
 
-  // ✅ تفعيل البريد الإلكتروني - public
+  //  تفعيل البريد الإلكتروني 
   @Public()
   @Post('verify-code')
   @ApiOperation({ summary: 'تفعيل البريد الإلكتروني عبر الكود' })
@@ -107,7 +106,7 @@ export class CompanyController {
     return this.companyService.verifyCode(email, code);
   }
 
-  // ✅ طلب إعادة تعيين كلمة المرور - public
+  //  طلب إعادة تعيين كلمة المرور 
   @Public()
   @Post('request-password-reset')
   @ApiOperation({ summary: 'طلب كود إعادة تعيين كلمة المرور' })
@@ -116,7 +115,7 @@ export class CompanyController {
     return this.companyService.requestPasswordReset(email);
   }
 
-  // ✅ تنفيذ إعادة تعيين كلمة المرور - public
+  //  تنفيذ إعادة تعيين كلمة المرور 
   @Public()
   @Post('reset-password')
   @ApiOperation({ summary: 'تنفيذ إعادة تعيين كلمة المرور' })
@@ -127,7 +126,7 @@ export class CompanyController {
     return this.companyService.resetPassword(email, code, newPassword);
   }
 
-  // ✅ تحديث التوكن - public (عادةً يكون public)
+  //  تحديث التوكن 
   @Public()
   @Post('refresh')
   @ApiOperation({ summary: 'تحديث التوكن' })
@@ -138,7 +137,7 @@ export class CompanyController {
     return this.companyService.refresh(refreshToken);
   }
 
-  // ❌ تسجيل خروج - محمي (يحتاج token)
+  //  تسجيل خروج - محمي (يحتاج token)
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
   @Post('logout')
@@ -158,7 +157,7 @@ export class CompanyController {
     return this.companyService.logout(refreshToken, ip, accessToken);
   }
 
-  // ❌ البروفايل - محمي
+  //  البروفايل - محمي
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
   @Get('profile')
@@ -181,7 +180,7 @@ export class CompanyController {
     }
   }
 
-  // ❌ جلب جميع الشركات - محمي (للمشرف فقط)
+  //  جلب جميع الشركات - محمي (للمشرف فقط)
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @Get('all')
@@ -190,7 +189,7 @@ export class CompanyController {
     return this.companyService.findAll();
   }
 
-  // ✅ جلب شركة حسب ID - public (يمكن أن يكون public حسب متطلباتك)
+  //  جلب شركة حسب ID - public (يمكن أن يكون public حسب متطلباتك)
   @Public()
   @Get(':id')
   @ApiOperation({ summary: 'جلب شركة حسب ID' })
@@ -198,7 +197,7 @@ export class CompanyController {
     return this.companyService.findById(id);
   }
 
-  // ❌ تحديث شركة - محمي
+  //  تحديث شركة - محمي
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
   @Put(':id')
@@ -219,7 +218,7 @@ export class CompanyController {
     return this.companyService.updateCompany(id, dto, logo);
   }
 
-  // ❌ حذف شركة - محمي (للمشرف فقط)
+  //  حذف شركة - محمي (للمشرف فقط)
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @Delete(':id')

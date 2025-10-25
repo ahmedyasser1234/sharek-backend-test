@@ -15,7 +15,7 @@ async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
   await AppDataSource.initialize();
-  logger.log('✅ تم تهيئة قاعدة البيانات');
+  logger.log(' تم تهيئة قاعدة البيانات');
 
   const app = await NestFactory.create(AppModule);
 
@@ -24,7 +24,6 @@ async function bootstrap() {
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.enableCors();
 
-  // ❌ إزالة هذا السطر - سيعمل الـ Guard من خلال الـ APP_GUARD في AppModule
   // app.useGlobalGuards(app.get(CompanyJwtGuard));
 
   app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
