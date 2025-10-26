@@ -156,7 +156,6 @@ async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<
 
   return saved;
 }
-
   async sendVerificationCode(email: string): Promise<string> {
     const company = await this.companyRepo.findOne({ where: { email } });
     if (!company) {
@@ -206,60 +205,49 @@ async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<
     return 'تم تفعيل البريد الإلكتروني بنجاح';
   }
 
-async updateCompany(id: string, dto: UpdateCompanyDto, logo?: Express.Multer.File): Promise<{
-  statusCode: number;
-  message: string;
-  data: Partial<Company>;
-}> {
-  const company = await this.companyRepo.findOne({ where: { id } });
-  if (!company) throw new NotFoundException('Company not found');
-  
-  if (dto.password) {
-    dto.password = await bcrypt.hash(dto.password, 10);
-  }
-
-  let logoUrl: string | undefined;
-  if (logo) {
-    try {
-      if (!logo.buffer || !(logo.buffer instanceof Buffer)) {
-        throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
-      }
-
-      const imageProcessor = sharp(logo.buffer);
-      const resized = imageProcessor.resize({ width: 800 });
-      const formatted = resized.webp({ quality: 70 });
-      const compressedBuffer = await formatted.toBuffer();
-
-      const compressedFile = {
-        ...logo,
-        buffer: compressedBuffer,
-      };
-
-      const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
-      logoUrl = result.secure_url;
-    } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
-      this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
-      throw new InternalServerErrorException('فشل رفع صورة الشعار');
+  async updateCompany(id: string, dto: UpdateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
+    const company = await this.companyRepo.findOne({ where: { id } });
+    if (!company) throw new NotFoundException('Company not found');
+    if (dto.password) {
+      dto.password = await bcrypt.hash(dto.password, 10);
     }
+
+    let logoUrl: string | undefined;
+    if (logo) {
+      try {
+        if (!logo.buffer || !(logo.buffer instanceof Buffer)) {
+          throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
+        }
+
+        const imageProcessor = sharp(logo.buffer);
+        const resized = imageProcessor.resize({ width: 800 });
+        const formatted = resized.webp({ quality: 70 });
+        const compressedBuffer = await formatted.toBuffer();
+
+        const compressedFile = {
+          ...logo,
+          buffer: compressedBuffer,
+        };
+
+        const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
+        logoUrl = result.secure_url;
+      } catch (error: unknown) {
+        const errorMessage = this.getErrorMessage(error);
+        this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
+        throw new InternalServerErrorException('فشل رفع صورة الشعار');
+      }
+    }
+
+    const updateData: Partial<Company> = {
+      ...dto,
+      logoUrl: logoUrl ?? company.logoUrl,
+      fontFamily: dto.fontFamily ?? company.fontFamily,
+    };
+
+    await this.companyRepo.update(id, updateData);
+    return this.findById(id);
   }
 
-  const updateData: Partial<Company> = {
-    ...dto,
-    logoUrl: logoUrl ?? company.logoUrl,
-    fontFamily: dto.fontFamily ?? company.fontFamily,
-  };
-
-  await this.companyRepo.update(id, updateData);
-  
-  const updatedCompany = await this.findById(id);
-
-  return {
-    statusCode: 200,
-    message: 'تم تحديث بيانات الشركة بنجاح',
-    data: updatedCompany
-  };
-}
   async findByEmail(email: string): Promise<Company> {
     const company = await this.companyRepo.findOne({ where: { email } });
     if (!company) throw new NotFoundException('Company not found');
@@ -279,28 +267,27 @@ async updateCompany(id: string, dto: UpdateCompanyDto, logo?: Express.Multer.Fil
   }
 
   async getProfileById(id: string): Promise<Partial<Company>> {
-  const company = await this.companyRepo.findOne({
-    where: { id },
-    select: [
-      'id',
-      'name',
-      'email', 
-      'phone',
-      'logoUrl',
-      'description',
-      'fontFamily',
-      'isActive',
-      'role',
-      'subscriptionStatus',
-      'subscribedAt',
-      'planId',
-      'paymentProvider',
-    ],
-  });
+    const company = await this.companyRepo.findOne({
+      where: { id },
+      select: [
+        'id',
+        'name',
+        'email',
+        'phone',
+        'logoUrl',
+        'description',
+        'isActive',
+        'role',
+        'subscriptionStatus',
+        'subscribedAt',
+        'planId',
+        'paymentProvider',
+      ],
+    });
 
-  if (!company) throw new NotFoundException('Company not found');
-  return company;
-}
+    if (!company) throw new NotFoundException('Company not found');
+    return company;
+  }
 
   async deleteCompany(id: string): Promise<void> {
     const company = await this.findById(id);

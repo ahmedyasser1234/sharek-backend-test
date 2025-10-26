@@ -68,7 +68,7 @@ export class EmployeeService {
 
   const { canAdd, allowed, current, maxAllowed } = await this.subscriptionService.canAddEmployee(companyId);
 
-  this.logger.log(` التحقق: ${canAdd ? 'مسموح' : 'ممنوع'}, المتبقي: ${allowed}, الحالي: ${current}, الحد الأقصى: ${maxAllowed}`);
+  this.logger.log(`📋 التحقق: ${canAdd ? 'مسموح' : 'ممنوع'}, المتبقي: ${allowed}, الحالي: ${current}, الحد الأقصى: ${maxAllowed}`);
 
   if (!canAdd) {
     this.logger.error(` الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
@@ -140,7 +140,7 @@ export class EmployeeService {
   type ImageMapType = {
     profileImageUrl: 'profileImageUrl';
     secondaryImageUrl: 'secondaryImageUrl';
-    logoUrl : 'logoUrl';
+    logoUrl : 'logoUrl',
     facebookImageUrl: 'facebookImageUrl';
     instagramImageUrl: 'instagramImageUrl';
     tiktokImageUrl: 'tiktokImageUrl';
@@ -654,6 +654,7 @@ async update(
   };
 }
 
+// دالة جديدة لتحديث تصميم البطاقة
 private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Promise<void> {
   try {
     const card = await this.cardRepo.findOne({
@@ -663,6 +664,7 @@ private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Prom
     if (card) {
       const updateData: Partial<EmployeeCard> = {};
       
+      // تحديث الحقول التصميمية فقط
       const designFields = [
         'designId', 'fontColorHead', 'fontColorHead2', 'fontColorParagraph',
         'fontColorExtra', 'sectionBackground', 'Background', 'sectionBackground2',
