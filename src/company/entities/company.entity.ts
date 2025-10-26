@@ -5,6 +5,8 @@ import {
   OneToMany,
   BeforeInsert,
   BeforeUpdate,
+  CreateDateColumn, 
+  UpdateDateColumn 
 } from 'typeorm';
 import { Employee } from '../../employee/entities/employee.entity';
 import { CompanySubscription } from '../../subscription/entities/company-subscription.entity';
@@ -79,6 +81,13 @@ export class Company {
 
   @OneToMany(() => CompanyLoginLog, (log) => log.company)
   loginLogs: CompanyLoginLog[];
+
+  
+    @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 
   @BeforeInsert()
   @BeforeUpdate()

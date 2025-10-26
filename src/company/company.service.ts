@@ -28,6 +28,7 @@ import { RevokedToken } from './entities/revoked-token.entity';
 import { DataSource } from 'typeorm';
 import { CloudinaryService } from '../common/services/cloudinary.service';
 import sharp from 'sharp';
+import { HttpStatus } from '@nestjs/common';
 
 @Injectable()
 export class CompanyService implements OnModuleInit {
@@ -92,68 +93,69 @@ export class CompanyService implements OnModuleInit {
     });
   }
 
-  async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
-    const existing = await this.companyRepo.findOne({ where: { email: dto.email } });
-    if (existing) {
-      throw new BadRequestException('هذا البريد مستخدم بالفعل');
-    }
+async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
+  const existing = await this.companyRepo.findOne({ where: { email: dto.email } });
+  if (existing) {
+    throw new BadRequestException('هذا البريد مستخدم بالفعل');
+  }
 
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
-    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const tempId = uuid();
-    let logoUrl: string | undefined;
+  const hashedPassword = await bcrypt.hash(dto.password, 10);
+  const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const tempId = uuid();
+  let logoUrl: string | undefined;
 
-    if (logo) {
-      try {
-        if (!logo.buffer || !(logo.buffer instanceof Buffer)) {
-          throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
-        }
-
-        const imageProcessor = sharp(logo.buffer);
-        const resized = imageProcessor.resize({ width: 800 });
-        const formatted = resized.webp({ quality: 70 });
-        const compressedBuffer = await formatted.toBuffer();
-
-        const compressedFile = {
-          ...logo,
-          buffer: compressedBuffer,
-        };
-
-        const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${tempId}/logo`);
-        logoUrl = result.secure_url;
-      } catch (error: unknown) {
-        const errorMessage = this.getErrorMessage(error);
-        this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
-        throw new InternalServerErrorException('فشل رفع صورة الشعار');
-      }
-    }
-
-    const companyData: DeepPartial<Company> = {
-      ...dto,
-      password: hashedPassword,
-      isVerified: false,
-      verificationCode,
-      provider: dto.provider || 'email',
-      logoUrl,
-      fontFamily: dto.fontFamily ?? undefined,
-      id: tempId,
-      subscriptionStatus: 'inactive',
-      planId: null,
-      subscribedAt: undefined,
-      paymentProvider: undefined,
-    };
-
-    const company = this.companyRepo.create(companyData);
-    const saved = await this.companyRepo.save(company);
-
+  if (logo) {
     try {
-      await this.sendVerificationCode(saved.email);
+      if (!logo.buffer || !(logo.buffer instanceof Buffer)) {
+        throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
+      }
+
+      const imageProcessor = sharp(logo.buffer);
+      const resized = imageProcessor.resize({ width: 800 });
+      const formatted = resized.webp({ quality: 70 });
+      const compressedBuffer = await formatted.toBuffer();
+
+      const compressedFile = {
+        ...logo,
+        buffer: compressedBuffer,
+      };
+
+      const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${tempId}/logo`);
+      logoUrl = result.secure_url;
     } catch (error: unknown) {
       const errorMessage = this.getErrorMessage(error);
-      this.logger.error(`فشل إرسال كود التحقق: ${errorMessage}`);
+      this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل رفع صورة الشعار');
     }
-    return saved;
   }
+
+  const companyData: DeepPartial<Company> = {
+    ...dto,
+    password: hashedPassword,
+    isVerified: false,
+    verificationCode,
+    provider: dto.provider || 'email',
+    logoUrl,
+    fontFamily: dto.fontFamily ?? 'Cairo, sans-serif', 
+    id: tempId,
+    subscriptionStatus: 'inactive',
+    planId: null,
+    subscribedAt: undefined,
+    paymentProvider: undefined,
+  };
+
+  const company = this.companyRepo.create(companyData);
+  const saved = await this.companyRepo.save(company);
+
+  try {
+    await this.sendVerificationCode(saved.email);
+  } catch (error: unknown) {
+    const errorMessage = this.getErrorMessage(error);
+    this.logger.error(`فشل إرسال كود التحقق: ${errorMessage}`);
+  }
+
+  return saved;
+}
 
   async sendVerificationCode(email: string): Promise<string> {
     const company = await this.companyRepo.findOne({ where: { email } });
@@ -204,49 +206,60 @@ export class CompanyService implements OnModuleInit {
     return 'تم تفعيل البريد الإلكتروني بنجاح';
   }
 
-  async updateCompany(id: string, dto: UpdateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
-    const company = await this.companyRepo.findOne({ where: { id } });
-    if (!company) throw new NotFoundException('Company not found');
-    if (dto.password) {
-      dto.password = await bcrypt.hash(dto.password, 10);
-    }
-
-    let logoUrl: string | undefined;
-    if (logo) {
-      try {
-        if (!logo.buffer || !(logo.buffer instanceof Buffer)) {
-          throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
-        }
-
-        const imageProcessor = sharp(logo.buffer);
-        const resized = imageProcessor.resize({ width: 800 });
-        const formatted = resized.webp({ quality: 70 });
-        const compressedBuffer = await formatted.toBuffer();
-
-        const compressedFile = {
-          ...logo,
-          buffer: compressedBuffer,
-        };
-
-        const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
-        logoUrl = result.secure_url;
-      } catch (error: unknown) {
-        const errorMessage = this.getErrorMessage(error);
-        this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
-        throw new InternalServerErrorException('فشل رفع صورة الشعار');
-      }
-    }
-
-    const updateData: Partial<Company> = {
-      ...dto,
-      logoUrl: logoUrl ?? company.logoUrl,
-      fontFamily: dto.fontFamily ?? company.fontFamily,
-    };
-
-    await this.companyRepo.update(id, updateData);
-    return this.findById(id);
+async updateCompany(id: string, dto: UpdateCompanyDto, logo?: Express.Multer.File): Promise<{
+  statusCode: number;
+  message: string;
+  data: Partial<Company>;
+}> {
+  const company = await this.companyRepo.findOne({ where: { id } });
+  if (!company) throw new NotFoundException('Company not found');
+  
+  if (dto.password) {
+    dto.password = await bcrypt.hash(dto.password, 10);
   }
 
+  let logoUrl: string | undefined;
+  if (logo) {
+    try {
+      if (!logo.buffer || !(logo.buffer instanceof Buffer)) {
+        throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
+      }
+
+      const imageProcessor = sharp(logo.buffer);
+      const resized = imageProcessor.resize({ width: 800 });
+      const formatted = resized.webp({ quality: 70 });
+      const compressedBuffer = await formatted.toBuffer();
+
+      const compressedFile = {
+        ...logo,
+        buffer: compressedBuffer,
+      };
+
+      const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
+      logoUrl = result.secure_url;
+    } catch (error: unknown) {
+      const errorMessage = this.getErrorMessage(error);
+      this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل رفع صورة الشعار');
+    }
+  }
+
+  const updateData: Partial<Company> = {
+    ...dto,
+    logoUrl: logoUrl ?? company.logoUrl,
+    fontFamily: dto.fontFamily ?? company.fontFamily,
+  };
+
+  await this.companyRepo.update(id, updateData);
+  
+  const updatedCompany = await this.findById(id);
+
+  return {
+    statusCode: 200,
+    message: 'تم تحديث بيانات الشركة بنجاح',
+    data: updatedCompany
+  };
+}
   async findByEmail(email: string): Promise<Company> {
     const company = await this.companyRepo.findOne({ where: { email } });
     if (!company) throw new NotFoundException('Company not found');
@@ -266,27 +279,28 @@ export class CompanyService implements OnModuleInit {
   }
 
   async getProfileById(id: string): Promise<Partial<Company>> {
-    const company = await this.companyRepo.findOne({
-      where: { id },
-      select: [
-        'id',
-        'name',
-        'email',
-        'phone',
-        'logoUrl',
-        'description',
-        'isActive',
-        'role',
-        'subscriptionStatus',
-        'subscribedAt',
-        'planId',
-        'paymentProvider',
-      ],
-    });
+  const company = await this.companyRepo.findOne({
+    where: { id },
+    select: [
+      'id',
+      'name',
+      'email', 
+      'phone',
+      'logoUrl',
+      'description',
+      'fontFamily',
+      'isActive',
+      'role',
+      'subscriptionStatus',
+      'subscribedAt',
+      'planId',
+      'paymentProvider',
+    ],
+  });
 
-    if (!company) throw new NotFoundException('Company not found');
-    return company;
-  }
+  if (!company) throw new NotFoundException('Company not found');
+  return company;
+}
 
   async deleteCompany(id: string): Promise<void> {
     const company = await this.findById(id);
@@ -376,37 +390,65 @@ export class CompanyService implements OnModuleInit {
     return error instanceof Error ? error.message : 'Unknown error';
   }
 
-  async login(
-    dto: LoginCompanyDto,
-    ip: string,
-  ): Promise<{ accessToken: string; refreshToken: string }> {
-    const company = await this.findByEmail(dto.email);
-    if (!company) throw new UnauthorizedException('Invalid credentials');
-    if (!company.isActive) throw new UnauthorizedException('Company not active');
-    if (!company.isVerified) throw new UnauthorizedException('Email not verified');
-
-    const isMatch = await company.comparePassword(dto.password);
-    if (!isMatch) throw new UnauthorizedException('Invalid credentials');
-
-    const accessToken = this.jwtService.signAccess({
-      companyId: company.id,
-      role: company.role,
-    });
-
-    const refreshToken = this.jwtService.signRefresh({ companyId: company.id });
-
-    await this.tokenRepo.save(this.tokenRepo.create({ refreshToken, company }));
-
-    await this.loginLogRepo.save(
-      this.loginLogRepo.create({
-        company,
-        ip,
-        action: 'login',
-        success: true,
-      }),
-    );
-    return { accessToken, refreshToken };
+ async login(
+  dto: LoginCompanyDto,
+  ip: string,
+): Promise<{ 
+  statusCode: number;
+  message: string;
+  data: {
+    accessToken: string;
+    refreshToken: string;
+    company: { 
+      id: string;
+      name: string;
+      email: string;
+      subscriptionStatus: string;
+    }
   }
+}> {
+  const company = await this.findByEmail(dto.email);
+  if (!company) throw new UnauthorizedException('Invalid credentials');
+  if (!company.isActive) throw new UnauthorizedException('Company not active');
+  if (!company.isVerified) throw new UnauthorizedException('Email not verified');
+
+  const isMatch = await company.comparePassword(dto.password);
+  if (!isMatch) throw new UnauthorizedException('Invalid credentials');
+
+  const accessToken = this.jwtService.signAccess({
+    companyId: company.id,
+    role: company.role,
+  });
+
+  const refreshToken = this.jwtService.signRefresh({ companyId: company.id });
+
+  await this.tokenRepo.save(this.tokenRepo.create({ refreshToken, company }));
+
+  await this.loginLogRepo.save(
+    this.loginLogRepo.create({
+      company,
+      ip,
+      action: 'login',
+      success: true,
+    }),
+  );
+
+
+  return {
+    statusCode: HttpStatus.OK,
+    message: 'تم تسجيل الدخول بنجاح',
+    data: {
+      accessToken: accessToken,
+      refreshToken: refreshToken, 
+      company: { 
+        id: company.id,
+        name: company.name,
+        email: company.email,
+        subscriptionStatus: company.subscriptionStatus
+      }
+    },
+  };
+}
 
   async oauthLogin(provider: 'google' | 'facebook' | 'linkedin', token: string) {
     if (provider === 'google') return this.loginWithGoogle(token);

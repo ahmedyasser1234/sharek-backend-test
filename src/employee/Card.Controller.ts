@@ -28,7 +28,7 @@ export class CardController {
     });
 
     if (!card || !card.employee) {
-      throw new NotFoundException('❌ البطاقة غير موجودة');
+      throw new NotFoundException(' البطاقة غير موجودة');
     }
 
     const design = card.designId || 'classic';

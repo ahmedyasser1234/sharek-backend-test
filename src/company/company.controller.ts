@@ -13,6 +13,7 @@ import {
   BadRequestException,
   UnauthorizedException,
   SetMetadata, 
+  HttpStatus,
 } from '@nestjs/common';
 import { CompanyService } from './company.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
@@ -60,81 +61,112 @@ export class CompanyController {
   }))
   @ApiOperation({ summary: 'إنشاء شركة جديدة' })
   @ApiResponse({ status: 201, description: 'تم إنشاء الشركة بنجاح' })
-  create(@Body() dto: CreateCompanyDto, @UploadedFile() logo: Express.Multer.File) {
-    return this.companyService.createCompany(dto, logo);
+  async create(@Body() dto: CreateCompanyDto, @UploadedFile() logo: Express.Multer.File) {
+    const company = await this.companyService.createCompany(dto, logo);
+    return {
+      statusCode: HttpStatus.CREATED,
+      message: 'تم إنشاء الشركة بنجاح، يرجى التحقق من البريد الإلكتروني',
+      data: company
+    };
   }
 
   //  تسجيل دخول 
   @Public()
   @Post('login')
   @ApiOperation({ summary: 'تسجيل دخول الشركة بالبريد الإلكتروني' })
-  login(@Body() dto: LoginCompanyDto, @Req() req: Request) {
+  async login(@Body() dto: LoginCompanyDto, @Req() req: Request) {
     const ip = req.ip || req.headers['x-forwarded-for']?.toString() || 'unknown';
-    return this.companyService.login(dto, ip);
+    const result = await this.companyService.login(dto, ip);
+    return result; // الدالة already بترجع response منظم
   }
 
   //  تسجيل دخول OAuth 
   @Public()
   @Post('oauth-login')
   @ApiOperation({ summary: 'تسجيل دخول باستخدام Google/Facebook/LinkedIn' })
-  oauthLogin(
+  async oauthLogin(
     @Body('provider') provider: 'google' | 'facebook' | 'linkedin',
     @Body('token') token: string,
   ) {
     if (!provider || !token)
       throw new BadRequestException('مزود الخدمة والتوكن مطلوبين');
-    return this.companyService.oauthLogin(provider, token);
+    const result = await this.companyService.oauthLogin(provider, token);
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم تسجيل الدخول بنجاح',
+      data: result
+    };
   }
 
   //  إرسال كود تحقق 
   @Public()
   @Post('send-verification-code')
   @ApiOperation({ summary: 'إرسال كود تحقق إلى البريد الإلكتروني' })
-  sendVerificationCode(@Body('email') email: string) {
+  async sendVerificationCode(@Body('email') email: string) {
     if (!email) throw new BadRequestException('الإيميل مطلوب');
-    return this.companyService.sendVerificationCode(email);
+    const result = await this.companyService.sendVerificationCode(email);
+    return {
+      statusCode: HttpStatus.OK,
+      message: result
+    };
   }
 
   //  تفعيل البريد الإلكتروني 
   @Public()
   @Post('verify-code')
   @ApiOperation({ summary: 'تفعيل البريد الإلكتروني عبر الكود' })
-  verifyCode(@Body() body: { email: string; code: string }) {
+  async verifyCode(@Body() body: { email: string; code: string }) {
     const { email, code } = body;
     if (!email || !code)
       throw new BadRequestException('الإيميل والكود مطلوبين');
-    return this.companyService.verifyCode(email, code);
+    const result = await this.companyService.verifyCode(email, code);
+    return {
+      statusCode: HttpStatus.OK,
+      message: result
+    };
   }
 
   //  طلب إعادة تعيين كلمة المرور 
   @Public()
   @Post('request-password-reset')
   @ApiOperation({ summary: 'طلب كود إعادة تعيين كلمة المرور' })
-  requestPasswordReset(@Body('email') email: string) {
+  async requestPasswordReset(@Body('email') email: string) {
     if (!email) throw new BadRequestException('الإيميل مطلوب');
-    return this.companyService.requestPasswordReset(email);
+    const result = await this.companyService.requestPasswordReset(email);
+    return {
+      statusCode: HttpStatus.OK,
+      message: result
+    };
   }
 
   //  تنفيذ إعادة تعيين كلمة المرور 
   @Public()
   @Post('reset-password')
   @ApiOperation({ summary: 'تنفيذ إعادة تعيين كلمة المرور' })
-  resetPassword(@Body() body: { email: string; code: string; newPassword: string }) {
+  async resetPassword(@Body() body: { email: string; code: string; newPassword: string }) {
     const { email, code, newPassword } = body;
     if (!email || !code || !newPassword)
       throw new BadRequestException('الإيميل والكود وكلمة المرور الجديدة مطلوبين');
-    return this.companyService.resetPassword(email, code, newPassword);
+    const result = await this.companyService.resetPassword(email, code, newPassword);
+    return {
+      statusCode: HttpStatus.OK,
+      message: result
+    };
   }
 
-  //  تحديث التوكن 
   @Public()
   @Post('refresh')
   @ApiOperation({ summary: 'تحديث التوكن' })
-  refresh(@Req() req: Request) {
+  async refresh(@Req() req: Request) {
     const refreshToken = req.headers['x-refresh-token']?.toString();
     if (!refreshToken)
       throw new BadRequestException('Refresh token مطلوب في الهيدر');
-    return this.companyService.refresh(refreshToken);
+    const result = await this.companyService.refresh(refreshToken);
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم تحديث التوكن بنجاح',
+      data: result
+    };
   }
 
   //  تسجيل خروج - محمي (يحتاج token)
@@ -142,7 +174,7 @@ export class CompanyController {
   @ApiBearerAuth()
   @Post('logout')
   @ApiOperation({ summary: 'تسجيل خروج الشركة' })
-  logout(@Req() req: Request) {
+  async logout(@Req() req: Request) {
     const ip = req.headers['x-forwarded-for']?.toString() || req.socket?.remoteAddress || req.ip || 'unknown';
     const refreshToken = req.headers['x-refresh-token']?.toString();
     const authHeader = req.headers['authorization'];
@@ -154,7 +186,12 @@ export class CompanyController {
     if (!refreshToken)
       throw new BadRequestException('Refresh token مطلوب في الهيدر');
 
-    return this.companyService.logout(refreshToken, ip, accessToken);
+    const result = await this.companyService.logout(refreshToken, ip, accessToken);
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم تسجيل الخروج بنجاح',
+      data: result
+    };
   }
 
   //  البروفايل - محمي
@@ -172,7 +209,14 @@ export class CompanyController {
 
       const currentSub = await this.subscriptionService.getCompanySubscription(req.user.companyId);
 
-      return { ...company, currentSubscription: currentSub };
+      return {
+        statusCode: HttpStatus.OK,
+        message: 'تم جلب بيانات الشركة بنجاح',
+        data: {
+          ...company,
+          currentSubscription: currentSub
+        }
+      };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(` فشل تحميل بيانات الشركة: ${msg}`);
@@ -185,16 +229,25 @@ export class CompanyController {
   @ApiBearerAuth()
   @Get('all')
   @ApiOperation({ summary: 'جلب جميع الشركات (للمشرف فقط)' })
-  findAll() {
-    return this.companyService.findAll();
+  async findAll() {
+    const companies = await this.companyService.findAll();
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم جلب جميع الشركات بنجاح',
+      data: companies
+    };
   }
 
-  //  جلب شركة حسب ID - public (يمكن أن يكون public حسب متطلباتك)
   @Public()
   @Get(':id')
   @ApiOperation({ summary: 'جلب شركة حسب ID' })
-  findOne(@Param('id') id: string) {
-    return this.companyService.findById(id);
+  async findOne(@Param('id') id: string) {
+    const company = await this.companyService.findById(id);
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم جلب بيانات الشركة بنجاح',
+      data: company
+    };
   }
 
   //  تحديث شركة - محمي
@@ -210,20 +263,24 @@ export class CompanyController {
   }))
   @ApiOperation({ summary: 'تحديث بيانات الشركة' })
   @ApiResponse({ status: 200, description: 'تم تحديث بيانات الشركة بنجاح' })
-  update(
+  async update(
     @Param('id') id: string,
     @Body() dto: UpdateCompanyDto,
     @UploadedFile() logo: Express.Multer.File,
   ) {
-    return this.companyService.updateCompany(id, dto, logo);
+    const result = await this.companyService.updateCompany(id, dto, logo);
+    return result; 
   }
 
-  //  حذف شركة - محمي (للمشرف فقط)
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @Delete(':id')
   @ApiOperation({ summary: 'حذف شركة (للمشرف فقط)' })
-  remove(@Param('id') id: string) {
-    return this.companyService.deleteCompany(id);
+  async remove(@Param('id') id: string) {
+    await this.companyService.deleteCompany(id);
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم حذف الشركة بنجاح'
+    };
   }
 }

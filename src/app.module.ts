@@ -19,6 +19,8 @@ import { CompanyJwtGuard } from './company/auth/company-jwt.guard';
 import { CompanyJwtService } from './company/auth/company-jwt.service';
 import { RevokedToken } from './company/entities/revoked-token.entity';
 import { NotificationModule } from './notification/notification.module';
+import { BackupModule } from './backup/backup.module';
+
 
 
 @Module({
@@ -36,6 +38,7 @@ import { NotificationModule } from './notification/notification.module';
     PlanModule,
     PaymentModule,
     NotificationModule,
+    BackupModule,
   ],
   controllers: [AppController],
   providers: [

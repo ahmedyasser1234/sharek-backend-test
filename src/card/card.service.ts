@@ -5,6 +5,7 @@ import { EmployeeCard } from '../employee/entities/employee-card.entity';
 import { Employee } from '../employee/entities/employee.entity';
 import { randomUUID } from 'crypto';
 import QRCodeImport from 'qrcode';
+import { VisitService } from '../visit/visit.service';
 
 type QRCodeOptions = {
   color?: {
@@ -26,6 +27,7 @@ export class CardService {
   constructor(
     @InjectRepository(EmployeeCard)
     private readonly cardRepo: Repository<EmployeeCard>,
+    private readonly visitService: VisitService,
   ) {}
 
   async generateCard(
@@ -38,7 +40,7 @@ export class CardService {
 
     const finalQrStyle = qrStyle ?? 1;
     const uniqueUrl = randomUUID();
-    const cardUrl = `http://localhost:5173/${finalDesignId}/${uniqueUrl}`;
+    const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}`;
 
     let qrCode: string;
 
@@ -63,22 +65,20 @@ export class CardService {
     }
 
     if (!employee.id) {
-      this.logger.error('❌ لا يمكن إنشاء البطاقة: employee.id غير موجود');
+      this.logger.error(' لا يمكن إنشاء البطاقة: employee.id غير موجود');
       throw new Error('employee.id مطلوب لإنشاء البطاقة');
     }
 
-    // ✅ إنشاء كائن البطاقة بدون تضارب أنواع
     const cardData: Partial<EmployeeCard> = {
       title: `${employee.name} - ${employee.jobTitle} - بطاقة الموظف`,
       uniqueUrl,
       qrCode,
       designId: finalDesignId,
       qrStyle: finalQrStyle,
-      employeeId: employee.id, // ✅ الآن employeeId هو number
+      employeeId: employee.id, 
       employee, 
     };
 
-    // ✅ دمج البيانات الإضافية إذا وجدت
     if (extra) {
       Object.assign(cardData, extra);
     }

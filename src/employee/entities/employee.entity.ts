@@ -121,6 +121,9 @@ export class Employee {
   @Column({ type: 'text', nullable: true })
   secondaryImageUrl?: string;
 
+  @Column({ type: 'text', nullable: true })
+  logoUrl?: string;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   facebook?: string;
 

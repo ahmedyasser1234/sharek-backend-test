@@ -68,7 +68,7 @@ export class EmployeeService {
 
   const { canAdd, allowed, current, maxAllowed } = await this.subscriptionService.canAddEmployee(companyId);
 
-  this.logger.log(`📋 التحقق: ${canAdd ? 'مسموح' : 'ممنوع'}, المتبقي: ${allowed}, الحالي: ${current}, الحد الأقصى: ${maxAllowed}`);
+  this.logger.log(` التحقق: ${canAdd ? 'مسموح' : 'ممنوع'}, المتبقي: ${allowed}, الحالي: ${current}, الحد الأقصى: ${maxAllowed}`);
 
   if (!canAdd) {
     this.logger.error(` الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
@@ -140,6 +140,7 @@ export class EmployeeService {
   type ImageMapType = {
     profileImageUrl: 'profileImageUrl';
     secondaryImageUrl: 'secondaryImageUrl';
+    logoUrl : 'logoUrl';
     facebookImageUrl: 'facebookImageUrl';
     instagramImageUrl: 'instagramImageUrl';
     tiktokImageUrl: 'tiktokImageUrl';
@@ -167,6 +168,7 @@ export class EmployeeService {
   const imageMap: ImageMapType = {
     'profileImageUrl': 'profileImageUrl',
     'secondaryImageUrl': 'secondaryImageUrl',
+    'logoUrl' : 'logoUrl',
     'facebookImageUrl': 'facebookImageUrl',
     'instagramImageUrl': 'instagramImageUrl', 
     'tiktokImageUrl': 'tiktokImageUrl',
@@ -652,7 +654,6 @@ async update(
   };
 }
 
-// دالة جديدة لتحديث تصميم البطاقة
 private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Promise<void> {
   try {
     const card = await this.cardRepo.findOne({
@@ -662,7 +663,6 @@ private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Prom
     if (card) {
       const updateData: Partial<EmployeeCard> = {};
       
-      // تحديث الحقول التصميمية فقط
       const designFields = [
         'designId', 'fontColorHead', 'fontColorHead2', 'fontColorParagraph',
         'fontColorExtra', 'sectionBackground', 'Background', 'sectionBackground2',
@@ -699,6 +699,7 @@ private async handleEmployeeFiles(employee: Employee, files: Express.Multer.File
   const imageMap: ImageMapType = {
     'profileImageUrl': 'profileImageUrl',
     'secondaryImageUrl': 'secondaryImageUrl',
+    'logoUrl' : 'logoUrl',
     'contactFormHeaderImageUrl': 'contactFormHeaderImageUrl',
     'testimonialImageUrl': 'testimonialImageUrl',
     'pdfThumbnailUrl': 'pdfThumbnailUrl',
@@ -810,12 +811,11 @@ private async saveEmployeeImage(
 
 private isValidEmployeeField(field: string): field is keyof Employee {
   const validFields: (keyof Employee)[] = [
-    'profileImageUrl', 'secondaryImageUrl', 'contactFormHeaderImageUrl',
+    'profileImageUrl', 'secondaryImageUrl', 'logoUrl' ,'contactFormHeaderImageUrl',
     'testimonialImageUrl', 'pdfThumbnailUrl', 'pdfFileUrl', 'workLinkImageUrl',
     'workLinkkImageUrl', 'workLinkkkImageUrl', 'workLinkkkkImageUrl', 'workLinkkkkkImageUrl',
     'facebookImageUrl', 'instagramImageUrl', 'tiktokImageUrl', 'snapchatImageUrl',
     'xImageUrl', 'linkedinImageUrl', 'customImageUrl', 'workingHoursImageUrl'
-    // تم إزالة 'backgroundImage' لأنه غير موجود في كيان Employee
   ];
   return validFields.includes(field as keyof Employee);
 }
@@ -901,35 +901,44 @@ private isCardDesignUpdated(dto: UpdateEmployeeDto, employee: Employee): boolean
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   async findByUniqueUrl(uniqueUrl: string, source = 'link', req?: Request) {
     const card = await this.cardRepo.findOne({
         where: { uniqueUrl },
-        relations: ['employee', 'employee.company', 'employee.images', 'employee.cards'], // إضافة employee.cards هنا
+        relations: ['employee', 'employee.company', 'employee.images', 'employee.cards'],
     });
 
     if (!card || !card.employee) {
-        throw new NotFoundException(' البطاقة غير موجودة');
+        throw new NotFoundException('البطاقة غير موجودة');
     }
 
     const { employee } = card;
-    let qrCode = card.qrCode;
-    if (!qrCode) {
-        const { qrCode: generatedQr } = await this.cardService.generateCard(employee, card.designId);
-        qrCode = generatedQr;
+    
+    if (req) {
+        await this.visitService.logVisit(employee, source, req);
+    } else {
+        await this.visitService.logVisitById({
+            employeeId: employee.id,
+            source,
+            ipAddress: 'unknown',
+        });
     }
 
-    // إضافة QR Code للـ employee مؤقتاً فقط للرد
+    let qrStyle = card.qrStyle;
+    if (!qrStyle) {
+        const { qrStyle: generatedQr } = await this.cardService.generateCard(employee, card.designId);
+        qrStyle = generatedQr;
+    }
+
     const employeeWithQrCode = {
         ...employee,
-        qrCode, // إضافة QR Code هنا
+        qrStyle,
     };
-
-    void req; // لإسكات تحذير unused parameter
 
     return {
         statusCode: HttpStatus.OK,
-        message: ' تم جلب بيانات البطاقة بنجاح',
-        data: employeeWithQrCode, // إرجاع employee كاملاً مع العلاقات
+        message: 'تم جلب بيانات البطاقة بنجاح',
+        data: employeeWithQrCode,
     };
 }
   
@@ -947,7 +956,7 @@ private isCardDesignUpdated(dto: UpdateEmployeeDto, employee: Employee): boolean
         'whatsapp', 'wechat', 'telephone', 'cardUrl', 'qrCode', 'designId', 'location', 'locationTitle',
         'conStreet', 'conAdressLine', 'conCity', 'conState', 'conCountry', 'conZipcode', 'conDirection',
         'conGoogleMapUrl', 'smsNumber', 'faxNumber', 'aboutTitle', 'about', 'socialTitle', 'socialDescription',
-        'profileImageUrl', 'secondaryImageUrl', 'facebook', 'facebookTitle','facebookSubtitle','facebookImageUrl',
+        'profileImageUrl', 'secondaryImageUrl', 'logoUrl', 'facebook', 'facebookTitle','facebookSubtitle','facebookImageUrl',
         'instagram', 'instgramTitle' , 'instgramSubtitle','instagramImageUrl','tiktok', 'tiktokTitle' , 'tiktokSubtitle' , 'tiktokImageUrl',
         'snapchat', 'snapchatTitle' , 'snapchatSubtitle', 'snapchatImageUrl', 'x' , 'xTitle' , 'xSubtitle' , 'xImageUrl',
         'linkedin' , 'linkedinTitle' , 'linkedinSubtitle' , 'linkedinImageUrl' , 'customImageUrl', 'customImageTitle',

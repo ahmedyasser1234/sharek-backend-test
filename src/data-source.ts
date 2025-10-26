@@ -11,7 +11,9 @@ import { Plan } from './plan/entities/plan.entity';
 import { EmployeeImage } from './employee/entities/EmployeeImage.entity'; 
 import { Visit } from './employee/entities/visit.entity'; 
 import { PaymentTransaction } from './payment/entities/payment-transaction.entity';
-
+import { Admin } from './admin/entities/admin.entity'; 
+import { PaymentProof } from './payment/entities/payment-proof.entity';
+import { AdminToken } from './admin/auth/entities/admin-token.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -31,6 +33,9 @@ export const AppDataSource = new DataSource({
     EmployeeImage,
     Visit,
     PaymentTransaction,
+    Admin,
+    PaymentProof,
+    AdminToken
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: true,

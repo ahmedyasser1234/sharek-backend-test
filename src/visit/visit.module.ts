@@ -12,12 +12,17 @@ import { RevokedToken } from '../company/entities/revoked-token.entity'; // ✅ 
     TypeOrmModule.forFeature([
       Visit,
       Employee,
-      RevokedToken, // ✅ ضروري لو VisitService أو VisitController بيستخدموا CompanyJwtGuard
+      RevokedToken,
+
     ]),
-    forwardRef(() => CompanyModule), // ✅ لو فيه تبادل بين Visit و Company
+    forwardRef(() => CompanyModule), 
   ],
   providers: [VisitService],
   controllers: [VisitController],
   exports: [VisitService],
 })
 export class VisitModule {}
+
+
+
+

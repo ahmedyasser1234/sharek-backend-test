@@ -255,6 +255,11 @@ export class CreateEmployeeDto {
   @IsString()
   secondaryImageUrl?: string;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  logoUrl?: string;
+
   @ApiPropertyOptional({ example: 'https://facebook.com/ahmed' })
   @IsOptional()
   @IsString()

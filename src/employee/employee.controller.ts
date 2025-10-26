@@ -36,6 +36,9 @@ import {
   ApiQuery,
   ApiParam,
 } from '@nestjs/swagger';
+import { VisitService } from '../visit/visit.service';
+import { CardService } from '../card/card.service';
+
 
 interface CompanyRequest extends Request {
   user: { companyId: string };
@@ -49,44 +52,44 @@ const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
 export class EmployeeController {
   private readonly logger = new Logger(EmployeeController.name);
 
-  constructor(private readonly employeeService: EmployeeService) {}
+  constructor(
+    private readonly employeeService: EmployeeService,
+    private readonly visitService: VisitService,
+    private readonly cardService: CardService,
+) {}
 
-  @Public()
-  @Get('by-url')
-  @ApiOperation({ summary: 'جلب موظف باستخدام رابط البطاقة الفريد' })
-  @ApiQuery({ name: 'url', description: 'الرابط الفريد للبطاقة', type: String })
-  @ApiQuery({ name: 'source', required: false, type: String })
-  @ApiResponse({ status: 200, description: 'تم جلب بيانات البطاقة بنجاح' })
-  async getByUniqueUrl(
-    @Query('url') encodedUrl: string,
-    @Query('source') source: string | undefined,
-    @Req() req: Request
-  ) {
-    try {
-      this.logger.debug(` getByUniqueUrl called with URL: ${encodedUrl}`);
-      
-      if (!encodedUrl) {
-        throw new BadRequestException('URL parameter is required');
-      }
-
-      const uniqueUrl = decodeURIComponent(encodedUrl);
-      const finalSource = source || 'link';
-
-      const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
-      if (!result.data) throw new BadRequestException('Employee not found');
-
-      return {
-        statusCode: HttpStatus.OK,
-        message: 'Employee fetched by URL successfully',
-        data: result.data,
-      };
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
-      throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
+ 
+@Public()
+@Get('by-url')
+async getByUniqueUrl(
+  @Query('url') encodedUrl: string,
+  @Query('source') source: string | undefined,
+  @Req() req: Request
+) {
+  try {
+    this.logger.debug(` getByUniqueUrl called with URL: ${encodedUrl}`);
+    
+    if (!encodedUrl) {
+      throw new BadRequestException('URL parameter is required');
     }
-  }
 
+    const uniqueUrl = decodeURIComponent(encodedUrl);
+    const finalSource = source || 'link';
+
+    const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
+    if (!result.data) throw new BadRequestException('Employee not found');
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'Employee fetched by URL successfully',
+      data: result.data,
+    };
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    this.logger.error(` فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
+    throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
+  }
+}
   @Public()
   @Get(':id/google-wallet')
   @ApiOperation({ summary: 'رابط Google Wallet للبطاقة' })
@@ -254,7 +257,6 @@ export class EmployeeController {
     try {
       this.logger.log(`🔄 محاولة تحديث الموظف: ${id} للشركة: ${req.user.companyId}`);
       
-      // 🔥 تحقق من الملفات المستلمة
       this.logger.log(` عدد الملفات المستلمة في الـ Controller: ${files?.length || 0}`);
       if (files && files.length > 0) {
         files.forEach((file, index) => {
@@ -262,7 +264,7 @@ export class EmployeeController {
         });
       }
       
-      const result = await this.employeeService.update(id, dto, req.user.companyId, files); // ✅ إضافة companyId
+      const result = await this.employeeService.update(id, dto, req.user.companyId, files); 
       return {
         statusCode: HttpStatus.OK,
         message: 'Employee updated successfully',
@@ -368,4 +370,6 @@ export class EmployeeController {
   private getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Unknown error';
   }
+
+  
 }

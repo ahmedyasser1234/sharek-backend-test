@@ -519,7 +519,6 @@ async extendSubscription(companyId: string, options?: { forceExtend?: boolean })
   }
 }
 
-
  async changeSubscriptionPlan(companyId: string, newPlanId: string): Promise<any> {
     try {
       this.logger.log(` بدء تغيير الخطة للشركة: ${companyId} إلى الخطة: ${newPlanId}`);
