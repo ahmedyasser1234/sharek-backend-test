@@ -27,7 +27,8 @@ export class CardService {
     @InjectRepository(EmployeeCard)
     private readonly cardRepo: Repository<EmployeeCard>,
   ) {}
- async generateCard(
+
+  async generateCard(
     employee: Employee,
     designId?: string,
     qrStyle?: number,
@@ -37,7 +38,7 @@ export class CardService {
 
     const finalQrStyle = qrStyle ?? 1;
     const uniqueUrl = randomUUID();
-    const cardUrl = `http://localhost:4000/${finalDesignId}/${uniqueUrl}`;
+    const cardUrl = `http://localhost:5173/${finalDesignId}/${uniqueUrl}`;
 
     let qrCode: string;
 
@@ -61,22 +62,94 @@ export class CardService {
         break;
     }
 
-    const card = this.cardRepo.create({
+    if (!employee.id) {
+      this.logger.error('❌ لا يمكن إنشاء البطاقة: employee.id غير موجود');
+      throw new Error('employee.id مطلوب لإنشاء البطاقة');
+    }
+
+    // ✅ إنشاء كائن البطاقة بدون تضارب أنواع
+    const cardData: Partial<EmployeeCard> = {
       title: `${employee.name} - ${employee.jobTitle} - بطاقة الموظف`,
       uniqueUrl,
       qrCode,
       designId: finalDesignId,
       qrStyle: finalQrStyle,
-      employee,
-      ...extra, // سيتم تضمين backgroundImage هنا إذا كانت موجودة
-    });
+      employeeId: employee.id, // ✅ الآن employeeId هو number
+      employee, 
+    };
 
+    // ✅ دمج البيانات الإضافية إذا وجدت
+    if (extra) {
+      Object.assign(cardData, extra);
+    }
+
+    const card = this.cardRepo.create(cardData);
     await this.cardRepo.save(card);
+    
     return {
       cardUrl,
       qrCode,
       designId: finalDesignId,
       qrStyle: finalQrStyle,
     };
+  }
+
+  async updateCard(
+    employee: Employee,
+    designId?: string,
+    qrStyle?: number,
+    extra?: Partial<EmployeeCard>
+  ): Promise<{ cardUrl: string; qrCode: string; designId: string; qrStyle: number }> {
+    const existingCard = await this.cardRepo.findOne({
+      where: { employee: { id: employee.id } }
+    });
+
+    if (existingCard) {
+      const finalDesignId = designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
+      const finalQrStyle = qrStyle ?? 1;
+      
+      let qrCode: string;
+      switch (finalQrStyle) {
+        case 2:
+          qrCode = await QRCode.toDataURL(existingCard.uniqueUrl, {
+            color: { dark: '#FF0000', light: '#FFFFFF' },
+          });
+          break;
+        case 3:
+          qrCode = await QRCode.toDataURL(existingCard.uniqueUrl, {
+            margin: 4,
+            scale: 10,
+          });
+          break;
+        default:
+          qrCode = await QRCode.toDataURL(existingCard.uniqueUrl);
+          break;
+      }
+
+      // ✅ تحديث البيانات بدون تضارب أنواع
+      const updateData: Partial<EmployeeCard> = {
+        qrCode,
+        designId: finalDesignId,
+        qrStyle: finalQrStyle,
+      };
+
+      if (extra) {
+        Object.assign(updateData, extra);
+      }
+
+      Object.assign(existingCard, updateData);
+      await this.cardRepo.save(existingCard);
+
+      const cardUrl = `http://localhost:5173/${finalDesignId}/${existingCard.uniqueUrl}`;
+
+      return {
+        cardUrl,
+        qrCode,
+        designId: finalDesignId,
+        qrStyle: finalQrStyle,
+      };
+    } else {
+      return this.generateCard(employee, designId, qrStyle, extra);
+    }
   }
 }

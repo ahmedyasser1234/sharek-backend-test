@@ -4,6 +4,8 @@ import {
   Column,
   ManyToOne,
   JoinColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
 } from 'typeorm';
 import { Employee } from './employee.entity';
 
@@ -16,18 +18,24 @@ export class EmployeeImage {
   imageUrl: string;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  label?: string; 
+  label?: string;
 
-  @ManyToOne(() => Employee, employee => employee.images, {
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  publicId: string;
+
+  @Column({ type: 'int' })
+  employeeId: number;
+
+  @ManyToOne(() => Employee, (employee) => employee.images, {
     onDelete: 'CASCADE',
+    nullable: false,
   })
   @JoinColumn({ name: 'employeeId' })
   employee: Employee;
 
-  @Column()
-  employeeId: number;
+  @CreateDateColumn()
+  createdAt: Date;
 
-  @Column({ nullable: true })
-  publicId: string;
-
+  @UpdateDateColumn()
+  updatedAt: Date;
 }

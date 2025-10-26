@@ -5,6 +5,7 @@ import {
   ManyToOne,
   CreateDateColumn,
   UpdateDateColumn,
+  JoinColumn,
 } from 'typeorm';
 import { Employee } from './employee.entity';
 
@@ -73,10 +74,15 @@ export class EmployeeCard {
   @Column({ type: 'varchar', nullable: true })
   backgroundImage: string | null;
 
+  // ✅ تغيير من uuid إلى number لتطابق employee.id
+  @Column({ type: 'int' })
+  employeeId: number;
+
   @ManyToOne(() => Employee, (employee) => employee.cards, {
     nullable: false,
     onDelete: 'CASCADE',
   })
+  @JoinColumn({ name: 'employeeId' }) 
   employee: Employee;
 
   @CreateDateColumn()

@@ -82,7 +82,7 @@ export class EmployeeController {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
+      this.logger.error(` فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
       throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
     }
   }
@@ -107,7 +107,7 @@ export class EmployeeController {
       res.send(passBuffer);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل إنشاء Apple Wallet pass: ${msg}`);
+      this.logger.error(` فشل إنشاء Apple Wallet pass: ${msg}`);
       throw new InternalServerErrorException('حدث خطأ أثناء إنشاء Apple Wallet pass');
     }
   }
@@ -118,12 +118,11 @@ export class EmployeeController {
     AnyFilesInterceptor({
       storage: memoryStorage(),
       fileFilter: (req, file, cb) => {
-        // السماح بملفات PDF بالإضافة للصور
         const allowedTypes = [
           'image/jpeg', 
           'image/png', 
           'image/webp',
-          'application/pdf' // 👈 دعم ملفات PDF
+          'application/pdf' 
         ];
         
         if (allowedTypes.includes(file.mimetype)) {
@@ -133,7 +132,7 @@ export class EmployeeController {
         }
       },
       limits: {
-        fileSize: 3 * 1024 * 1024, // 3MB لكل ملف
+        fileSize: 3 * 1024 * 1024, 
       },
     }),
   )
@@ -145,10 +144,9 @@ export class EmployeeController {
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     try {
-      this.logger.log(`إنشاء موظف جديد للشركة: ${req.user.companyId}`);
+      this.logger.log(` إنشاء موظف جديد للشركة: ${req.user.companyId}`);
       
-      // 🔥 تحقق من الملفات المستلمة
-      this.logger.log(`📁 عدد الملفات المستلمة في الـ Controller: ${files?.length || 0}`);
+      this.logger.log(` عدد الملفات المستلمة في الـ Controller: ${files?.length || 0}`);
       if (files && files.length > 0) {
         files.forEach((file, index) => {
           this.logger.log(`   📄 ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.mimetype} - ${file.size} bytes`);
@@ -156,7 +154,7 @@ export class EmployeeController {
       }
       
       const result = await this.employeeService.create(dto, req.user.companyId, files);
-      this.logger.log(`تم إنشاء الموظف: ${result.data?.id}`);
+      this.logger.log(` تم إنشاء الموظف: ${result.data?.id}`);
       return {
         statusCode: HttpStatus.CREATED,
         message: 'Employee created successfully',
@@ -164,7 +162,7 @@ export class EmployeeController {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل إنشاء الموظف: ${msg}`);
+      this.logger.error(` فشل إنشاء الموظف: ${msg}`);
       throw new InternalServerErrorException('حدث خطأ أثناء إنشاء الموظف');
     }
   }
@@ -194,7 +192,7 @@ export class EmployeeController {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب الموظفين: ${msg}`);
+      this.logger.error(` فشل جلب الموظفين: ${msg}`);
       throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظفين');
     }
   }
@@ -215,7 +213,7 @@ export class EmployeeController {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب بيانات الموظف: ${msg}`);
+      this.logger.error(` فشل جلب بيانات الموظف: ${msg}`);
       throw new InternalServerErrorException('حدث خطأ أثناء جلب بيانات الموظف');
     }
   }
@@ -226,12 +224,11 @@ export class EmployeeController {
     AnyFilesInterceptor({
       storage: memoryStorage(),
       fileFilter: (req, file, cb) => {
-        // السماح بملفات PDF بالإضافة للصور
         const allowedTypes = [
           'image/jpeg', 
           'image/png', 
           'image/webp',
-          'application/pdf' // 👈 دعم ملفات PDF
+          'application/pdf' 
         ];
         
         if (allowedTypes.includes(file.mimetype)) {
@@ -241,7 +238,7 @@ export class EmployeeController {
         }
       },
       limits: {
-        fileSize: 3 * 1024 * 1024, // 3MB لكل ملف
+        fileSize: 3 * 1024 * 1024,
       },
     }),
   )
@@ -251,10 +248,21 @@ export class EmployeeController {
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateEmployeeDto,
+    @Req() req: CompanyRequest, 
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     try {
-      const result = await this.employeeService.update(id, dto, files);
+      this.logger.log(`🔄 محاولة تحديث الموظف: ${id} للشركة: ${req.user.companyId}`);
+      
+      // 🔥 تحقق من الملفات المستلمة
+      this.logger.log(` عدد الملفات المستلمة في الـ Controller: ${files?.length || 0}`);
+      if (files && files.length > 0) {
+        files.forEach((file, index) => {
+          this.logger.log(`   📄 ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.mimetype} - ${file.size} bytes`);
+        });
+      }
+      
+      const result = await this.employeeService.update(id, dto, req.user.companyId, files); // ✅ إضافة companyId
       return {
         statusCode: HttpStatus.OK,
         message: 'Employee updated successfully',
@@ -262,7 +270,7 @@ export class EmployeeController {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل تحديث بيانات الموظف ${id}: ${msg}`);
+      this.logger.error(` فشل تحديث بيانات الموظف ${id}: ${msg}`);
       throw new InternalServerErrorException('حدث خطأ أثناء تحديث بيانات الموظف');
     }
   }
@@ -281,7 +289,7 @@ export class EmployeeController {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل حذف الموظف ${id}: ${msg}`);
+      this.logger.error(` فشل حذف الموظف ${id}: ${msg}`);
       throw new InternalServerErrorException('حدث خطأ أثناء حذف الموظف');
     }
   }
@@ -296,7 +304,7 @@ export class EmployeeController {
       res.send(buffer);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل تصدير Excel: ${msg}`);
+      this.logger.error(` فشل تصدير Excel: ${msg}`);
       throw new InternalServerErrorException('حدث خطأ أثناء تصدير ملف Excel');
     }
   }
@@ -322,7 +330,7 @@ export class EmployeeController {
     try {
       const result = await this.employeeService.importFromExcel(file.path, req.user.companyId);
 
-      let message = `تم استيراد ${result.count} موظف`;
+      let message = ` تم استيراد ${result.count} موظف`;
       if (result.limitReached) {
         const limitSkipped = result.skipped.filter(s => s.includes('subscription limit reached')).length;
         message += ` وتم رفض ${limitSkipped} موظف بسبب تجاوز الحد في الخطة`;
