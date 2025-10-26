@@ -10,6 +10,6 @@ export class CompanyToken {
   refreshToken: string;
 
   @ManyToOne(() => Company, (company) => company.tokens, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'companyId' }) // ✅ ضروري لربط المفتاح فعليًا
+  @JoinColumn({ name: 'companyId' }) 
   company: Company;
 }

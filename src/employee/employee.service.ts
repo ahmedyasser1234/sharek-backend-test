@@ -50,7 +50,8 @@ export class EmployeeService {
     private readonly cardService: CardService,
     private readonly cloudinaryService: CloudinaryService,
   ) {}
-async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
+
+  async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
   this.logger.log(` محاولة إنشاء موظف جديد للشركة: ${companyId}`);
   this.logger.log(` جاري البحث عن الشركة: ${companyId}`);
 
@@ -63,14 +64,14 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
 
   this.logger.log(` تم العثور على الشركة: ${company.name}`);
 
-  this.logger.log(`📊 جاري التحقق من إمكانية إضافة موظف جديد...`);
+  this.logger.log(` جاري التحقق من إمكانية إضافة موظف جديد...`);
 
   const { canAdd, allowed, current, maxAllowed } = await this.subscriptionService.canAddEmployee(companyId);
 
   this.logger.log(`📋 التحقق: ${canAdd ? 'مسموح' : 'ممنوع'}, المتبقي: ${allowed}, الحالي: ${current}, الحد الأقصى: ${maxAllowed}`);
 
   if (!canAdd) {
-    this.logger.error(`🚫 الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
+    this.logger.error(` الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
     throw new ForbiddenException(`الخطة لا تسمح بإضافة موظفين جدد - تم الوصول للحد الأقصى (${current}/${maxAllowed}) - يرجى ترقية الخطة`);
   }
 
@@ -78,14 +79,14 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
 
   const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
 
-  this.logger.log(` الحد المسموح: ${allowedCount}`);
+  this.logger.log(` الحد المسموح: ${allowedCount.maxAllowed}, المتبقي: ${allowedCount.remaining}, الحالي: ${allowedCount.current}`);
 
-  if (allowedCount <= 0) {
+  if (allowedCount.remaining <= 0) {
     this.logger.error(` الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
     throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد - يرجى تجديد الاشتراك');
   }
 
-  this.logger.log(` الشركة ${companyId} لديها إذن لإضافة موظفين (متبقي: ${allowedCount})`);
+  this.logger.log(` الشركة ${companyId} لديها إذن لإضافة موظفين (متبقي: ${allowedCount.remaining})`);
 
   this.logger.log(` جاري معالجة ساعات العمل...`);
 
@@ -291,7 +292,7 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
           let result: FileUploadResult;
 
           if (file.originalname.toLowerCase().endsWith('.pdf')) {
-            this.logger.log(`📄 جاري حفظ ملف PDF محلياً: ${file.originalname}`);
+            this.logger.log(` جاري حفظ ملف PDF محلياً: ${file.originalname}`);
 
             const fileExtension: string = path.extname(file.originalname);
             const uniqueFileName: string = `pdf_${Date.now()}_${saved.id}${fileExtension}`;
@@ -305,45 +306,45 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
               secure_url: fileUrl,
               public_id: uniqueFileName
             };
-            this.logger.log(`✅ تم حفظ PDF محلياً: ${result.secure_url}`);
-            this.logger.log(`📁 مسار الملف المحلي: ${filePath}`);
+            this.logger.log(` تم حفظ PDF محلياً: ${result.secure_url}`);
+            this.logger.log(`مسار الملف المحلي: ${filePath}`);
 
           } else {
-            this.logger.log(`🖼️ جاري ضغط الصورة: ${file.originalname}`);
+            this.logger.log(` جاري ضغط الصورة: ${file.originalname}`);
             const compressedBuffer = await sharp(file.buffer, { failOnError: false })
               .resize({ width: 800 })
               .webp({ quality: 70 })
               .toBuffer();
-            this.logger.log(`✅ تم ضغط الصورة: ${file.originalname}`);
+            this.logger.log(` تم ضغط الصورة: ${file.originalname}`);
 
-            this.logger.log(`☁️ جاري رفع الصورة إلى Cloudinary...`);
+            this.logger.log(` جاري رفع الصورة إلى Cloudinary...`);
             const uploadResult = await this.cloudinaryService.uploadBuffer(
               compressedBuffer,
               `companies/${companyId}/employees`
             ) as FileUploadResult;
             result = uploadResult;
-            this.logger.log(`✅ تم رفع الصورة: ${result.secure_url}`);
+            this.logger.log(` تم رفع الصورة: ${result.secure_url}`);
           }
           const fieldName = file.fieldname as keyof ImageMapType;
           const field = imageMap[fieldName];
-          this.logger.log(`🔍 حقل الصورة: ${field} للملف: ${file.fieldname}`);
+          this.logger.log(` حقل الصورة: ${field} للملف: ${file.fieldname}`);
 
           if (field) {
             if (field === 'backgroundImage') {
               backgroundImageUrl = result.secure_url;
-              this.logger.log(`🎨 تم رفع صورة الخلفية: ${backgroundImageUrl}`);
+              this.logger.log(` تم رفع صورة الخلفية: ${backgroundImageUrl}`);
             } else {
-              this.logger.log(`🔄 تحديث حقل ${field} في قاعدة البيانات...`);
+              this.logger.log(` تحديث حقل ${field} في قاعدة البيانات...`);
               
               const updateData: Partial<Employee> = { [field]: result.secure_url };
               await this.employeeRepo.update(saved.id, updateData);
               
               (saved as any)[field] = result.secure_url;
-              this.logger.log(`✅ تم تحديث ${field}: ${result.secure_url}`);
+              this.logger.log(` تم تحديث ${field}: ${result.secure_url}`);
               uploadedImagesCount++;
             }
           } else {
-            this.logger.log(`📸 حفظ الملف في جدول الصور المنفصل...`);
+            this.logger.log(` حفظ الملف في جدول الصور المنفصل...`);
             const label = typeof file.originalname === 'string'
               ? file.originalname.split('.')[0]
               : 'file';
@@ -356,7 +357,7 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
             });
 
             await this.imageRepo.save(imageEntity);
-            this.logger.log(`✅ تم حفظ الملف في الجدول المنفصل: ${label}`);
+            this.logger.log(` تم حفظ الملف في الجدول المنفصل: ${label}`);
             uploadedImagesCount++;
           }
 
@@ -365,22 +366,22 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
             ? error.message
             : 'Unknown error';
           const fileName = typeof file.originalname === 'string' ? file.originalname : 'غير معروف';
-          this.logger.error(`💥 فشل رفع ملف ${fileName}: ${errMsg}`);
+          this.logger.error(` فشل رفع ملف ${fileName}: ${errMsg}`);
         }
       })
     );
-    this.logger.log(`✅ انتهت معالجة المجموعة ${batchIndex + 1}`);
+    this.logger.log(` انتهت معالجة المجموعة ${batchIndex + 1}`);
   }
 
-  this.logger.log(`📊 إجمالي الصور المرفوعة: ${uploadedImagesCount}`);
+  this.logger.log(` إجمالي الصور المرفوعة: ${uploadedImagesCount}`);
 
   if (!saved.profileImageUrl) {
-    this.logger.log(`👤 استخدام الصورة الافتراضية للملف الشخصي`);
+    this.logger.log(` استخدام الصورة الافتراضية للملف الشخصي`);
     saved.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
     await this.employeeRepo.update(saved.id, { profileImageUrl: saved.profileImageUrl });
   }
 
-  this.logger.log(`🎴 جاري إنشاء بطاقة الموظف...`);
+  this.logger.log(` جاري إنشاء بطاقة الموظف...`);
   const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved, dto.designId, dto.qrStyle, {
     fontColorHead: dto.fontColorHead,
     fontColorHead2: dto.fontColorHead2,
@@ -399,24 +400,24 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
     backgroundImage: backgroundImageUrl,
   });
 
-  this.logger.log(`✅ تم إنشاء البطاقة: ${cardUrl}`);
+  this.logger.log(` تم إنشاء البطاقة: ${cardUrl}`);
 
-  this.logger.log(`🔄 جاري تحديث بيانات الموظف النهائية...`);
+  this.logger.log(` جاري تحديث بيانات الموظف النهائية...`);
   saved.cardUrl = cardUrl;
   saved.designId = designId;
   saved.qrCode = qrCode;
   saved = await this.employeeRepo.save(saved);
 
-  this.logger.log(`🎉 تم إنشاء الموظف بنجاح للشركة: ${companyId}`);
+  this.logger.log(` تم إنشاء الموظف بنجاح للشركة: ${companyId}`);
   this.logger.log(`========================================`);
-  this.logger.log(`📊 ملخص إنشاء الموظف:`);
-  this.logger.log(`   👤 الاسم: ${saved.name}`);
-  this.logger.log(`   🆔 الرقم: ${saved.id}`);
-  this.logger.log(`   🎴 رابط البطاقة: ${saved.cardUrl}`);
-  this.logger.log(`   🖼️ الصور المرفوعة: ${uploadedImagesCount}`);
-  this.logger.log(`   🎨 صورة الخلفية: ${backgroundImageUrl ? 'نعم' : 'لا'}`);
-  this.logger.log(`   📁 فولدر PDFs المحلي: /uploads/${companyId}/pdfs/`);
-  this.logger.log(`   📄 ملف PDF: ${hasPdfFile ? 'تم رفعه' : 'لم يتم رفعه'}`);
+  this.logger.log(` ملخص إنشاء الموظف:`);
+  this.logger.log(`    الاسم: ${saved.name}`);
+  this.logger.log(`    الرقم: ${saved.id}`);
+  this.logger.log(`    رابط البطاقة: ${saved.cardUrl}`);
+  this.logger.log(`   الصور المرفوعة: ${uploadedImagesCount}`);
+  this.logger.log(`    صورة الخلفية: ${backgroundImageUrl ? 'نعم' : 'لا'}`);
+  this.logger.log(`    فولدر PDFs المحلي: /uploads/${companyId}/pdfs/`);
+  this.logger.log(`    ملف PDF: ${hasPdfFile ? 'تم رفعه' : 'لم يتم رفعه'}`);
   this.logger.log(`========================================`);
 
   return {
@@ -466,20 +467,20 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
 
   async findOne(id: number) {
     const employee = await this.employeeRepo.findOne({
-      where: { id },
-      relations: ['company', 'cards', 'images'],
+        where: { id },
+        relations: ['company', 'cards', 'images'],
     });
 
     if (!employee) {
-      throw new NotFoundException('Employee not found');
+        throw new NotFoundException('Employee not found');
     }
 
     return {
-      statusCode: HttpStatus.OK,
-      message: ' تم جلب بيانات الموظف بنجاح',
-      data: employee,
+        statusCode: HttpStatus.OK,
+        message: ' تم جلب بيانات الموظف بنجاح',
+        data: employee,
     };
-  }
+}
 
   async generateGoogleWalletLink(employeeId: number): Promise<{ url: string }> {
     const employee = await this.employeeRepo.findOne({
@@ -560,13 +561,12 @@ async update(
     throw new NotFoundException('الموظف غير موجود');
   }
 
-  // تحديث البيانات الأساسية
+  // تحديث البيانات الأساسية للموظف فقط
   Object.assign(employee, {
     ...dto,
     showWorkingHours: dto.showWorkingHours ?? employee.showWorkingHours,
     isOpen24Hours: dto.isOpen24Hours ?? employee.isOpen24Hours,
     workingHours: dto.workingHours ?? employee.workingHours,
-    cardStyleSection: dto.cardStyleSection ?? employee.cardStyleSection,
     videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
       ? dto.videoType
       : employee.videoType,
@@ -584,6 +584,11 @@ async update(
   let savedEmployee = await this.employeeRepo.save(employee);
   this.logger.log(`✅ تم تحديث البيانات الأساسية للموظف: ${savedEmployee.id}`);
 
+  // تحديث بيانات البطاقة (EmployeeCard) إذا كانت موجودة
+  if (this.isCardDesignUpdated(dto, employee)) {
+    await this.updateCardDesign(employee.id, dto);
+  }
+
   // معالجة الملفات
   if (files && files.length > 0) {
     await this.handleEmployeeFiles(savedEmployee, files);
@@ -595,7 +600,7 @@ async update(
     savedEmployee = await this.employeeRepo.save(savedEmployee);
   }
 
-  // إنشاء/تحديث البطاقة
+  // إنشاء/تحديث البطاقة إذا كان هناك تغيير في التصميم
   if (this.isCardDesignUpdated(dto, employee)) {
     this.logger.log(`🎨 إنشاء/تحديث بطاقة للموظف: ${savedEmployee.id}`);
     
@@ -646,6 +651,44 @@ async update(
     data: finalEmployee || savedEmployee,
   };
 }
+
+// دالة جديدة لتحديث تصميم البطاقة
+private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Promise<void> {
+  try {
+    const card = await this.cardRepo.findOne({
+      where: { employeeId }
+    });
+
+    if (card) {
+      const updateData: Partial<EmployeeCard> = {};
+      
+      // تحديث الحقول التصميمية فقط
+      const designFields = [
+        'designId', 'fontColorHead', 'fontColorHead2', 'fontColorParagraph',
+        'fontColorExtra', 'sectionBackground', 'Background', 'sectionBackground2',
+        'dropShadow', 'qrStyle', 'shadowX', 'shadowY', 'shadowBlur', 
+        'shadowSpread', 'cardRadius', 'cardStyleSection'
+      ];
+
+      designFields.forEach(field => {
+        if (dto[field as keyof UpdateEmployeeDto] !== undefined) {
+          updateData[field as keyof EmployeeCard] = dto[field as keyof UpdateEmployeeDto] as any;
+        }
+      });
+
+      if (Object.keys(updateData).length > 0) {
+        await this.cardRepo.update(card.id, updateData);
+        this.logger.log(`✅ تم تحديث تصميم البطاقة للموظف: ${employeeId}`);
+      }
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    this.logger.error(`❌ فشل تحديث تصميم البطاقة: ${errorMessage}`);
+  }
+}
+
+// عدل دالة التحقق لتشمل الحقول التصميمية
+
 
 private async handleEmployeeFiles(employee: Employee, files: Express.Multer.File[]): Promise<void> {
   // تعريف نوع آمن لـ imageMap
@@ -821,16 +864,15 @@ private async handleImageUpload(
 }
 
 private isCardDesignUpdated(dto: UpdateEmployeeDto, employee: Employee): boolean {
-  const designFields: (keyof UpdateEmployeeDto | keyof Employee)[] = [
-    'name', 'jobTitle', 'designId', 'isOpen24Hours', 'showWorkingHours',
-    'workingHours', 'fontColorHead', 'fontColorHead2', 'fontColorParagraph',
-    'fontColorExtra', 'sectionBackground', 'Background', 'sectionBackground2',
-    'dropShadow', 'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread',
-    'cardRadius', 'cardStyleSection', 'qrStyle'
+  const designFields: (keyof UpdateEmployeeDto)[] = [
+    'name', 'jobTitle', 'designId', 'fontColorHead', 'fontColorHead2',
+    'fontColorParagraph', 'fontColorExtra', 'sectionBackground', 'Background',
+    'sectionBackground2', 'dropShadow', 'qrStyle', 'shadowX', 'shadowY',
+    'shadowBlur', 'shadowSpread', 'cardRadius', 'cardStyleSection'
   ];
 
   return designFields.some(field => {
-    const dtoValue = dto[field as keyof UpdateEmployeeDto];
+    const dtoValue = dto[field];
     const employeeValue = employee[field as keyof Employee];
     return dtoValue !== undefined && dtoValue !== employeeValue;
   });
@@ -861,30 +903,35 @@ private isCardDesignUpdated(dto: UpdateEmployeeDto, employee: Employee): boolean
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async findByUniqueUrl(uniqueUrl: string, source = 'link', req?: Request) {
     const card = await this.cardRepo.findOne({
-      where: { uniqueUrl },
-      relations: ['employee', 'employee.company', 'employee.images'],
+        where: { uniqueUrl },
+        relations: ['employee', 'employee.company', 'employee.images', 'employee.cards'], // إضافة employee.cards هنا
     });
 
     if (!card || !card.employee) {
-      throw new NotFoundException(' البطاقة غير موجودة');
+        throw new NotFoundException(' البطاقة غير موجودة');
     }
 
     const { employee } = card;
     let qrCode = card.qrCode;
     if (!qrCode) {
-      const { qrCode: generatedQr } = await this.cardService.generateCard(employee, card.designId);
-      qrCode = generatedQr;
+        const { qrCode: generatedQr } = await this.cardService.generateCard(employee, card.designId);
+        qrCode = generatedQr;
     }
-    void req;
-    return {
-      statusCode: HttpStatus.OK,
-      message: ' تم جلب بيانات البطاقة بنجاح',
-      data: {
+
+    // إضافة QR Code للـ employee مؤقتاً فقط للرد
+    const employeeWithQrCode = {
         ...employee,
-        qrCode,
-      },
+        qrCode, // إضافة QR Code هنا
     };
-  }
+
+    void req; // لإسكات تحذير unused parameter
+
+    return {
+        statusCode: HttpStatus.OK,
+        message: ' تم جلب بيانات البطاقة بنجاح',
+        data: employeeWithQrCode, // إرجاع employee كاملاً مع العلاقات
+    };
+}
   
   async exportToExcel(companyId: string): Promise<Buffer> {
     try {
@@ -978,7 +1025,22 @@ private isCardDesignUpdated(dto: UpdateEmployeeDto, employee: Employee): boolean
 async importFromExcel(
   filePath: string,
   companyId: string
-): Promise<{ count: number; imported: Employee[]; skipped: string[]; limitReached: boolean }> {
+): Promise<{ 
+  count: number; 
+  imported: Employee[]; 
+  skipped: string[]; 
+  limitReached: boolean;
+  summary: {
+    totalRows: number;
+    allowedToAdd: number;
+    successfullyAdded: number;
+    skippedRows: number;
+    finalTotal: number;
+    maxAllowed: number;
+    currentEmployees: number;
+    message: string;
+  }
+}> {
   this.logger.log(`📁 بدء استيراد ملف Excel: ${filePath} للشركة: ${companyId}`);
   
   const workbook = new ExcelJS.Workbook();
@@ -1005,15 +1067,16 @@ async importFromExcel(
   this.logger.log(` عدد الموظفين الحاليين: ${currentEmployeeCount}`);
 
   this.logger.log(` جاري التحقق من الحد المسموح في الخطة...`);
-  const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
-  this.logger.log(` الحد المسموح في الخطة: ${allowedCount}`);
+  
+  // ✅ التصحيح: استخراج remaining من الكائن
+  const { maxAllowed, remaining } = await this.subscriptionService.getAllowedEmployees(companyId);
+  
+  this.logger.log(` الحد الأقصى في الخطة: ${maxAllowed}`);
+  this.logger.log(` العدد المتبقي للإضافة: ${remaining}`);
 
-  const availableSlots = allowedCount - currentEmployeeCount;
-  this.logger.log(` العدد الفاضل للإضافة: ${availableSlots}`);
-
-  if (availableSlots <= 0) {
-    this.logger.warn(` لا يوجد أماكن فارغة - العدد الفاضل: ${availableSlots}`);
-  }
+  // ✅ استخدام العدد المتبقي للإضافة
+  const availableSlots = remaining;
+  this.logger.log(` العدد المسموح بإضافته: ${availableSlots}`);
 
   const imported: Employee[] = [];
   const skipped: string[] = [];
@@ -1065,12 +1128,14 @@ async importFromExcel(
   };
 
   this.logger.log(` بدء معالجة الصفوف من 2 إلى ${sheet.rowCount}...`);
+  this.logger.log(`🎯 الهدف: إضافة ${availableSlots} موظف من أصل ${sheet.rowCount - 1} صف`);
 
   for (let i = 2; i <= sheet.rowCount; i++) {
     this.logger.log(`--- معالجة الصف ${i} ---`);
 
+    // ✅ إضافة حتى الوصول للعدد المسموح فقط
     if (imported.length >= availableSlots) {
-      const skipMsg = `Row ${i} skipped: تم الوصول للحد الأقصى (${availableSlots} موظف)`;
+      const skipMsg = `Row ${i} skipped: تم الوصول للعدد المسموح (${availableSlots} موظف)`;
       this.logger.warn(` ${skipMsg}`);
       skipped.push(skipMsg);
       limitReached = true;
@@ -1174,7 +1239,7 @@ async importFromExcel(
       await this.employeeRepo.save(saved);
       imported.push(saved);
 
-      this.logger.log(` تم إضافة ${saved.name} بنجاح (${imported.length}/${availableSlots})`);
+      this.logger.log(`✅ تم إضافة ${saved.name} بنجاح (${imported.length}/${availableSlots})`);
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : JSON.stringify(err);
@@ -1184,19 +1249,49 @@ async importFromExcel(
     }
   }
 
+  let message = '';
+  if (availableSlots === 0) {
+    if (currentEmployeeCount > maxAllowed) {
+      message = `❌ تم تجاوز الحد الأقصى للموظفين (${currentEmployeeCount}/${maxAllowed}) - يرجى ترقية الخطة`;
+    } else {
+      message = `✅ تم الوصول للحد الأقصى للموظفين (${currentEmployeeCount}/${maxAllowed})`;
+    }
+  } else if (limitReached) {
+    message = `✅ تم إضافة ${availableSlots} موظف فقط (العدد المسموح في الخطة)`;
+  }
+
+  const summary = {
+    totalRows: sheet.rowCount - 1,
+    allowedToAdd: availableSlots,
+    successfullyAdded: imported.length,
+    skippedRows: skipped.length,
+    finalTotal: currentEmployeeCount + imported.length,
+    maxAllowed: maxAllowed,
+    currentEmployees: currentEmployeeCount,
+    message
+  };
+
   this.logger.log(`========================================`);
-  this.logger.log(` نتيجة الاستيراد النهائية:`);
-  this.logger.log(`    تم إضافة: ${imported.length} موظف`);
-  this.logger.log(`    تم تخطي: ${skipped.length} صف`);
-  this.logger.log(`    الوصول للحد: ${limitReached ? 'نعم' : 'لا'}`);
-  this.logger.log(`    الإجمالي بعد الاستيراد: ${currentEmployeeCount + imported.length}/${allowedCount}`);
+  this.logger.log(`🎊 ملخص الاستيراد:`);
+  this.logger.log(`   📄 إجمالي الصفوف في الملف: ${summary.totalRows}`);
+  this.logger.log(`   ✅ تم إضافة: ${summary.successfullyAdded} موظف`);
+  this.logger.log(`   ⏭️ تم تخطي: ${summary.skippedRows} صف`);
+  this.logger.log(`   🎯 العدد المسموح: ${summary.allowedToAdd}`);
+  this.logger.log(`   👥 الموظفين الحاليين: ${summary.currentEmployees}`);
+  this.logger.log(`   📊 الحد الأقصى: ${summary.maxAllowed}`);
+  
+  if (summary.message) {
+    this.logger.log(`   💡 ${summary.message}`);
+  }
+  
   this.logger.log(`========================================`);
   
   return { 
     count: imported.length, 
     imported, 
     skipped,
-    limitReached 
+    limitReached,
+    summary
   };
 }
 

@@ -74,7 +74,6 @@ export class EmployeeCard {
   @Column({ type: 'varchar', nullable: true })
   backgroundImage: string | null;
 
-  // ✅ تغيير من uuid إلى number لتطابق employee.id
   @Column({ type: 'int' })
   employeeId: number;
 

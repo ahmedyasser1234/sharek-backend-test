@@ -126,7 +126,6 @@ export class CardService {
           break;
       }
 
-      // ✅ تحديث البيانات بدون تضارب أنواع
       const updateData: Partial<EmployeeCard> = {
         qrCode,
         designId: finalDesignId,
@@ -140,7 +139,7 @@ export class CardService {
       Object.assign(existingCard, updateData);
       await this.cardRepo.save(existingCard);
 
-      const cardUrl = `http://localhost:5173/${finalDesignId}/${existingCard.uniqueUrl}`;
+      const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${existingCard.uniqueUrl}`;
 
       return {
         cardUrl,
