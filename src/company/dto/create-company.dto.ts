@@ -28,11 +28,6 @@ export class CreateCompanyDto {
   @IsString()
   phone?: string;
 
-  @ApiPropertyOptional({ example: 'https://example.com/logo.png' })
-  @IsOptional()
-  @IsString()
-  logoUrl?: string;
-
   @ApiPropertyOptional({ example: 'شركة متخصصة في حلول البرمجيات' })
   @IsOptional()
   @IsString()
