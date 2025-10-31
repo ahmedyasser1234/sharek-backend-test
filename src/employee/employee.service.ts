@@ -563,7 +563,6 @@ async update(
     throw new NotFoundException('الموظف غير موجود');
   }
 
-  // تحديث البيانات الأساسية للموظف فقط
   Object.assign(employee, {
     ...dto,
     showWorkingHours: dto.showWorkingHours ?? employee.showWorkingHours,
@@ -586,17 +585,14 @@ async update(
   let savedEmployee = await this.employeeRepo.save(employee);
   this.logger.log(`✅ تم تحديث البيانات الأساسية للموظف: ${savedEmployee.id}`);
 
-  // تحديث بيانات البطاقة (EmployeeCard) إذا كانت موجودة
   if (this.isCardDesignUpdated(dto, employee)) {
     await this.updateCardDesign(employee.id, dto);
   }
 
-  // معالجة الملفات
   if (files && files.length > 0) {
     await this.handleEmployeeFiles(savedEmployee, files);
   }
 
-  // تعيين صورة افتراضية إذا لزم الأمر
   if (!savedEmployee.profileImageUrl) {
     savedEmployee.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
     savedEmployee = await this.employeeRepo.save(savedEmployee);

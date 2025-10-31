@@ -77,7 +77,7 @@ export class CompanyController {
   async login(@Body() dto: LoginCompanyDto, @Req() req: Request) {
     const ip = req.ip || req.headers['x-forwarded-for']?.toString() || 'unknown';
     const result = await this.companyService.login(dto, ip);
-    return result; // الدالة already بترجع response منظم
+    return result; 
   }
 
   //  تسجيل دخول OAuth 
@@ -237,8 +237,8 @@ export class CompanyController {
       data: companies
     };
   }
-
-  @Public()
+  @UseGuards(CompanyJwtGuard)
+  @ApiBearerAuth()
   @Get(':id')
   @ApiOperation({ summary: 'جلب شركة حسب ID' })
   async findOne(@Param('id') id: string) {
@@ -250,7 +250,6 @@ export class CompanyController {
     };
   }
 
-  //  تحديث شركة - محمي
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
   @Put(':id')
@@ -262,14 +261,23 @@ export class CompanyController {
     },
   }))
   @ApiOperation({ summary: 'تحديث بيانات الشركة' })
-  @ApiResponse({ status: 200, description: 'تم تحديث بيانات الشركة بنجاح' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'تم تحديث بيانات الشركة بنجاح',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'تم تحديث بيانات الشركة بنجاح' }
+      }
+    }
+  })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateCompanyDto,
     @UploadedFile() logo: Express.Multer.File,
   ) {
-    const result = await this.companyService.updateCompany(id, dto, logo);
-    return result; 
+    await this.companyService.updateCompany(id, dto, logo);
+    return { message: 'تم تحديث بيانات الشركة بنجاح' };
   }
 
   @UseGuards(AdminJwtGuard)

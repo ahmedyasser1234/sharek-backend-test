@@ -93,7 +93,7 @@ export class CompanyService implements OnModuleInit {
     });
   }
 
-async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
+  async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
   const existing = await this.companyRepo.findOne({ where: { email: dto.email } });
   if (existing) {
     throw new BadRequestException('هذا البريد مستخدم بالفعل');
@@ -205,9 +205,10 @@ async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<
     return 'تم تفعيل البريد الإلكتروني بنجاح';
   }
 
-  async updateCompany(id: string, dto: UpdateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
+  async updateCompany(id: string, dto: UpdateCompanyDto, logo?: Express.Multer.File): Promise<void> {
     const company = await this.companyRepo.findOne({ where: { id } });
     if (!company) throw new NotFoundException('Company not found');
+
     if (dto.password) {
       dto.password = await bcrypt.hash(dto.password, 10);
     }
@@ -232,7 +233,7 @@ async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<
         const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
         logoUrl = result.secure_url;
       } catch (error: unknown) {
-        const errorMessage = this.getErrorMessage(error);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
         throw new InternalServerErrorException('فشل رفع صورة الشعار');
       }
@@ -245,7 +246,6 @@ async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<
     };
 
     await this.companyRepo.update(id, updateData);
-    return this.findById(id);
   }
 
   async findByEmail(email: string): Promise<Company> {
@@ -377,7 +377,7 @@ async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<
     return error instanceof Error ? error.message : 'Unknown error';
   }
 
- async login(
+async login(
   dto: LoginCompanyDto,
   ip: string,
 ): Promise<{ 
@@ -386,12 +386,7 @@ async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<
   data: {
     accessToken: string;
     refreshToken: string;
-    company: { 
-      id: string;
-      name: string;
-      email: string;
-      subscriptionStatus: string;
-    }
+    company: Company;
   }
 }> {
   const company = await this.findByEmail(dto.email);
@@ -420,19 +415,13 @@ async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<
     }),
   );
 
-
   return {
     statusCode: HttpStatus.OK,
     message: 'تم تسجيل الدخول بنجاح',
     data: {
       accessToken: accessToken,
       refreshToken: refreshToken, 
-      company: { 
-        id: company.id,
-        name: company.name,
-        email: company.email,
-        subscriptionStatus: company.subscriptionStatus
-      }
+      company: company 
     },
   };
 }
