@@ -136,7 +136,8 @@ export class PaymentService {
 
       await this.subRepo.save(subscription);
 
-      this.notificationService.notifyPaymentSuccess(transaction.company, transaction.plan);
+      // Fixed: Added await
+      await this.notificationService.notifyPaymentSuccess(transaction.company, transaction.plan);
 
       try {
         await this.sendDecisionEmail(
@@ -200,7 +201,8 @@ export class PaymentService {
 
     await this.paymentProofRepo.save(proof);
 
-    this.notificationService.notifyNewSubscriptionRequest(proof);
+    // Fixed: Added await
+    await this.notificationService.notifyNewSubscriptionRequest(proof);
 
     try {
       await this.sendProofNotification(company, plan, imageUrl);
@@ -247,7 +249,8 @@ export class PaymentService {
 
     this.logger.log(` تم قبول طلب التحويل: ${proofId} - الشركة: ${proof.company.name}`);
 
-    this.notificationService.notifySubscriptionApproved(proof);
+    // Fixed: Added await
+    await this.notificationService.notifySubscriptionApproved(proof);
 
     if (proof.company.email) {
       try {
@@ -284,7 +287,7 @@ export class PaymentService {
 
     this.logger.log(` تم رفض طلب التحويل: ${proofId} - الشركة: ${proof.company.name} - السبب: ${reason}`);
 
-    this.notificationService.notifySubscriptionRejected(proof);
+    await this.notificationService.notifySubscriptionRejected(proof);
 
     if (proof.company.email) {
       try {

@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 import { Employee } from './employee.entity';
 
-@Entity()
+@Entity('employee_card')
 export class EmployeeCard {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -54,19 +54,19 @@ export class EmployeeCard {
   qrStyle: number;
 
   @Column({ type: 'int', default: 1 })
-  shadowX : number;
+  shadowX: number;
 
   @Column({ type: 'int', default: 1 })
-  shadowY : number;
+  shadowY: number;
+
+  @Column({ type: 'int', default: 3 })
+  shadowBlur: number;
 
   @Column({ type: 'int', default: 1 })
-  shadowBlur : number;
+  shadowSpread: number;
 
-  @Column({ type: 'int', default: 1 })
-  shadowSpread : number;
-
-  @Column({ type: 'int', default: 1 })
-  cardRadius : number;
+  @Column({ type: 'int', default: 16 })
+  cardRadius: number;
 
   @Column({ type: 'boolean', default: false })
   cardStyleSection: boolean;
@@ -81,7 +81,7 @@ export class EmployeeCard {
     nullable: false,
     onDelete: 'CASCADE',
   })
-  @JoinColumn({ name: 'employeeId' }) 
+  @JoinColumn({ name: 'employeeId' })
   employee: Employee;
 
   @CreateDateColumn()

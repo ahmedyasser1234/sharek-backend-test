@@ -9,6 +9,7 @@ import {
   UseGuards,
   InternalServerErrorException,
   NotFoundException,
+  Post,
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CompanyService } from '../company/company.service';
@@ -52,34 +53,34 @@ export class AdminSubscriptionController {
     }
   }
 
-@Patch(':id/cancel')
-@ApiOperation({ summary: 'إلغاء اشتراك الشركة الحالي' })
-@ApiParam({ name: 'id', description: 'معرف الشركة' })
-@ApiResponse({ status: 200, description: 'تم إلغاء الاشتراك بنجاح' })
-async cancelSubscription(
-  @Param('id') companyId: string
-): Promise<ReturnType<SubscriptionService['cancelSubscription']>> {
-  this.logger.log(`🚀 استلام طلب إلغاء اشتراك للشركة: ${companyId}`);
-  
-  try {
-    const startTime = Date.now();
-    const result = await this.subscriptionService.cancelSubscription(companyId);
-    const endTime = Date.now();
+  @Patch(':id/cancel')
+  @ApiOperation({ summary: 'إلغاء اشتراك الشركة الحالي' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiResponse({ status: 200, description: 'تم إلغاء الاشتراك بنجاح' })
+  async cancelSubscription(
+    @Param('id') companyId: string
+  ): Promise<ReturnType<SubscriptionService['cancelSubscription']>> {
+    this.logger.log(` استلام طلب إلغاء اشتراك للشركة: ${companyId}`);
     
-    this.logger.log(` وقت تنفيذ العملية: ${endTime - startTime}ms`);
-    this.logger.log(` تم معالجة طلب إلغاء الاشتراك بنجاح للشركة: ${companyId}`);
-    
-    return result;
-  } catch (error: unknown) {
-    this.logger.error(` فشل معالجة طلب إلغاء الاشتراك للشركة: ${companyId}`, error as any);
-    
-    if (error instanceof NotFoundException) {
-      throw new NotFoundException(`الشركة ${companyId} ليس لديها اشتراكات نشطة`);
+    try {
+      const startTime = Date.now();
+      const result = await this.subscriptionService.cancelSubscription(companyId);
+      const endTime = Date.now();
+      
+      this.logger.log(` وقت تنفيذ العملية: ${endTime - startTime}ms`);
+      this.logger.log(` تم معالجة طلب إلغاء الاشتراك بنجاح للشركة: ${companyId}`);
+      
+      return result;
+    } catch (error: unknown) {
+      this.logger.error(` فشل معالجة طلب إلغاء الاشتراك للشركة: ${companyId}`, error as any);
+      
+      if (error instanceof NotFoundException) {
+        throw new NotFoundException(`الشركة ${companyId} ليس لديها اشتراكات نشطة`);
+      }
+      
+      throw new InternalServerErrorException('حدث خطأ أثناء إلغاء الاشتراك');
     }
-    
-    throw new InternalServerErrorException('حدث خطأ أثناء إلغاء الاشتراك');
   }
-}
 
   @Patch(':id/extend')
   @ApiOperation({ summary: 'تمديد اشتراك الشركة الحالي' })
@@ -145,99 +146,133 @@ async cancelSubscription(
     }
   }
 
- @Get('manual-proofs')
-@ApiOperation({ summary: 'عرض جميع طلبات التحويل البنكي' })
-@ApiResponse({ status: 200, description: 'تم جلب الطلبات بنجاح' })
-async getManualTransferProofs() {
-  try {
-    const proofs = await this.proofRepo.find({
-      relations: ['company', 'plan'],
-      order: { createdAt: 'DESC' },
-    });
-
-    return proofs.map((proof) => ({
-      id: proof.id,
-      companyId: proof.company.id,
-      companyName: proof.company.name,
-      companyEmail: proof.company.email,
-      planId: proof.plan.id,
-      planName: proof.plan.name,
-      imageUrl: proof.imageUrl,
-      createdAt: proof.createdAt,
-      status: proof.status, 
-      reviewed: proof.reviewed,
-      rejected: proof.rejected,
-      decisionNote: proof.decisionNote,
-    }));
-  } catch (err) {
-    this.logger.error(`فشل تحميل الطلبات: ${String(err)}`);
-    throw new InternalServerErrorException('فشل تحميل الطلبات');
+  @Get(':id/validate-plan-change/:newPlanId')
+  @ApiOperation({ summary: 'التحقق من إمكانية تغيير خطة الشركة (للأدمن)' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiParam({ name: 'newPlanId', description: 'معرف الخطة الجديدة' })
+  @ApiResponse({ status: 200, description: 'تم التحقق بنجاح' })
+  async validatePlanChange(
+    @Param('id') companyId: string,
+    @Param('newPlanId') newPlanId: string,
+  ): Promise<ReturnType<SubscriptionService['validatePlanChange']>> {
+    try {
+      return await this.subscriptionService.validatePlanChange(companyId, newPlanId);
+    } catch (error: unknown) {
+      this.logger.error(`فشل التحقق من تغيير الخطة للشركة ${companyId}`, error as any);
+      throw error;
+    }
   }
-}
 
-@Get('manual-proofs/:proofId')
-@ApiOperation({ summary: 'عرض تفاصيل طلب تحويل بنكي' })
-@ApiParam({ name: 'proofId', description: 'معرف الطلب' })
-@ApiResponse({ status: 200, description: 'تم جلب تفاصيل الطلب بنجاح' })
-async getManualProofDetails(@Param('proofId') proofId: string) {
-  try {
-    const proof = await this.proofRepo.findOne({
-      where: { id: proofId },
-      relations: ['company', 'plan'],
-    });
-
-    if (!proof) throw new NotFoundException('الطلب غير موجود');
-
-    return {
-      id: proof.id,
-      companyId: proof.company.id,
-      companyName: proof.company.name,
-      companyEmail: proof.company.email,
-      planId: proof.plan.id,
-      planName: proof.plan.name,
-      imageUrl: proof.imageUrl,
-      createdAt: proof.createdAt,
-      status: proof.status, 
-      reviewed: proof.reviewed,
-      rejected: proof.rejected,
-      decisionNote: proof.decisionNote,
-    };
-  } catch (err) {
-    this.logger.error(`فشل تحميل تفاصيل الطلب ${proofId}: ${String(err)}`);
-    throw new InternalServerErrorException('فشل تحميل تفاصيل الطلب');
+  @Post(':id/request-plan-change/:newPlanId')
+  @ApiOperation({ summary: 'طلب تغيير خطة الشركة (للأدمن)' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiParam({ name: 'newPlanId', description: 'معرف الخطة الجديدة' })
+  @ApiResponse({ status: 200, description: 'تم إرسال الطلب بنجاح' })
+  async requestPlanChange(
+    @Param('id') companyId: string,
+    @Param('newPlanId') newPlanId: string,
+  ): Promise<ReturnType<SubscriptionService['requestPlanChange']>> {
+    try {
+      return await this.subscriptionService.requestPlanChange(companyId, newPlanId);
+    } catch (error: unknown) {
+      this.logger.error(`فشل طلب تغيير الخطة للشركة ${companyId}`, error as any);
+      throw error;
+    }
   }
-}
 
-@Patch('manual-proofs/:proofId/approve')
-@ApiOperation({ summary: 'قبول طلب التحويل البنكي' })
-@ApiParam({ name: 'proofId', description: 'معرف الطلب' })
-@ApiResponse({ status: 200, description: 'تم قبول الطلب بنجاح' })
-async approveProof(
-  @Param('proofId') proofId: string,
-): Promise<{ message: string }> {
-  try {
-    return await this.paymentService.approveProof(proofId);
-  } catch (error: unknown) {
-    this.logger.error(`فشل قبول الطلب ${proofId}`, error as any);
-    throw new InternalServerErrorException('فشل قبول الطلب');
-  }
-}
+  @Get('manual-proofs')
+  @ApiOperation({ summary: 'عرض جميع طلبات التحويل البنكي' })
+  @ApiResponse({ status: 200, description: 'تم جلب الطلبات بنجاح' })
+  async getManualTransferProofs() {
+    try {
+      const proofs = await this.proofRepo.find({
+        relations: ['company', 'plan'],
+        order: { createdAt: 'DESC' },
+      });
 
-@Patch('manual-proofs/:proofId/reject')
-@ApiOperation({ summary: 'رفض طلب التحويل البنكي' })
-@ApiParam({ name: 'proofId', description: 'معرف الطلب' })
-@ApiResponse({ status: 200, description: 'تم رفض الطلب بنجاح' })
-async rejectProof(
-  @Param('proofId') proofId: string,
-  @Body() body: { reason: string }
-): Promise<{ message: string }> {
-  try {
-    return await this.paymentService.rejectProof(proofId, body.reason);
-  } catch (error: unknown) {
-    this.logger.error(`فشل رفض الطلب ${proofId}`, error as any);
-    throw new InternalServerErrorException('فشل رفض الطلب');
+      return proofs.map((proof) => ({
+        id: proof.id,
+        companyId: proof.company.id,
+        companyName: proof.company.name,
+        companyEmail: proof.company.email,
+        planId: proof.plan.id,
+        planName: proof.plan.name,
+        imageUrl: proof.imageUrl,
+        createdAt: proof.createdAt,
+        status: proof.status, 
+        reviewed: proof.reviewed,
+        rejected: proof.rejected,
+        decisionNote: proof.decisionNote,
+      }));
+    } catch (err) {
+      this.logger.error(`فشل تحميل الطلبات: ${String(err)}`);
+      throw new InternalServerErrorException('فشل تحميل الطلبات');
+    }
   }
-}
+
+  @Get('manual-proofs/:proofId')
+  @ApiOperation({ summary: 'عرض تفاصيل طلب تحويل بنكي' })
+  @ApiParam({ name: 'proofId', description: 'معرف الطلب' })
+  @ApiResponse({ status: 200, description: 'تم جلب تفاصيل الطلب بنجاح' })
+  async getManualProofDetails(@Param('proofId') proofId: string) {
+    try {
+      const proof = await this.proofRepo.findOne({
+        where: { id: proofId },
+        relations: ['company', 'plan'],
+      });
+
+      if (!proof) throw new NotFoundException('الطلب غير موجود');
+
+      return {
+        id: proof.id,
+        companyId: proof.company.id,
+        companyName: proof.company.name,
+        companyEmail: proof.company.email,
+        planId: proof.plan.id,
+        planName: proof.plan.name,
+        imageUrl: proof.imageUrl,
+        createdAt: proof.createdAt,
+        status: proof.status, 
+        reviewed: proof.reviewed,
+        rejected: proof.rejected,
+        decisionNote: proof.decisionNote,
+      };
+    } catch (err) {
+      this.logger.error(`فشل تحميل تفاصيل الطلب ${proofId}: ${String(err)}`);
+      throw new InternalServerErrorException('فشل تحميل تفاصيل الطلب');
+    }
+  }
+
+  @Patch('manual-proofs/:proofId/approve')
+  @ApiOperation({ summary: 'قبول طلب التحويل البنكي' })
+  @ApiParam({ name: 'proofId', description: 'معرف الطلب' })
+  @ApiResponse({ status: 200, description: 'تم قبول الطلب بنجاح' })
+  async approveProof(
+    @Param('proofId') proofId: string,
+  ): Promise<{ message: string }> {
+    try {
+      return await this.paymentService.approveProof(proofId);
+    } catch (error: unknown) {
+      this.logger.error(`فشل قبول الطلب ${proofId}`, error as any);
+      throw new InternalServerErrorException('فشل قبول الطلب');
+    }
+  }
+
+  @Patch('manual-proofs/:proofId/reject')
+  @ApiOperation({ summary: 'رفض طلب التحويل البنكي' })
+  @ApiParam({ name: 'proofId', description: 'معرف الطلب' })
+  @ApiResponse({ status: 200, description: 'تم رفض الطلب بنجاح' })
+  async rejectProof(
+    @Param('proofId') proofId: string,
+    @Body() body: { reason: string }
+  ): Promise<{ message: string }> {
+    try {
+      return await this.paymentService.rejectProof(proofId, body.reason);
+    } catch (error: unknown) {
+      this.logger.error(`فشل رفض الطلب ${proofId}`, error as any);
+      throw new InternalServerErrorException('فشل رفض الطلب');
+    }
+  }
 
   @Get('expiring/:days')
   @ApiOperation({ summary: 'عرض الاشتراكات القريبة من الانتهاء خلال عدد أيام معين' })
@@ -246,5 +281,4 @@ async rejectProof(
     const threshold = parseInt(days);
     return await this.subscriptionService.getExpiringSubscriptions(threshold);
   }
-
 }

@@ -1,3 +1,6 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-base-to-string */
 import {
   Injectable,
   NotFoundException,
@@ -25,6 +28,8 @@ import { CloudinaryService } from '../common/services/cloudinary.service';
 import sharp from 'sharp';
 import * as path from 'path';
 import * as fs from 'fs';
+import { randomUUID } from 'crypto';
+
 
 type VideoType = 'youtube' | 'vimeo';
 type ContactFormDisplayType = 'overlay' | 'inline';
@@ -51,6 +56,24 @@ export class EmployeeService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
+private safeToString(value: unknown): string {
+  if (value === null || value === undefined) return 'null/undefined';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return value.toString();
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[Object]';
+    }
+  }
+  try {
+    return value.toString();
+  } catch {
+    return '[Unstringifiable]';
+  }
+}
+
   async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
   this.logger.log(` محاولة إنشاء موظف جديد للشركة: ${companyId}`);
   this.logger.log(` جاري البحث عن الشركة: ${companyId}`);
@@ -68,7 +91,7 @@ export class EmployeeService {
 
   const { canAdd, allowed, current, maxAllowed } = await this.subscriptionService.canAddEmployee(companyId);
 
-  this.logger.log(`📋 التحقق: ${canAdd ? 'مسموح' : 'ممنوع'}, المتبقي: ${allowed}, الحالي: ${current}, الحد الأقصى: ${maxAllowed}`);
+  this.logger.log(` التحقق: ${canAdd ? 'مسموح' : 'ممنوع'}, المتبقي: ${allowed}, الحالي: ${current}, الحد الأقصى: ${maxAllowed}`);
 
   if (!canAdd) {
     this.logger.error(` الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
@@ -159,9 +182,6 @@ export class EmployeeService {
     workLinkkkImageUrl: 'workLinkkkImageUrl';
     workLinkkkkImageUrl: 'workLinkkkkImageUrl';
     workLinkkkkkImageUrl: 'workLinkkkkkImageUrl';
-    workLinkImageUrl_1: 'workLinkImageUrl';
-    workLinkImageUrl_2: 'workLinkkImageUrl';
-    workLinkImageUrl_3: 'workLinkkkImageUrl';
     backgroundImageUrl: 'backgroundImage';
   };
 
@@ -187,9 +207,6 @@ export class EmployeeService {
     'workLinkkkImageUrl': 'workLinkkkImageUrl',
     'workLinkkkkImageUrl': 'workLinkkkkImageUrl',
     'workLinkkkkkImageUrl': 'workLinkkkkkImageUrl',
-    'workLinkImageUrl_1': 'workLinkImageUrl',
-    'workLinkImageUrl_2': 'workLinkkImageUrl',
-    'workLinkImageUrl_3': 'workLinkkkImageUrl',
     'backgroundImageUrl': 'backgroundImage',
   } as const;
 
@@ -206,7 +223,7 @@ export class EmployeeService {
     this.logger.log(`    ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.size} bytes`);
   });
 
-  this.logger.log(`🔍 تحليل مفصل لحقول الملفات:`);
+  this.logger.log(` تحليل مفصل لحقول الملفات:`);
   validFiles.forEach((file, index) => {
     const isPdf = file.originalname.toLowerCase().endsWith('.pdf');
     const isPdfField = file.fieldname.includes('pdf');
@@ -546,335 +563,430 @@ export class EmployeeService {
       return buffer;
   }
  
-async update(
-  id: number, 
-  dto: UpdateEmployeeDto, 
-  companyId: string, 
-  files?: Express.Multer.File[]
-) {
-  this.logger.log(`🔄 تحديث الموظف: ${id} للشركة: ${companyId}`);
-  
-  const employee = await this.employeeRepo.findOne({
-    where: { id, company: { id: companyId } },
-    relations: ['company', 'cards', 'images']
-  });
-
-  if (!employee) {
-    throw new NotFoundException('الموظف غير موجود');
-  }
-
-  Object.assign(employee, {
-    ...dto,
-    showWorkingHours: dto.showWorkingHours ?? employee.showWorkingHours,
-    isOpen24Hours: dto.isOpen24Hours ?? employee.isOpen24Hours,
-    workingHours: dto.workingHours ?? employee.workingHours,
-    videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
-      ? dto.videoType
-      : employee.videoType,
-    contactFormDisplayType: allowedContactFormDisplayTypes.includes(dto.contactFormDisplayType as ContactFormDisplayType)
-      ? dto.contactFormDisplayType
-      : employee.contactFormDisplayType,
-    contactFieldType: allowedContactFieldTypes.includes(dto.contactFieldType as ContactFieldType)
-      ? dto.contactFieldType
-      : employee.contactFieldType,
-    feedbackIconType: allowedFeedbackIconTypes.includes(dto.feedbackIconType as FeedbackIconType)
-      ? dto.feedbackIconType
-      : employee.feedbackIconType,
-  });
-
-  let savedEmployee = await this.employeeRepo.save(employee);
-  this.logger.log(`✅ تم تحديث البيانات الأساسية للموظف: ${savedEmployee.id}`);
-
-  if (this.isCardDesignUpdated(dto, employee)) {
-    await this.updateCardDesign(employee.id, dto);
-  }
-
-  if (files && files.length > 0) {
-    await this.handleEmployeeFiles(savedEmployee, files);
-  }
-
-  if (!savedEmployee.profileImageUrl) {
-    savedEmployee.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
-    savedEmployee = await this.employeeRepo.save(savedEmployee);
-  }
-
-  // إنشاء/تحديث البطاقة إذا كان هناك تغيير في التصميم
-  if (this.isCardDesignUpdated(dto, employee)) {
-    this.logger.log(`🎨 إنشاء/تحديث بطاقة للموظف: ${savedEmployee.id}`);
+   private async ensureEmployeeCardExists(employeeId: number): Promise<EmployeeCard> {
+    let card = await this.cardRepo.findOne({ 
+      where: { employeeId: employeeId }
+    });
     
-    try {
-      const { cardUrl, qrCode, designId } = await this.cardService.updateCard(
-        savedEmployee,
-        dto.designId || savedEmployee.designId,
-        dto.qrStyle ?? savedEmployee.qrStyle,
-        {
-          fontColorHead: dto.fontColorHead,
-          fontColorHead2: dto.fontColorHead2,
-          fontColorParagraph: dto.fontColorParagraph,
-          fontColorExtra: dto.fontColorExtra,
-          sectionBackground: dto.sectionBackground,
-          Background: dto.Background,
-          sectionBackground2: dto.sectionBackground2,
-          dropShadow: dto.dropShadow,
-          shadowX: dto.shadowX,
-          shadowY: dto.shadowY,
-          shadowBlur: dto.shadowBlur,
-          shadowSpread: dto.shadowSpread,
-          cardRadius: dto.cardRadius,
-          cardStyleSection: dto.cardStyleSection,
-        }
-      );
-
-      savedEmployee.cardUrl = cardUrl;
-      savedEmployee.designId = designId;
-      savedEmployee.qrCode = qrCode;
-      savedEmployee = await this.employeeRepo.save(savedEmployee);
-      
-      this.logger.log(`✅ تم تحديث البطاقة: ${cardUrl}`);
-      
-    } catch (cardError: unknown) {
-      const errorMessage = cardError instanceof Error ? cardError.message : 'Unknown error';
-      this.logger.error(`❌ فشل إنشاء/تحديث البطاقة: ${errorMessage}`);
+    if (!card) {
+      this.logger.log(` إنشاء كارد جديد للموظف: ${employeeId}`);
+      card = this.cardRepo.create({
+        employeeId: employeeId,
+        title: `بطاقة الموظف ${employeeId}`,
+        uniqueUrl: randomUUID(),
+        designId: 'default',
+        qrStyle: 1,
+        qrCode: '',
+        fontColorHead: '#000000',
+        fontColorHead2: '#000000',
+        fontColorParagraph: '#000000',
+        fontColorExtra: '#000000',
+        sectionBackground: '#ffffff',
+        Background: '#ffffff',
+        sectionBackground2: '#ffffff',
+        dropShadow: '#000000',
+        shadowX: 1,
+        shadowY: 1,
+        shadowBlur: 3,
+        shadowSpread: 1,
+        cardRadius: 16,
+        cardStyleSection: false,
+        backgroundImage: null,
+      });
+      card = await this.cardRepo.save(card);
+      this.logger.log(` تم إنشاء كارد جديد: ${card.id}`);
     }
+    
+    return card;
   }
 
-  const finalEmployee = await this.employeeRepo.findOne({
-    where: { id: savedEmployee.id },
-    relations: ['company', 'cards', 'images']
-  });
+  async update(
+    id: number, 
+    dto: UpdateEmployeeDto, 
+    companyId: string, 
+    files?: Express.Multer.File[]
+  ) {
 
-  return {
-    statusCode: HttpStatus.OK,
-    message: 'تم تحديث الموظف بنجاح',
-    data: finalEmployee || savedEmployee,
-  };
-}
-
-// دالة جديدة لتحديث تصميم البطاقة
-private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Promise<void> {
-  try {
-    const card = await this.cardRepo.findOne({
-      where: { employeeId }
+    this.logger.log(` تحديث الموظف: ${id} للشركة: ${companyId}`);
+  
+    const employee = await this.employeeRepo.findOne({
+      where: { id, company: { id: companyId } },
+      relations: ['company', 'cards', 'images']
     });
 
-    if (card) {
-      const updateData: Partial<EmployeeCard> = {};
-      
-      // تحديث الحقول التصميمية فقط
-      const designFields = [
-        'designId', 'fontColorHead', 'fontColorHead2', 'fontColorParagraph',
-        'fontColorExtra', 'sectionBackground', 'Background', 'sectionBackground2',
-        'dropShadow', 'qrStyle', 'shadowX', 'shadowY', 'shadowBlur', 
-        'shadowSpread', 'cardRadius', 'cardStyleSection'
+    if (!employee) {
+      throw new NotFoundException('الموظف غير موجود');
+    }
+
+    await this.ensureEmployeeCardExists(employee.id);
+
+    let workingHours: Record<string, { from: string; to: string }> | null = null;
+    let isOpen24Hours = false;
+    let showWorkingHours = dto.showWorkingHours ?? employee.showWorkingHours;
+
+    if (showWorkingHours) {
+      if (dto.isOpen24Hours) {
+        isOpen24Hours = true;
+        this.logger.log(` الموظف يعمل 24 ساعة`);
+      } else if (dto.workingHours && Object.keys(dto.workingHours).length > 0) {
+        workingHours = dto.workingHours;
+        this.logger.log(` تم تعيين ساعات العمل: ${Object.keys(workingHours).join(', ')}`);
+      } else {
+        showWorkingHours = false;
+        this.logger.log(` تم إيقاف عرض ساعات العمل لعدم وجود بيانات`);
+      }
+    }
+
+    const updateData: Partial<Employee> = {
+      ...dto,
+      showWorkingHours,
+      isOpen24Hours,
+      workingHours,
+      cardStyleSection: dto.cardStyleSection ?? employee.cardStyleSection,
+      videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
+      ? (dto.videoType as VideoType)
+      : employee.videoType,
+      contactFormDisplayType: allowedContactFormDisplayTypes.includes(dto.contactFormDisplayType as ContactFormDisplayType)
+      ? (dto.contactFormDisplayType as ContactFormDisplayType)
+      : employee.contactFormDisplayType,
+      contactFieldType: allowedContactFieldTypes.includes(dto.contactFieldType as ContactFieldType)
+      ? (dto.contactFieldType as ContactFieldType)
+      : employee.contactFieldType,
+      feedbackIconType: allowedFeedbackIconTypes.includes(dto.feedbackIconType as FeedbackIconType)
+      ? (dto.feedbackIconType as FeedbackIconType)
+      : employee.feedbackIconType,
+    };
+
+    Object.assign(employee, updateData);
+    let savedEmployee = await this.employeeRepo.save(employee);
+    this.logger.log(` تم تحديث البيانات الأساسية للموظف: ${savedEmployee.id}`);
+
+    let backgroundImageUrl: string | null = null;
+      if (files && files.length > 0) {
+        backgroundImageUrl = await this.handleEmployeeFiles(savedEmployee, files);
+      }
+
+      if (!savedEmployee.profileImageUrl) {
+        savedEmployee.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
+        savedEmployee = await this.employeeRepo.save(savedEmployee);
+      }
+
+      const designFields: (keyof UpdateEmployeeDto)[] = [
+        'name', 'jobTitle', 'designId', 'qrStyle',
+        'fontColorHead', 'fontColorHead2', 'fontColorParagraph', 'fontColorExtra',
+        'sectionBackground', 'Background', 'sectionBackground2', 'dropShadow',
+        'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread', 'cardRadius', 'cardStyleSection'
       ];
 
-      designFields.forEach(field => {
-        if (dto[field as keyof UpdateEmployeeDto] !== undefined) {
-          updateData[field as keyof EmployeeCard] = dto[field as keyof UpdateEmployeeDto] as any;
+      const hasDesignChanges = designFields.some(field => dto[field] !== undefined);
+      const hasFiles = files && files.length > 0;
+      const isCardUpdated = hasDesignChanges || hasFiles;
+
+      if (isCardUpdated) {
+        this.logger.log(` إنشاء/تحديث بطاقة للموظف: ${savedEmployee.id}`);
+        this.logger.log(` سبب التحديث: ${hasFiles ? 'وجود ملفات جديدة' : 'تغيير في حقول التصميم'}`);
+    
+        if (hasDesignChanges) {
+          const changedFields = designFields.filter(field => dto[field] !== undefined);
+          this.logger.log(` الحقول المتغيرة: ${changedFields.join(', ')}`);
         }
+    
+        try {
+          const { cardUrl, qrCode, designId } = await this.cardService.generateCard(
+            savedEmployee,
+            dto.designId || savedEmployee.designId,
+            dto.qrStyle ?? savedEmployee.qrStyle,
+            {
+              fontColorHead: dto.fontColorHead,
+              fontColorHead2: dto.fontColorHead2,
+              fontColorParagraph: dto.fontColorParagraph,
+              fontColorExtra: dto.fontColorExtra,
+              sectionBackground: dto.sectionBackground,
+              Background: dto.Background,
+              sectionBackground2: dto.sectionBackground2,
+              dropShadow: dto.dropShadow,
+              shadowX: dto.shadowX,
+              shadowY: dto.shadowY,
+              shadowBlur: dto.shadowBlur,
+              shadowSpread: dto.shadowSpread,
+              cardRadius: dto.cardRadius,
+              cardStyleSection: dto.cardStyleSection ?? savedEmployee.cardStyleSection,
+              backgroundImage: backgroundImageUrl,
+            }
+          );
+
+          const employeeUpdateData: Partial<Employee> = {
+            cardUrl,
+            designId,
+            qrCode,
+            shadowX: dto.shadowX,
+            shadowY: dto.shadowY,
+            shadowBlur: dto.shadowBlur,
+            shadowSpread: dto.shadowSpread,
+            cardRadius: dto.cardRadius,
+            cardStyleSection: dto.cardStyleSection,
+          };
+          this.logger.log(` تحديث بيانات الموظف في الـ database...`);
+          await this.employeeRepo.update(savedEmployee.id, employeeUpdateData);
+          await this.updateCardDesign(savedEmployee.id, dto);
+      
+          const updatedEmployee = await this.employeeRepo.findOne({
+            where: { id: savedEmployee.id },
+            relations: ['company', 'cards', 'images']
+          });
+
+          if (updatedEmployee) {
+            savedEmployee = updatedEmployee;
+          }
+
+          this.logger.log(` رابط البطاقة بعد التحديث: ${savedEmployee.cardUrl}`);
+          this.logger.log(` التصميم بعد التحديث: ${savedEmployee.designId}`);
+      
+        } catch (cardError: unknown) {
+          const errorMessage = cardError instanceof Error ? cardError.message : 'Unknown error';
+          this.logger.error(` فشل إنشاء/تحديث البطاقة: ${errorMessage}`);
+        }
+      } else {
+        this.logger.log(` لا توجد تغييرات في تصميم البطاقة للموظف: ${savedEmployee.id}`);
+      }
+
+      const finalEmployee = await this.employeeRepo.findOne({
+        where: { id: savedEmployee.id },
+        relations: ['company', 'cards', 'images']
       });
 
-      if (Object.keys(updateData).length > 0) {
-        await this.cardRepo.update(card.id, updateData);
-        this.logger.log(`✅ تم تحديث تصميم البطاقة للموظف: ${employeeId}`);
-      }
+      return {
+        statusCode: HttpStatus.OK,
+        message: 'تم تحديث الموظف بنجاح',
+        data: finalEmployee || savedEmployee,
+      };
     }
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`❌ فشل تحديث تصميم البطاقة: ${errorMessage}`);
-  }
-}
 
-// عدل دالة التحقق لتشمل الحقول التصميمية
+  private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Promise<void> {
+      try {
+        const card = await this.cardRepo.findOne({
+          where: { employeeId }
+        });
 
+        if (card) {
+          const updateData: Partial<EmployeeCard> = {};
+          const designFields = [
+            'designId', 'fontColorHead', 'fontColorHead2', 'fontColorParagraph',
+            'fontColorExtra', 'sectionBackground', 'Background', 'sectionBackground2',
+            'dropShadow', 'qrStyle', 'shadowX', 'shadowY', 'shadowBlur', 
+            'shadowSpread', 'cardRadius', 'cardStyleSection'
+          ];
 
-private async handleEmployeeFiles(employee: Employee, files: Express.Multer.File[]): Promise<void> {
-  // تعريف نوع آمن لـ imageMap
-  type ImageMapType = {
-    [key: string]: keyof Employee | 'backgroundImage';
-  };
+          designFields.forEach(field => {
+            if (dto[field as keyof UpdateEmployeeDto] !== undefined) {
+              updateData[field as keyof EmployeeCard] = dto[field as keyof UpdateEmployeeDto] as any;
+            }
+          });
 
-  const imageMap: ImageMapType = {
-    'profileImageUrl': 'profileImageUrl',
-    'secondaryImageUrl': 'secondaryImageUrl',
-    'logoUrl' : 'logoUrl',
-    'contactFormHeaderImageUrl': 'contactFormHeaderImageUrl',
-    'testimonialImageUrl': 'testimonialImageUrl',
-    'pdfThumbnailUrl': 'pdfThumbnailUrl',
-    'pdfFile': 'pdfFileUrl',
-    'workLinkImageUrl': 'workLinkImageUrl',
-    'workLinkkImageUrl': 'workLinkkImageUrl',
-    'workLinkkkImageUrl': 'workLinkkkImageUrl',
-    'workLinkkkkImageUrl': 'workLinkkkkImageUrl',
-    'workLinkkkkkImageUrl': 'workLinkkkkkImageUrl',
-    'facebookImageUrl': 'facebookImageUrl',
-    'instagramImageUrl': 'instagramImageUrl',
-    'tiktokImageUrl': 'tiktokImageUrl',
-    'snapchatImageUrl': 'snapchatImageUrl',
-    'xImageUrl': 'xImageUrl',
-    'linkedinImageUrl': 'linkedinImageUrl',
-    'customImageUrl': 'customImageUrl',
-    'workingHoursImageUrl': 'workingHoursImageUrl',
-    'backgroundImageUrl': 'backgroundImage', // هذا لحقل EmployeeCard
-  };
-
-  const validFiles = files.filter(file => file && file.buffer instanceof Buffer);
-  
-  if (validFiles.length === 0) {
-    return;
-  }
-
-  this.logger.log(`📁 معالجة ${validFiles.length} ملف للموظف: ${employee.id}`);
-
-  for (const file of validFiles) {
-    try {
-      if (file.size > 3 * 1024 * 1024) {
-        this.logger.warn(`📏 الملف كبير جداً: ${file.originalname}`);
-        continue;
-      }
-
-      let result: { secure_url: string; public_id: string };
-      
-      if (file.originalname.toLowerCase().endsWith('.pdf')) {
-        result = await this.handlePdfUpload(file, employee.company.id, employee.id);
-      } else {
-        result = await this.handleImageUpload(file, employee.company.id);
-      }
-
-      const field = imageMap[file.fieldname];
-      
-      if (field) {
-        if (field === 'backgroundImage') {
-          // backgroundImage خاص بجدول EmployeeCard وليس Employee
-          await this.handleBackgroundImage(employee.id, result.secure_url);
-        } else if (this.isValidEmployeeField(field)) {
-          // تحديث الحقول الفردية في جدول Employee
-          await this.employeeRepo.update(employee.id, { [field]: result.secure_url });
-          this.logger.log(`✅ تم تحديث حقل ${field} للموظف ${employee.id}`);
+          if (Object.keys(updateData).length > 0) {
+            await this.cardRepo.update(card.id, updateData);
+            this.logger.log(` تم تحديث تصميم البطاقة للموظف: ${employeeId}`);
+          }
         }
-      } else if (file.fieldname.startsWith('employee_images')) {
-        // حفظ الصور المتعددة في جدول EmployeeImage
-        await this.saveEmployeeImage(employee.id, result.secure_url, result.public_id, file.originalname);
-        this.logger.log(`✅ تم حفظ صورة إضافية للموظف ${employee.id}`);
-      } else {
-        this.logger.warn(`⚠️ حقل غير معروف: ${file.fieldname}`);
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(` فشل تحديث تصميم البطاقة: ${errorMessage}`);
       }
-
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`❌ فشل معالجة الملف ${file.originalname}: ${errorMessage}`);
-    }
   }
-}
 
-private async handleBackgroundImage(employeeId: number, imageUrl: string): Promise<void> {
-  try {
-    // تحديث backgroundImage في جدول EmployeeCard
-    const card = await this.cardRepo.findOne({ where: { employeeId } });
-    if (card) {
+  private async handleEmployeeFiles(employee: Employee, files: Express.Multer.File[]): Promise<string | null> {
+    type ImageMapType = {
+      [key: string]: keyof Employee | 'backgroundImage';
+    };
+
+    const imageMap: ImageMapType = {
+      'profileImageUrl': 'profileImageUrl',
+      'secondaryImageUrl': 'secondaryImageUrl',
+      'logoUrl': 'logoUrl',
+      'contactFormHeaderImageUrl': 'contactFormHeaderImageUrl',
+      'testimonialImageUrl': 'testimonialImageUrl',
+      'pdfThumbnailUrl': 'pdfThumbnailUrl',
+      'pdfFile': 'pdfFileUrl',
+      'workLinkImageUrl': 'workLinkImageUrl',
+      'workLinkkImageUrl': 'workLinkkImageUrl',
+      'workLinkkkImageUrl': 'workLinkkkImageUrl',
+      'workLinkkkkImageUrl': 'workLinkkkkImageUrl',
+      'workLinkkkkkImageUrl': 'workLinkkkkkImageUrl',
+      'facebookImageUrl': 'facebookImageUrl',
+      'instagramImageUrl': 'instagramImageUrl',
+      'tiktokImageUrl': 'tiktokImageUrl',
+      'snapchatImageUrl': 'snapchatImageUrl',
+      'xImageUrl': 'xImageUrl',
+      'linkedinImageUrl': 'linkedinImageUrl',
+      'customImageUrl': 'customImageUrl',
+      'workingHoursImageUrl': 'workingHoursImageUrl',
+      'backgroundImageUrl': 'backgroundImage',
+    };
+
+    const validFiles = files.filter(file => file && file.buffer instanceof Buffer);
+  
+    if (validFiles.length === 0) {
+      return null;
+    }
+
+    this.logger.log(` معالجة ${validFiles.length} ملف للموظف: ${employee.id}`);
+
+    let backgroundImageUrl: string | null = null;
+
+    for (const file of validFiles) {
+      try {
+        if (file.size > 3 * 1024 * 1024) {
+          this.logger.warn(` الملف كبير جداً: ${file.originalname}`);
+          continue;
+        }
+
+        let result: { secure_url: string; public_id: string };
+      
+        if (file.originalname.toLowerCase().endsWith('.pdf')) {
+          result = await this.handlePdfUpload(file, employee.company.id, employee.id);
+        } else {
+          result = await this.handleImageUpload(file, employee.company.id);
+        }
+
+        const field = imageMap[file.fieldname]; 
+        if (field) {
+          if (field === 'backgroundImage') {
+            backgroundImageUrl = result.secure_url;
+            await this.handleBackgroundImage(employee.id, backgroundImageUrl);
+          } else if (this.isValidEmployeeField(field)) {
+            await this.employeeRepo.update(employee.id, { [field]: result.secure_url });
+            this.logger.log(` تم تحديث حقل ${field} للموظف ${employee.id}`);
+          }
+        } else if (file.fieldname.startsWith('employee_images')) {
+          await this.saveEmployeeImage(employee.id, result.secure_url, result.public_id, file.originalname);
+          this.logger.log(`تم حفظ صورة إضافية للموظف ${employee.id}`);
+        } else {
+          this.logger.warn(` حقل غير معروف: ${file.fieldname}`);
+        }
+
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(` فشل معالجة الملف ${file.originalname}: ${errorMessage}`);
+      }
+    }
+
+    return backgroundImageUrl;
+  }
+
+  private async handleBackgroundImage(employeeId: number, imageUrl: string): Promise<void> {
+    try {
+      const card = await this.ensureEmployeeCardExists(employeeId);
       card.backgroundImage = imageUrl;
       await this.cardRepo.save(card);
-      this.logger.log(`✅ تم تحديث صورة الخلفية للبطاقة: ${employeeId}`);
+      this.logger.log(` تم تحديث صورة الخلفية للبطاقة: ${employeeId}`);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(` فشل تحديث صورة الخلفية: ${errorMessage}`);
     }
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`❌ فشل تحديث صورة الخلفية: ${errorMessage}`);
   }
-}
 
-private async saveEmployeeImage(
-  employeeId: number, 
-  imageUrl: string, 
-  publicId: string, 
-  originalName: string
-): Promise<void> {
-  try {
-    const label = originalName.split('.')[0];
+  private async saveEmployeeImage(
+    employeeId: number, 
+    imageUrl: string, 
+    publicId: string, 
+    originalName: string
+  ): Promise<void> {
+    try {
+      const label = originalName.split('.')[0];
+      const imageEntity = this.imageRepo.create({
+        imageUrl,
+        publicId,
+        label,
+        employeeId,
+      });
+
+      await this.imageRepo.save(imageEntity);
+      this.logger.log(` تم حفظ الصورة في الجدول المنفصل للموظف: ${employeeId}`);
     
-    const imageEntity = this.imageRepo.create({
-      imageUrl,
-      publicId,
-      label,
-      employeeId,
-    });
-
-    await this.imageRepo.save(imageEntity);
-    this.logger.log(`✅ تم حفظ الصورة في الجدول المنفصل للموظف: ${employeeId}`);
-    
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`❌ فشل حفظ الصورة في الجدول المنفصل: ${errorMessage}`);
-  }
-}
-
-private isValidEmployeeField(field: string): field is keyof Employee {
-  const validFields: (keyof Employee)[] = [
-    'profileImageUrl', 'secondaryImageUrl', 'logoUrl' ,'contactFormHeaderImageUrl',
-    'testimonialImageUrl', 'pdfThumbnailUrl', 'pdfFileUrl', 'workLinkImageUrl',
-    'workLinkkImageUrl', 'workLinkkkImageUrl', 'workLinkkkkImageUrl', 'workLinkkkkkImageUrl',
-    'facebookImageUrl', 'instagramImageUrl', 'tiktokImageUrl', 'snapchatImageUrl',
-    'xImageUrl', 'linkedinImageUrl', 'customImageUrl', 'workingHoursImageUrl'
-  ];
-  return validFields.includes(field as keyof Employee);
-}
-
-private async handlePdfUpload(
-  file: Express.Multer.File, 
-  companyId: string, 
-  employeeId: number
-): Promise<{ secure_url: string; public_id: string }> {
-  const baseUploadsDir = path.join(process.cwd(), 'uploads');
-  const companyPdfsDir = path.join(baseUploadsDir, companyId, 'pdfs');
-  
-  if (!fs.existsSync(companyPdfsDir)) {
-    fs.mkdirSync(companyPdfsDir, { recursive: true });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(` فشل حفظ الصورة في الجدول المنفصل: ${errorMessage}`);
+    }
   }
 
-  const fileExtension = path.extname(file.originalname);
-  const uniqueFileName = `pdf_${Date.now()}_${employeeId}${fileExtension}`;
-  const filePath = path.join(companyPdfsDir, uniqueFileName);
-  
-  await fs.promises.writeFile(filePath, file.buffer);
-  
-  const fileUrl = `/uploads/${companyId}/pdfs/${uniqueFileName}`;
-  
-  return {
-    secure_url: fileUrl,
-    public_id: uniqueFileName
-  };
-}
+  private isValidEmployeeField(field: string): field is keyof Employee {
+    const validFields: (keyof Employee)[] = [
+      'profileImageUrl', 'secondaryImageUrl', 'logoUrl' ,'contactFormHeaderImageUrl',
+      'testimonialImageUrl', 'pdfThumbnailUrl', 'pdfFileUrl', 'workLinkImageUrl',
+      'workLinkkImageUrl', 'workLinkkkImageUrl', 'workLinkkkkImageUrl', 'workLinkkkkkImageUrl',
+      'facebookImageUrl', 'instagramImageUrl', 'tiktokImageUrl', 'snapchatImageUrl',
+      'xImageUrl', 'linkedinImageUrl', 'customImageUrl', 'workingHoursImageUrl'
+    ];
+    return validFields.includes(field as keyof Employee);
+  }
 
-private async handleImageUpload(
-  file: Express.Multer.File, 
-  companyId: string
-): Promise<{ secure_url: string; public_id: string }> {
-  const compressedBuffer = await sharp(file.buffer, { failOnError: false })
+  private async handlePdfUpload(
+    file: Express.Multer.File, 
+    companyId: string, 
+    employeeId: number
+  ): Promise<{ secure_url: string; public_id: string }> {
+    const baseUploadsDir = path.join(process.cwd(), 'uploads');
+    const companyPdfsDir = path.join(baseUploadsDir, companyId, 'pdfs');
+  
+    if (!fs.existsSync(companyPdfsDir)) {
+      fs.mkdirSync(companyPdfsDir, { recursive: true });
+    }
+
+    const fileExtension = path.extname(file.originalname);
+    const uniqueFileName = `pdf_${Date.now()}_${employeeId}${fileExtension}`;
+    const filePath = path.join(companyPdfsDir, uniqueFileName);
+    await fs.promises.writeFile(filePath, file.buffer);
+    const fileUrl = `/uploads/${companyId}/pdfs/${uniqueFileName}`;
+  
+    return {
+      secure_url: fileUrl,
+      public_id: uniqueFileName
+    };
+  }
+
+  private async handleImageUpload(
+    file: Express.Multer.File, 
+    companyId: string
+  ): Promise<{ secure_url: string; public_id: string }> {
+    const compressedBuffer = await sharp(file.buffer, { failOnError: false })
     .resize({ width: 800 })
     .webp({ quality: 70 })
     .toBuffer();
 
-  const uploadResult = await this.cloudinaryService.uploadBuffer(
-    compressedBuffer,
-    `companies/${companyId}/employees`
-  ) as { secure_url: string; public_id: string };
+    const uploadResult = await this.cloudinaryService.uploadBuffer(
+      compressedBuffer,
+      `companies/${companyId}/employees`
+    ) as { secure_url: string; public_id: string };
 
-  return uploadResult;
-}
+    return uploadResult;
+  }
 
-private isCardDesignUpdated(dto: UpdateEmployeeDto, employee: Employee): boolean {
-  const designFields: (keyof UpdateEmployeeDto)[] = [
-    'name', 'jobTitle', 'designId', 'fontColorHead', 'fontColorHead2',
-    'fontColorParagraph', 'fontColorExtra', 'sectionBackground', 'Background',
-    'sectionBackground2', 'dropShadow', 'qrStyle', 'shadowX', 'shadowY',
-    'shadowBlur', 'shadowSpread', 'cardRadius', 'cardStyleSection'
-  ];
+  private isCardDesignUpdated(dto: UpdateEmployeeDto, employee: Employee): boolean {
+    const designFields: (keyof UpdateEmployeeDto)[] = [
+      'name', 'jobTitle', 'designId', 'qrStyle',
+      'fontColorHead', 'fontColorHead2', 'fontColorParagraph', 'fontColorExtra',
+      'sectionBackground', 'Background', 'sectionBackground2', 'dropShadow',
+      'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread', 'cardRadius', 'cardStyleSection'
+    ];
 
-  return designFields.some(field => {
-    const dtoValue = dto[field];
-    const employeeValue = employee[field as keyof Employee];
-    return dtoValue !== undefined && dtoValue !== employeeValue;
-  });
-}
+    let hasAnyChange = false;
+
+    designFields.forEach(field => {
+      const dtoValue = dto[field];
+      const employeeValue = employee[field as keyof Employee];
+      this.logger.log(` فحص حقل ${String(field)}: DTO=${this.safeToString(dtoValue)}, Employee=${this.safeToString(employeeValue)}`);
+
+      const hasChanged = dtoValue !== undefined && dtoValue !== employeeValue;
+    
+      if (hasChanged) {
+        hasAnyChange = true;
+        this.logger.log(` تغيير في حقل ${String(field)}: "${this.safeToString(employeeValue)}" → "${this.safeToString(dtoValue)}"`);
+      }
+    });
+
+    this.logger.log(` إجمالي التغييرات: ${hasAnyChange ? 'نعم' : 'لا'}`);
+    return hasAnyChange;
+  }
 
   async remove(id: number) {
     const employeeRes = await this.findOne(id);
@@ -898,47 +1010,43 @@ private isCardDesignUpdated(dto: UpdateEmployeeDto, employee: Employee): boolean
     };
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-
   async findByUniqueUrl(uniqueUrl: string, source = 'link', req?: Request) {
     const card = await this.cardRepo.findOne({
-        where: { uniqueUrl },
-        relations: ['employee', 'employee.company', 'employee.images', 'employee.cards'],
+      where: { uniqueUrl },
+      relations: ['employee', 'employee.company', 'employee.images', 'employee.cards'],
     });
 
     if (!card || !card.employee) {
-        throw new NotFoundException('البطاقة غير موجودة');
+      throw new NotFoundException('البطاقة غير موجودة');
     }
-
     const { employee } = card;
-    
     if (req) {
-        await this.visitService.logVisit(employee, source, req);
+      await this.visitService.logVisit(employee, source, req);
     } else {
-        await this.visitService.logVisitById({
-            employeeId: employee.id,
-            source,
-            ipAddress: 'unknown',
-        });
+      await this.visitService.logVisitById({
+        employeeId: employee.id,
+        source,
+        ipAddress: 'unknown',
+      });
     }
 
     let qrStyle = card.qrStyle;
     if (!qrStyle) {
-        const { qrStyle: generatedQr } = await this.cardService.generateCard(employee, card.designId);
-        qrStyle = generatedQr;
+      const { qrStyle: generatedQr } = await this.cardService.generateCard(employee, card.designId);
+      qrStyle = generatedQr;
     }
 
     const employeeWithQrCode = {
-        ...employee,
-        qrStyle,
+      ...employee,
+      qrStyle,
     };
 
     return {
-        statusCode: HttpStatus.OK,
-        message: 'تم جلب بيانات البطاقة بنجاح',
-        data: employeeWithQrCode,
+      statusCode: HttpStatus.OK,
+      message: 'تم جلب بيانات البطاقة بنجاح',
+      data: employeeWithQrCode,
     };
-}
+  }
   
   async exportToExcel(companyId: string): Promise<Buffer> {
     try {
@@ -1048,7 +1156,7 @@ async importFromExcel(
     message: string;
   }
 }> {
-  this.logger.log(`📁 بدء استيراد ملف Excel: ${filePath} للشركة: ${companyId}`);
+  this.logger.log(` بدء استيراد ملف Excel: ${filePath} للشركة: ${companyId}`);
   
   const workbook = new ExcelJS.Workbook();
   
@@ -1075,13 +1183,11 @@ async importFromExcel(
 
   this.logger.log(` جاري التحقق من الحد المسموح في الخطة...`);
   
-  // ✅ التصحيح: استخراج remaining من الكائن
   const { maxAllowed, remaining } = await this.subscriptionService.getAllowedEmployees(companyId);
   
   this.logger.log(` الحد الأقصى في الخطة: ${maxAllowed}`);
   this.logger.log(` العدد المتبقي للإضافة: ${remaining}`);
 
-  // ✅ استخدام العدد المتبقي للإضافة
   const availableSlots = remaining;
   this.logger.log(` العدد المسموح بإضافته: ${availableSlots}`);
 
@@ -1135,12 +1241,11 @@ async importFromExcel(
   };
 
   this.logger.log(` بدء معالجة الصفوف من 2 إلى ${sheet.rowCount}...`);
-  this.logger.log(`🎯 الهدف: إضافة ${availableSlots} موظف من أصل ${sheet.rowCount - 1} صف`);
+  this.logger.log(` الهدف: إضافة ${availableSlots} موظف من أصل ${sheet.rowCount - 1} صف`);
 
   for (let i = 2; i <= sheet.rowCount; i++) {
     this.logger.log(`--- معالجة الصف ${i} ---`);
 
-    // ✅ إضافة حتى الوصول للعدد المسموح فقط
     if (imported.length >= availableSlots) {
       const skipMsg = `Row ${i} skipped: تم الوصول للعدد المسموح (${availableSlots} موظف)`;
       this.logger.warn(` ${skipMsg}`);
@@ -1246,7 +1351,7 @@ async importFromExcel(
       await this.employeeRepo.save(saved);
       imported.push(saved);
 
-      this.logger.log(`✅ تم إضافة ${saved.name} بنجاح (${imported.length}/${availableSlots})`);
+      this.logger.log(` تم إضافة ${saved.name} بنجاح (${imported.length}/${availableSlots})`);
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : JSON.stringify(err);
@@ -1259,12 +1364,12 @@ async importFromExcel(
   let message = '';
   if (availableSlots === 0) {
     if (currentEmployeeCount > maxAllowed) {
-      message = `❌ تم تجاوز الحد الأقصى للموظفين (${currentEmployeeCount}/${maxAllowed}) - يرجى ترقية الخطة`;
+      message = ` تم تجاوز الحد الأقصى للموظفين (${currentEmployeeCount}/${maxAllowed}) - يرجى ترقية الخطة`;
     } else {
-      message = `✅ تم الوصول للحد الأقصى للموظفين (${currentEmployeeCount}/${maxAllowed})`;
+      message = ` تم الوصول للحد الأقصى للموظفين (${currentEmployeeCount}/${maxAllowed})`;
     }
   } else if (limitReached) {
-    message = `✅ تم إضافة ${availableSlots} موظف فقط (العدد المسموح في الخطة)`;
+    message = ` تم إضافة ${availableSlots} موظف فقط (العدد المسموح في الخطة)`;
   }
 
   const summary = {
@@ -1278,20 +1383,11 @@ async importFromExcel(
     message
   };
 
-  this.logger.log(`========================================`);
-  this.logger.log(`🎊 ملخص الاستيراد:`);
-  this.logger.log(`   📄 إجمالي الصفوف في الملف: ${summary.totalRows}`);
-  this.logger.log(`   ✅ تم إضافة: ${summary.successfullyAdded} موظف`);
-  this.logger.log(`   ⏭️ تم تخطي: ${summary.skippedRows} صف`);
-  this.logger.log(`   🎯 العدد المسموح: ${summary.allowedToAdd}`);
-  this.logger.log(`   👥 الموظفين الحاليين: ${summary.currentEmployees}`);
-  this.logger.log(`   📊 الحد الأقصى: ${summary.maxAllowed}`);
   
   if (summary.message) {
-    this.logger.log(`   💡 ${summary.message}`);
+    this.logger.log(`    ${summary.message}`);
   }
   
-  this.logger.log(`========================================`);
   
   return { 
     count: imported.length, 

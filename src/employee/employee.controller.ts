@@ -152,7 +152,7 @@ async getByUniqueUrl(
       this.logger.log(` عدد الملفات المستلمة في الـ Controller: ${files?.length || 0}`);
       if (files && files.length > 0) {
         files.forEach((file, index) => {
-          this.logger.log(`   📄 ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.mimetype} - ${file.size} bytes`);
+          this.logger.log(`    ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.mimetype} - ${file.size} bytes`);
         });
       }
       
@@ -255,12 +255,12 @@ async getByUniqueUrl(
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     try {
-      this.logger.log(`🔄 محاولة تحديث الموظف: ${id} للشركة: ${req.user.companyId}`);
+      this.logger.log(` محاولة تحديث الموظف: ${id} للشركة: ${req.user.companyId}`);
       
       this.logger.log(` عدد الملفات المستلمة في الـ Controller: ${files?.length || 0}`);
       if (files && files.length > 0) {
         files.forEach((file, index) => {
-          this.logger.log(`   📄 ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.mimetype} - ${file.size} bytes`);
+          this.logger.log(`    ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.mimetype} - ${file.size} bytes`);
         });
       }
       

@@ -157,4 +157,57 @@ export class SubscriptionController {
     }
   }
 
+  @Get('company/:id/validate-plan-change/:newPlanId')
+  @ApiOperation({ summary: 'التحقق من إمكانية تغيير خطة الشركة' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiParam({ name: 'newPlanId', description: 'معرف الخطة الجديدة' })
+  @ApiResponse({ status: 200, description: 'تم التحقق بنجاح' })
+  async validatePlanChange(
+    @Param('id') companyId: string,
+    @Param('newPlanId') newPlanId: string,
+  ): Promise<ReturnType<SubscriptionService['validatePlanChange']>> {
+    try {
+      return await this.subscriptionService.validatePlanChange(companyId, newPlanId);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل التحقق من تغيير الخطة: ${msg}`);
+      throw new HttpException(`فشل التحقق من تغيير الخطة: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Post('company/:id/request-plan-change/:newPlanId')
+  @ApiOperation({ summary: 'طلب تغيير خطة الشركة' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiParam({ name: 'newPlanId', description: 'معرف الخطة الجديدة' })
+  @ApiResponse({ status: 200, description: 'تم إرسال الطلب بنجاح' })
+  async requestPlanChange(
+    @Param('id') companyId: string,
+    @Param('newPlanId') newPlanId: string,
+  ): Promise<ReturnType<SubscriptionService['requestPlanChange']>> {
+    try {
+      return await this.subscriptionService.requestPlanChange(companyId, newPlanId);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل طلب تغيير الخطة: ${msg}`);
+      throw new HttpException(`فشل طلب تغيير الخطة: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Post('company/:id/change-plan/:newPlanId')
+  @ApiOperation({ summary: 'تغيير خطة الشركة' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiParam({ name: 'newPlanId', description: 'معرف الخطة الجديدة' })
+  @ApiResponse({ status: 200, description: 'تم تغيير الخطة بنجاح' })
+  async changePlan(
+    @Param('id') companyId: string,
+    @Param('newPlanId') newPlanId: string,
+  ): Promise<ReturnType<SubscriptionService['changeSubscriptionPlan']>> {
+    try {
+      return await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل تغيير الخطة: ${msg}`);
+      throw new HttpException(`فشل تغيير الخطة: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 }

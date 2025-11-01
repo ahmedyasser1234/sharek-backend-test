@@ -101,6 +101,21 @@ export class Employee {
   @Column({ type: 'boolean', default: false })
   cardStyleSection: boolean;
 
+    @Column({ type: 'int', default: 1 })
+  shadowX: number;
+
+  @Column({ type: 'int', default: 1 })
+  shadowY: number;
+
+  @Column({ type: 'int', default: 3 })
+  shadowBlur: number;
+
+  @Column({ type: 'int', default: 1 })
+  shadowSpread: number;
+
+  @Column({ type: 'int', default: 16 })
+  cardRadius: number;
+
   //  About Section
   @Column({ type: 'varchar', length: 255, nullable: true })
   aboutTitle?: string;

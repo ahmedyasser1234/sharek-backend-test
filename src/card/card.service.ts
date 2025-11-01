@@ -69,23 +69,48 @@ export class CardService {
       throw new Error('employee.id مطلوب لإنشاء البطاقة');
     }
 
+    let card = await this.cardRepo.findOne({
+      where: { employeeId: employee.id }
+    });
+
     const cardData: Partial<EmployeeCard> = {
       title: `${employee.name} - ${employee.jobTitle} - بطاقة الموظف`,
       uniqueUrl,
       qrCode,
       designId: finalDesignId,
       qrStyle: finalQrStyle,
-      employeeId: employee.id, 
-      employee, 
+      employeeId: employee.id,
+      fontColorHead: extra?.fontColorHead || '#000000',
+      fontColorHead2: extra?.fontColorHead2 || '#000000',
+      fontColorParagraph: extra?.fontColorParagraph || '#000000',
+      fontColorExtra: extra?.fontColorExtra || '#000000',
+      sectionBackground: extra?.sectionBackground || '#ffffff',
+      Background: extra?.Background || '#ffffff',
+      sectionBackground2: extra?.sectionBackground2 || '#ffffff',
+      dropShadow: extra?.dropShadow || '#000000',
+      shadowX: extra?.shadowX ?? 1,
+      shadowY: extra?.shadowY ?? 1,
+      shadowBlur: extra?.shadowBlur ?? 3,
+      shadowSpread: extra?.shadowSpread ?? 1,
+      cardRadius: extra?.cardRadius ?? 16,
+      cardStyleSection: extra?.cardStyleSection ?? false,
+      backgroundImage: extra?.backgroundImage || null,
     };
 
     if (extra) {
       Object.assign(cardData, extra);
     }
 
-    const card = this.cardRepo.create(cardData);
-    await this.cardRepo.save(card);
-    
+    if (card) {
+      Object.assign(card, cardData);
+      await this.cardRepo.save(card);
+      this.logger.log(` تم تحديث الكارد الموجود للموظف: ${employee.id}`);
+    } else {
+      card = this.cardRepo.create(cardData);
+      await this.cardRepo.save(card);
+      this.logger.log(` تم إنشاء كارد جديد للموظف: ${employee.id}`);
+    }
+
     return {
       cardUrl,
       qrCode,
@@ -101,13 +126,13 @@ export class CardService {
     extra?: Partial<EmployeeCard>
   ): Promise<{ cardUrl: string; qrCode: string; designId: string; qrStyle: number }> {
     const existingCard = await this.cardRepo.findOne({
-      where: { employee: { id: employee.id } }
+      where: { employeeId: employee.id }
     });
 
     if (existingCard) {
       const finalDesignId = designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
       const finalQrStyle = qrStyle ?? 1;
-      
+    
       let qrCode: string;
       switch (finalQrStyle) {
         case 2:
@@ -130,11 +155,31 @@ export class CardService {
         qrCode,
         designId: finalDesignId,
         qrStyle: finalQrStyle,
+        fontColorHead: extra?.fontColorHead ?? existingCard.fontColorHead,
+        fontColorHead2: extra?.fontColorHead2 ?? existingCard.fontColorHead2,
+        fontColorParagraph: extra?.fontColorParagraph ?? existingCard.fontColorParagraph,
+        fontColorExtra: extra?.fontColorExtra ?? existingCard.fontColorExtra,
+        sectionBackground: extra?.sectionBackground ?? existingCard.sectionBackground,
+        Background: extra?.Background ?? existingCard.Background,
+        sectionBackground2: extra?.sectionBackground2 ?? existingCard.sectionBackground2,
+        dropShadow: extra?.dropShadow ?? existingCard.dropShadow,
+        shadowX: extra?.shadowX ?? existingCard.shadowX,
+        shadowY: extra?.shadowY ?? existingCard.shadowY,
+        shadowBlur: extra?.shadowBlur ?? existingCard.shadowBlur,
+        shadowSpread: extra?.shadowSpread ?? existingCard.shadowSpread,
+        cardRadius: extra?.cardRadius ?? existingCard.cardRadius,
+        cardStyleSection: extra?.cardStyleSection ?? existingCard.cardStyleSection,
+        backgroundImage: extra?.backgroundImage ?? existingCard.backgroundImage,
       };
 
-      if (extra) {
-        Object.assign(updateData, extra);
-      }
+      this.logger.log(` تم تحديث بطاقة الموظف ${employee.id} بالخصائص:`, {
+        shadowX: updateData.shadowX,
+        shadowY: updateData.shadowY,
+        shadowBlur: updateData.shadowBlur,
+        shadowSpread: updateData.shadowSpread,
+        cardRadius: updateData.cardRadius,
+        cardStyleSection: updateData.cardStyleSection
+      });
 
       Object.assign(existingCard, updateData);
       await this.cardRepo.save(existingCard);

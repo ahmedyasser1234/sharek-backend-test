@@ -149,6 +149,219 @@ export class SubscriptionService {
     }
   }
 
+  // 🔥 دالة جديدة للتحقق من تغيير الخطة
+  async validatePlanChange(companyId: string, newPlanId: string): Promise<{
+    canChange: boolean;
+    message: string;
+    currentPlanMax: number;
+    newPlanMax: number;
+    currentEmployees: number;
+    action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
+  }> {
+    try {
+      this.logger.log(`التحقق من تغيير الخطة للشركة: ${companyId} إلى الخطة: ${newPlanId}`);
+
+      // جلب الاشتراك الحالي
+      const currentSubscription = await this.getCompanySubscription(companyId);
+      if (!currentSubscription) {
+        throw new NotFoundException('لا يوجد اشتراك حالي للشركة');
+      }
+
+      // جلب الخطة الجديدة
+      const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
+      if (!newPlan) {
+        throw new NotFoundException('الخطة الجديدة غير موجودة');
+      }
+
+      // جلب عدد الموظفين الحاليين
+      const currentEmployees = await this.employeeRepo.count({
+        where: { company: { id: companyId } }
+      });
+
+      const currentPlanMax = currentSubscription.plan?.maxEmployees || 0;
+      const newPlanMax = newPlan.maxEmployees;
+
+      this.logger.log(`بيانات التحقق:
+        - الخطة الحالية: ${currentSubscription.plan?.name} (${currentPlanMax} موظف)
+        - الخطة الجديدة: ${newPlan.name} (${newPlanMax} موظف)
+        - عدد الموظفين الحاليين: ${currentEmployees}`);
+
+      // تحديد نوع الإجراء
+      let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
+      let message = '';
+
+      if (newPlanMax > currentPlanMax) {
+        action = 'UPGRADE';
+        message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف`;
+      } else if (newPlanMax === currentPlanMax) {
+        action = 'RENEW';
+        message = `يمكنك التجديد في نفس الخطة ${newPlan.name} لمدة سنة إضافية`;
+      } else if (newPlanMax < currentPlanMax) {
+        if (newPlanMax >= currentEmployees) {
+          action = 'DOWNGRADE';
+          message = `يمكنك التغيير إلى الخطة ${newPlan.name} ولكن سيكون الحد الأقصى ${newPlanMax} موظف`;
+        } else {
+          action = 'INVALID';
+          message = `لا يمكن التغيير إلى خطة أقل - عدد الموظفين الحاليين (${currentEmployees}) يتجاوز الحد المسموح في الخطة الجديدة (${newPlanMax})`;
+        }
+      } else {
+        action = 'INVALID';
+        message = 'لا يمكن تغيير الخطة';
+      }
+
+      const canChange = action !== 'INVALID';
+
+      return {
+        canChange,
+        message,
+        currentPlanMax,
+        newPlanMax,
+        currentEmployees,
+        action
+      };
+    } catch (error: unknown) {
+      this.logger.error(`فشل التحقق من تغيير الخطة: ${error instanceof Error ? error.message : String(error)}`);      
+      throw error;
+    }
+  }
+
+  async changeSubscriptionPlan(companyId: string, newPlanId: string): Promise<any> {
+    try {
+      this.logger.log(`بدء تغيير الخطة للشركة: ${companyId} إلى الخطة: ${newPlanId}`);
+
+      const validation = await this.validatePlanChange(companyId, newPlanId);
+      
+      if (!validation.canChange) {
+        throw new BadRequestException(validation.message);
+      }
+
+      // جلب الاشتراك الحالي والخطة الجديدة
+      const currentSubscription = await this.getCompanySubscription(companyId);
+      const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
+      
+      if (!currentSubscription || !newPlan) {
+        throw new NotFoundException('الاشتراك أو الخطة غير موجودة');
+      }
+
+      const currentEmployees = validation.currentEmployees;
+      const currentPlanMax = validation.currentPlanMax;
+      const newPlanMax = validation.newPlanMax;
+
+      this.logger.log(`بيانات تغيير الخطة:
+        - الإجراء: ${validation.action}
+        - الخطة الحالية: ${currentSubscription.plan?.name} (${currentPlanMax} موظف)
+        - الخطة الجديدة: ${newPlan.name} (${newPlanMax} موظف)
+        - عدد الموظفين: ${currentEmployees}`);
+
+      // حساب الأيام المتبقية في الاشتراك الحالي
+      const now = new Date();
+      const endDate = new Date(currentSubscription.endDate);
+      const daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      
+      // حساب المدة الجديدة (الأيام المتبقية + سنة جديدة)
+      const newDurationInDays = daysRemaining + 365; // سنة جديدة + الأيام المتبقية
+
+      // تحديث الاشتراك
+      const oldPlanName = currentSubscription.plan?.name;
+      const oldMaxEmployees = currentPlanMax;
+
+      currentSubscription.plan = newPlan;
+      currentSubscription.price = newPlan.price;
+      currentSubscription.endDate = new Date(now.getTime() + newDurationInDays * 86400000);
+      
+      // إذا كانت الخطة الجديدة أعلى، تحديث الحد الأقصى للموظفين
+      if (newPlanMax > oldMaxEmployees) {
+        currentSubscription.customMaxEmployees = newPlanMax;
+      }
+
+      await this.subscriptionRepo.save(currentSubscription);
+
+      // تحديث بيانات الشركة
+      const company = await this.companyRepo.findOne({ where: { id: companyId } });
+      if (company) {
+        company.planId = newPlan.id;
+        await this.companyRepo.save(company);
+      }
+
+      this.logger.log(`تم تغيير الخطة بنجاح للشركة ${companyId}
+        - من: ${oldPlanName} (${oldMaxEmployees} موظف)
+        - إلى: ${newPlan.name} (${newPlanMax} موظف)
+        - الأيام المتبقية: ${daysRemaining} يوم
+        - المدة الجديدة: ${newDurationInDays} يوم (${daysRemaining} + 365)
+        - تاريخ الانتهاء الجديد: ${currentSubscription.endDate.toISOString().split('T')[0]}`);
+
+      return { 
+        message: 'تم تغيير الخطة بنجاح', 
+        subscription: currentSubscription,
+        details: {
+          action: validation.action,
+          oldPlan: oldPlanName,
+          newPlan: newPlan.name,
+          currentEmployees: currentEmployees,
+          oldMaxAllowed: oldMaxEmployees,
+          newMaxAllowed: newPlanMax,
+          daysRemaining: daysRemaining,
+          newDuration: newDurationInDays,
+          newEndDate: currentSubscription.endDate,
+          employeeLimitUpdated: newPlanMax > oldMaxEmployees
+        }
+      };
+
+    } catch (error: unknown) {
+      this.logger.error(`فشل تغيير الخطة للشركة ${companyId}`, error as any);
+      throw error;
+    }
+  }
+
+  async requestPlanChange(companyId: string, newPlanId: string): Promise<any> {
+    try {
+      this.logger.log(`طلب تغيير خطة من الشركة: ${companyId} إلى الخطة: ${newPlanId}`);
+
+      const validation = await this.validatePlanChange(companyId, newPlanId);
+      
+      if (!validation.canChange) {
+        return {
+          success: false,
+          message: validation.message,
+          validation: validation
+        };
+      }
+
+      const currentSubscription = await this.getCompanySubscription(companyId);
+      const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
+
+      if (!currentSubscription || !newPlan) {
+        throw new NotFoundException('الاشتراك أو الخطة غير موجودة');
+      }
+
+      const now = new Date();
+      const endDate = new Date(currentSubscription.endDate);
+      const daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      const newDurationInDays = daysRemaining + 365;
+
+      return {
+        success: true,
+        message: validation.message,
+        validation: validation,
+        changeDetails: {
+          currentPlan: currentSubscription.plan?.name,
+          newPlan: newPlan.name,
+          currentMaxEmployees: validation.currentPlanMax,
+          newMaxEmployees: validation.newPlanMax,
+          currentEmployees: validation.currentEmployees,
+          daysRemaining: daysRemaining,
+          newDuration: newDurationInDays,
+          price: newPlan.price,
+          action: validation.action
+        }
+      };
+
+    } catch (error: unknown) {
+      this.logger.error(`فشل طلب تغيير الخطة للشركة ${companyId}`, error as any);
+      throw error;
+    }
+  }
+
   private async updateRelatedPaymentProof(companyId: string, planId: string): Promise<void> {
     try {
       const latestProof = await this.paymentProofRepo.findOne({
@@ -212,57 +425,42 @@ export class SubscriptionService {
     }
   }
 
-async getAllowedEmployees(companyId: string): Promise<{ maxAllowed: number; remaining: number; current: number }> {
-  try {
-    this.logger.debug(` التحقق من الحد المسموح للموظفين للشركة: ${companyId}`);
-    
-    const activeSubscription = await this.subscriptionRepo.findOne({
-      where: { 
-        company: { id: companyId },
-        status: SubscriptionStatus.ACTIVE
-      },
-      relations: ['plan']
-    });
+  async getAllowedEmployees(companyId: string): Promise<{ maxAllowed: number; remaining: number; current: number }> {
+    try {
+      this.logger.debug(` التحقق من الحد المسموح للموظفين للشركة: ${companyId}`);
+      
+      const activeSubscription = await this.subscriptionRepo.findOne({
+        where: { 
+          company: { id: companyId },
+          status: SubscriptionStatus.ACTIVE
+        },
+        relations: ['plan']
+      });
 
-    if (!activeSubscription) {
-      this.logger.warn(` الشركة ${companyId} ليس لديها اشتراك نشط`);
-      return { maxAllowed: 0, remaining: 0, current: 0 };
+      if (!activeSubscription) {
+        this.logger.warn(` الشركة ${companyId} ليس لديها اشتراك نشط`);
+        return { maxAllowed: 0, remaining: 0, current: 0 };
+      }
+
+      const currentEmployees = await this.employeeRepo.count({
+        where: { company: { id: companyId } }
+      });
+
+      const maxAllowed = activeSubscription.customMaxEmployees ?? activeSubscription.plan?.maxEmployees ?? 0;
+      const remaining = Math.max(0, maxAllowed - currentEmployees);
+
+      return { 
+        maxAllowed, 
+        remaining, 
+        current: currentEmployees 
+      };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(` فشل حساب الحد المسموح للموظفين للشركة ${companyId}: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل حساب الحد المسموح للموظفين');
     }
-
-    this.logger.debug(` بيانات الاشتراك المستخدم في التحقق:
-      - شركة: ${companyId}
-      - خطة: ${activeSubscription.plan?.name || 'غير معروف'}
-      - ID الخطة: ${activeSubscription.plan?.id}
-      - maxEmployees في الخطة: ${activeSubscription.plan?.maxEmployees}
-      - customMaxEmployees: ${activeSubscription.customMaxEmployees || 'غير محدد'}
-      - حالة الاشتراك: ${activeSubscription.status}`);
-
-    const currentEmployees = await this.employeeRepo.count({
-      where: { company: { id: companyId } }
-    });
-
-    const maxAllowed = activeSubscription.customMaxEmployees ?? activeSubscription.plan?.maxEmployees ?? 0;
-    const remaining = Math.max(0, maxAllowed - currentEmployees);
-
-    this.logger.debug(` إحصائيات الموظفين للشركة ${companyId}:
-      - الموظفين الحاليين: ${currentEmployees}
-      - الحد الأقصى: ${maxAllowed}
-      - المتبقي: ${remaining}
-      - حالة الاشتراك: ${activeSubscription.status}
-      - مصدر الحد الأقصى: ${activeSubscription.customMaxEmployees ? 'customMaxEmployees' : 'plan.maxEmployees'}`);
-
-    return { 
-      maxAllowed, 
-      remaining, 
-      current: currentEmployees 
-    };
-
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(` فشل حساب الحد المسموح للموظفين للشركة ${companyId}: ${errorMessage}`);
-    throw new InternalServerErrorException('فشل حساب الحد المسموح للموظفين');
   }
-}
 
   async canAddEmployee(companyId: string): Promise<{ canAdd: boolean; allowed: number; current: number; maxAllowed: number }> {
     try {
@@ -417,184 +615,107 @@ async getAllowedEmployees(companyId: string): Promise<{ maxAllowed: number; rema
     }
   }
 
-async extendSubscription(companyId: string, options?: { forceExtend?: boolean }): Promise<any> {
-  try {
-    this.logger.log(` بدء تمديد الاشتراك للشركة: ${companyId}`);
-    
-    const sub = await this.getCompanySubscription(companyId);
-    if (!sub || !sub.plan) {
-      throw new NotFoundException('لا يوجد اشتراك صالح للتمديد');
-    }
-
-    this.logger.log(` بيانات الخطة الحالية:
-      - اسم الخطة: ${sub.plan.name}
-      - الحد الأقصى: ${sub.plan.maxEmployees} موظف
-      - مدة الخطة: ${sub.plan.durationInDays} يوم
-      - ID الخطة: ${sub.plan.id}
-      - customMaxEmployees: ${sub.customMaxEmployees || 'غير محدد'}`);
-
-    const allowedEmployees = await this.getAllowedEmployees(companyId);
-    const currentEmployeeCount = allowedEmployees.current;
-    const maxAllowed = allowedEmployees.maxAllowed;
-
-    this.logger.log(` التحقق من إمكانية التمديد:
-      - عدد الموظفين الحاليين: ${currentEmployeeCount}
-      - الحد الأقصى في الخطة: ${maxAllowed}
-      - القوة الإجبارية: ${options?.forceExtend ? 'نعم' : 'لا'}
-      - حالة المقارنة: ${maxAllowed >= currentEmployeeCount ? 'مسموح' : 'ممنوع'}`);
-
-    this.logger.log(` مقارنة الخطة مع الموظفين:
-      - maxAllowed (${maxAllowed}) ${maxAllowed >= currentEmployeeCount ? '>=' : '<'} currentEmployeeCount (${currentEmployeeCount})
-      - النتيجة: ${maxAllowed >= currentEmployeeCount ? 'يمكن التمديد' : 'يجب ترقية الخطة'}`);
-
-    if (options?.forceExtend) {
-      this.logger.warn(` تم تمديد الاشتراك إجبارياً للشركة ${companyId}`);
-      sub.endDate = new Date(sub.endDate.getTime() + sub.plan.durationInDays * 86400000);
-      await this.subscriptionRepo.save(sub);
-      
-      return { 
-        message: 'تم تمديد الاشتراك بنجاح (وضع إجباري)', 
-        subscription: sub,
-        warning: 'تم تمديد الاشتراك رغم تجاوز الحد الأقصى للموظفين',
-        details: {
-          currentEmployees: currentEmployeeCount,
-          maxAllowed: maxAllowed,
-          exceededBy: currentEmployeeCount - maxAllowed
-        }
-      };
-    }
-
-    if (maxAllowed < currentEmployeeCount) {
-      this.logger.error(` رفض التمديد - الخطة غير كافية:
-        - الخطة الحالية: ${maxAllowed} موظف
-        - الموظفين الحاليين: ${currentEmployeeCount}
-        - العجز: ${currentEmployeeCount - maxAllowed} موظف`);
-
-      throw new BadRequestException(
-        `لا يمكن تمديد الاشتراك - عدد الموظفين الحاليين (${currentEmployeeCount}) يتجاوز الحد المسموح في الخطة الحالية (${maxAllowed}).\n\n` +
-        `يجب الاشتراك في خطة تدعم ${currentEmployeeCount} موظف أو أكثر.\n\n` +
-        `الحلول المقترحة:\n` +
-        `1. ترقية الخطة إلى خطة تدعم ${currentEmployeeCount} موظف أو أكثر\n` +
-        `2. حذف بعض الموظفين غير النشطين لتقليل العدد إلى ${maxAllowed} موظف\n` +
-        `3. استخدام التمديد الإجباري (للمشرفين فقط)`
-      );
-    }
-
-    if (maxAllowed >= currentEmployeeCount) {
-      this.logger.log(`✅ الخطة مناسبة للتمديد:
-        - الخطة: ${maxAllowed} موظف
-        - الموظفين: ${currentEmployeeCount}
-        - المسموح بإضافته: ${maxAllowed - currentEmployeeCount} موظف`);
-
-      const oldEndDate = sub.endDate;
-      sub.endDate = new Date(sub.endDate.getTime() + sub.plan.durationInDays * 86400000);
-      await this.subscriptionRepo.save(sub);
-      
-      this.logger.log(`✅ تم تمديد الاشتراك للشركة ${companyId}
-        - من: ${oldEndDate}
-        - إلى: ${sub.endDate}
-        - المدة المضافة: ${sub.plan.durationInDays} يوم`);
-
-      return { 
-        message: 'تم تمديد الاشتراك بنجاح', 
-        subscription: sub,
-        details: {
-          currentEmployees: currentEmployeeCount,
-          maxAllowed: maxAllowed,
-          remainingSlots: maxAllowed - currentEmployeeCount,
-          newEndDate: sub.endDate,
-          planStatus: `الخطة الحالية (${maxAllowed} موظف) ${maxAllowed === currentEmployeeCount ? 'مساوية' : 'أعلى'} من عدد الموظفين الحاليين`,
-          planName: sub.plan.name,
-          durationAdded: `${sub.plan.durationInDays} يوم`
-        }
-      };
-    }
-
-    // حالة احتياطية - لا يجب الوصول إليها
-    throw new BadRequestException('لا يمكن تمديد الاشتراك - حالة غير متوقعة');
-
-  } catch (error: unknown) {
-    this.logger.error(`❌ فشل تمديد الاشتراك للشركة ${companyId}`, error as any);
-    throw error;
-  }
-}
-
- async changeSubscriptionPlan(companyId: string, newPlanId: string): Promise<any> {
+  async extendSubscription(companyId: string, options?: { forceExtend?: boolean }): Promise<any> {
     try {
-      this.logger.log(` بدء تغيير الخطة للشركة: ${companyId} إلى الخطة: ${newPlanId}`);
+      this.logger.log(` بدء تمديد الاشتراك للشركة: ${companyId}`);
       
       const sub = await this.getCompanySubscription(companyId);
-      const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
-      
-      if (!sub || !newPlan) {
-        throw new NotFoundException('الاشتراك أو الخطة غير موجودة');
+      if (!sub || !sub.plan) {
+        throw new NotFoundException('لا يوجد اشتراك صالح للتمديد');
       }
+
+      this.logger.log(` بيانات الخطة الحالية:
+        - اسم الخطة: ${sub.plan.name}
+        - الحد الأقصى: ${sub.plan.maxEmployees} موظف
+        - مدة الخطة: ${sub.plan.durationInDays} يوم
+        - ID الخطة: ${sub.plan.id}
+        - customMaxEmployees: ${sub.customMaxEmployees || 'غير محدد'}`);
 
       const allowedEmployees = await this.getAllowedEmployees(companyId);
       const currentEmployeeCount = allowedEmployees.current;
+      const maxAllowed = allowedEmployees.maxAllowed;
 
-      this.logger.log(` بيانات التحقق من تغيير الخطة:
-        - الخطة الحالية: ${sub.plan?.name} (${sub.plan?.maxEmployees} موظف)
-        - الخطة الجديدة: ${newPlan.name} (${newPlan.maxEmployees} موظف)
+      this.logger.log(` التحقق من إمكانية التمديد:
         - عدد الموظفين الحاليين: ${currentEmployeeCount}
-        - المقارنة: ${newPlan.maxEmployees >= currentEmployeeCount ? 'مناسبة' : 'غير مناسبة'}`);
+        - الحد الأقصى في الخطة: ${maxAllowed}
+        - القوة الإجبارية: ${options?.forceExtend ? 'نعم' : 'لا'}
+        - حالة المقارنة: ${maxAllowed >= currentEmployeeCount ? 'مسموح' : 'ممنوع'}`);
 
-      if (newPlan.maxEmployees < currentEmployeeCount) {
-        this.logger.error(` رفض تغيير الخطة - الخطة الجديدة غير كافية:
-          - الخطة الجديدة: ${newPlan.name} (${newPlan.maxEmployees} موظف)
-          - الموظفين الحاليين: ${currentEmployeeCount}
-          - العجز: ${currentEmployeeCount - newPlan.maxEmployees} موظف`);
+      this.logger.log(` مقارنة الخطة مع الموظفين:
+        - maxAllowed (${maxAllowed}) ${maxAllowed >= currentEmployeeCount ? '>=' : '<'} currentEmployeeCount (${currentEmployeeCount})
+        - النتيجة: ${maxAllowed >= currentEmployeeCount ? 'يمكن التمديد' : 'يجب ترقية الخطة'}`);
 
-        throw new BadRequestException(
-          `لا يمكن تغيير الخطة - عدد الموظفين الحاليين (${currentEmployeeCount}) يتجاوز الحد المسموح في الخطة الجديدة (${newPlan.maxEmployees}).\n\n` +
-          `يجب اختيار خطة تدعم ${currentEmployeeCount} موظف أو أكثر.\n\n` +
-          `الحلول المقترحة:\n` +
-          `1. اختيار خطة أعلى تدعم ${currentEmployeeCount} موظف أو أكثر\n` +
-          `2. حذف بعض الموظفين غير النشطين لتقليل العدد إلى ${newPlan.maxEmployees} موظف\n` +
-          `3. البقاء على الخطة الحالية`
-        );
-      }
-
-      if (newPlan.maxEmployees >= currentEmployeeCount) {
-        this.logger.log(`الخطة الجديدة مناسبة للتغيير:
-          - الخطة: ${newPlan.name} (${newPlan.maxEmployees} موظف)
-          - الموظفين: ${currentEmployeeCount}
-          - المسموح بإضافته: ${newPlan.maxEmployees - currentEmployeeCount} موظف`);
-
-        const oldPlanName = sub.plan?.name;
-        const oldMaxEmployees = sub.plan?.maxEmployees;
-
-        sub.plan = newPlan;
-        sub.price = newPlan.price;
-        sub.endDate = new Date(Date.now() + newPlan.durationInDays * 86400000);
+      if (options?.forceExtend) {
+        this.logger.warn(` تم تمديد الاشتراك إجبارياً للشركة ${companyId}`);
+        sub.endDate = new Date(sub.endDate.getTime() + sub.plan.durationInDays * 86400000);
         await this.subscriptionRepo.save(sub);
-
-        this.logger.log(` تم تغيير الخطة بنجاح للشركة ${companyId}
-          - من: ${oldPlanName} (${oldMaxEmployees} موظف)
-          - إلى: ${newPlan.name} (${newPlan.maxEmployees} موظف)
-          - المدة الجديدة: ${newPlan.durationInDays} يوم`);
-
+        
         return { 
-          message: 'تم تغيير الخطة بنجاح', 
+          message: 'تم تمديد الاشتراك بنجاح (وضع إجباري)', 
           subscription: sub,
+          warning: 'تم تمديد الاشتراك رغم تجاوز الحد الأقصى للموظفين',
           details: {
-            oldPlan: oldPlanName,
-            newPlan: newPlan.name,
             currentEmployees: currentEmployeeCount,
-            newMaxAllowed: newPlan.maxEmployees,
-            remainingSlots: newPlan.maxEmployees - currentEmployeeCount,
-            newEndDate: sub.endDate
+            maxAllowed: maxAllowed,
+            exceededBy: currentEmployeeCount - maxAllowed
           }
         };
       }
 
-      throw new BadRequestException('لا يمكن تغيير الخطة - حالة غير متوقعة');
+      if (maxAllowed < currentEmployeeCount) {
+        this.logger.error(` رفض التمديد - الخطة غير كافية:
+          - الخطة الحالية: ${maxAllowed} موظف
+          - الموظفين الحاليين: ${currentEmployeeCount}
+          - العجز: ${currentEmployeeCount - maxAllowed} موظف`);
+
+        throw new BadRequestException(
+          `لا يمكن تمديد الاشتراك - عدد الموظفين الحاليين (${currentEmployeeCount}) يتجاوز الحد المسموح في الخطة الحالية (${maxAllowed}).\n\n` +
+          `يجب الاشتراك في خطة تدعم ${currentEmployeeCount} موظف أو أكثر.\n\n` +
+          `الحلول المقترحة:\n` +
+          `1. ترقية الخطة إلى خطة تدعم ${currentEmployeeCount} موظف أو أكثر\n` +
+          `2. حذف بعض الموظفين غير النشطين لتقليل العدد إلى ${maxAllowed} موظف\n` +
+          `3. استخدام التمديد الإجباري (للمشرفين فقط)`
+        );
+      }
+
+      if (maxAllowed >= currentEmployeeCount) {
+        this.logger.log(`✅ الخطة مناسبة للتمديد:
+          - الخطة: ${maxAllowed} موظف
+          - الموظفين: ${currentEmployeeCount}
+          - المسموح بإضافته: ${maxAllowed - currentEmployeeCount} موظف`);
+
+        const oldEndDate = sub.endDate;
+        sub.endDate = new Date(sub.endDate.getTime() + sub.plan.durationInDays * 86400000);
+        await this.subscriptionRepo.save(sub);
+        
+        this.logger.log(`✅ تم تمديد الاشتراك للشركة ${companyId}
+          - من: ${oldEndDate.toISOString().split('T')[0]}
+          - إلى: ${sub.endDate.toISOString().split('T')[0]}
+          - المدة المضافة: ${sub.plan.durationInDays} يوم`);
+
+        return { 
+          message: 'تم تمديد الاشتراك بنجاح', 
+          subscription: sub,
+          details: {
+            currentEmployees: currentEmployeeCount,
+            maxAllowed: maxAllowed,
+            remainingSlots: maxAllowed - currentEmployeeCount,
+            newEndDate: sub.endDate,
+            planStatus: `الخطة الحالية (${maxAllowed} موظف) ${maxAllowed === currentEmployeeCount ? 'مساوية' : 'أعلى'} من عدد الموظفين الحاليين`,
+            planName: sub.plan.name,
+            durationAdded: `${sub.plan.durationInDays} يوم`
+          }
+        };
+      }
+
+      // حالة احتياطية - لا يجب الوصول إليها
+      throw new BadRequestException('لا يمكن تمديد الاشتراك - حالة غير متوقعة');
 
     } catch (error: unknown) {
-      this.logger.error(` فشل تغيير الخطة للشركة ${companyId}`, error as any);
+      this.logger.error(`❌ فشل تمديد الاشتراك للشركة ${companyId}`, error as any);
       throw error;
     }
-}
+  }
 
   async getExpiringSubscriptions(daysThreshold: number = 30): Promise<CompanySubscription[]> {
     try {
