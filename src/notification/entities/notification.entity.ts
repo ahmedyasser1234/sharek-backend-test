@@ -2,10 +2,11 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, Index } from 
 
 @Entity('notifications')
 export class Notification {
+
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 255, nullable: true })
   @Index()
   userId: string; 
 
