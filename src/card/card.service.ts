@@ -37,9 +37,22 @@ export class CardService {
     extra?: Partial<EmployeeCard>
   ): Promise<{ cardUrl: string; qrCode: string; designId: string; qrStyle: number }> {
     const finalDesignId = designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
-
     const finalQrStyle = qrStyle ?? 1;
-    const uniqueUrl = randomUUID();
+
+    let card = await this.cardRepo.findOne({
+      where: { employeeId: employee.id }
+    });
+
+    let uniqueUrl: string;
+    
+    if (card && card.uniqueUrl) {
+      uniqueUrl = card.uniqueUrl;
+      this.logger.log(` استخدام الـ uniqueUrl الحالي: ${uniqueUrl}`);
+    } else {
+      uniqueUrl = randomUUID();
+      this.logger.log(` إنشاء uniqueUrl جديد: ${uniqueUrl}`);
+    }
+
     const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}`;
 
     let qrCode: string;
@@ -69,13 +82,9 @@ export class CardService {
       throw new Error('employee.id مطلوب لإنشاء البطاقة');
     }
 
-    let card = await this.cardRepo.findOne({
-      where: { employeeId: employee.id }
-    });
-
     const cardData: Partial<EmployeeCard> = {
       title: `${employee.name} - ${employee.jobTitle} - بطاقة الموظف`,
-      uniqueUrl,
+      uniqueUrl, 
       qrCode,
       designId: finalDesignId,
       qrStyle: finalQrStyle,
@@ -104,11 +113,11 @@ export class CardService {
     if (card) {
       Object.assign(card, cardData);
       await this.cardRepo.save(card);
-      this.logger.log(` تم تحديث الكارد الموجود للموظف: ${employee.id}`);
+      this.logger.log(` تم تحديث الكارد الموجود للموظف: ${employee.id} مع الحفاظ على الـ uniqueUrl`);
     } else {
       card = this.cardRepo.create(cardData);
       await this.cardRepo.save(card);
-      this.logger.log(` تم إنشاء كارد جديد للموظف: ${employee.id}`);
+      this.logger.log(` تم إنشاء كارد جديد للموظف: ${employee.id} مع uniqueUrl جديد`);
     }
 
     return {
@@ -133,21 +142,23 @@ export class CardService {
       const finalDesignId = designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
       const finalQrStyle = qrStyle ?? 1;
     
+      const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${existingCard.uniqueUrl}`;
+      
       let qrCode: string;
       switch (finalQrStyle) {
         case 2:
-          qrCode = await QRCode.toDataURL(existingCard.uniqueUrl, {
+          qrCode = await QRCode.toDataURL(cardUrl, {
             color: { dark: '#FF0000', light: '#FFFFFF' },
           });
           break;
         case 3:
-          qrCode = await QRCode.toDataURL(existingCard.uniqueUrl, {
+          qrCode = await QRCode.toDataURL(cardUrl, {
             margin: 4,
             scale: 10,
           });
           break;
         default:
-          qrCode = await QRCode.toDataURL(existingCard.uniqueUrl);
+          qrCode = await QRCode.toDataURL(cardUrl);
           break;
       }
 
@@ -172,19 +183,10 @@ export class CardService {
         backgroundImage: extra?.backgroundImage ?? existingCard.backgroundImage,
       };
 
-      this.logger.log(` تم تحديث بطاقة الموظف ${employee.id} بالخصائص:`, {
-        shadowX: updateData.shadowX,
-        shadowY: updateData.shadowY,
-        shadowBlur: updateData.shadowBlur,
-        shadowSpread: updateData.shadowSpread,
-        cardRadius: updateData.cardRadius,
-        cardStyleSection: updateData.cardStyleSection
-      });
+      this.logger.log(` تم تحديث بطاقة الموظف ${employee.id} مع الحفاظ على الـ uniqueUrl: ${existingCard.uniqueUrl}`);
 
       Object.assign(existingCard, updateData);
       await this.cardRepo.save(existingCard);
-
-      const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${existingCard.uniqueUrl}`;
 
       return {
         cardUrl,
