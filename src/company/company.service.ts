@@ -626,4 +626,25 @@ export class CompanyService implements OnModuleInit {
 
     return 'تم تغيير كلمة المرور بنجاح';
   }
+  
+  async getCompanyLogo(companyId: string): Promise<{ 
+    logoUrl: string | null; 
+    companyId: string; 
+    companyName: string;
+  }> {
+    const company = await this.companyRepo.findOne({
+      where: { id: companyId },
+      select: ['id', 'name', 'logoUrl'] 
+    });
+
+    if (!company) {
+      throw new NotFoundException('الشركة غير موجودة');
+    }
+
+    return {
+      logoUrl: company.logoUrl,
+      companyId: company.id,
+      companyName: company.name
+    };
+  }
 }

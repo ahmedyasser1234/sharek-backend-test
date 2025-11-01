@@ -16,6 +16,7 @@ import {
   HttpStatus,
   Logger,
   InternalServerErrorException,
+  NotFoundException,
 } from '@nestjs/common';
 import { CompanyService } from './company.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
@@ -60,7 +61,7 @@ export class CompanyController {
       cb(null, allowedTypes.includes(file.mimetype));
     },
     limits: {
-      fileSize: 5 * 1024 * 1024, // 5MB
+      fileSize: 5 * 1024 * 1024, 
     }
   }))
   @ApiConsumes('multipart/form-data')
@@ -88,6 +89,50 @@ export class CompanyController {
       message: 'تم إنشاء الشركة بنجاح، يرجى التحقق من البريد الإلكتروني',
       data: company
     };
+  }
+
+    @Public()
+  @Get(':id/logo')
+  @ApiOperation({ summary: 'جلب رابط الشعار الخاص بالشركة' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'تم جلب رابط الشعار بنجاح',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'تم جلب رابط الشعار بنجاح' },
+        data: {
+          type: 'object',
+          properties: {
+            logoUrl: { type: 'string', example: 'https://example.com/logo.jpg' },
+            companyId: { type: 'string', example: '12345' },
+            companyName: { type: 'string', example: 'اسم الشركة' }
+          }
+        }
+      }
+    }
+  })
+  @ApiResponse({ 
+    status: HttpStatus.NOT_FOUND, 
+    description: 'الشركة غير موجودة' 
+  })
+  async getCompanyLogo(@Param('id') id: string) {
+    try {
+      const result = await this.companyService.getCompanyLogo(id);
+      return {
+        statusCode: HttpStatus.OK,
+        message: 'تم جلب رابط الشعار بنجاح',
+        data: result
+      };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(` فشل جلب الشعار للشركة ${id}: ${msg}`);
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('حدث خطأ أثناء جلب الشعار');
+    }
   }
 
   @Public()
