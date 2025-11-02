@@ -19,6 +19,7 @@ import {
   InternalServerErrorException,
   Res,
   SetMetadata,
+  NotFoundException,
 } from '@nestjs/common';
 import { EmployeeService } from './employee.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
@@ -39,7 +40,6 @@ import {
 import { VisitService } from '../visit/visit.service';
 import { CardService } from '../card/card.service';
 
-
 interface CompanyRequest extends Request {
   user: { companyId: string };
 }
@@ -56,40 +56,73 @@ export class EmployeeController {
     private readonly employeeService: EmployeeService,
     private readonly visitService: VisitService,
     private readonly cardService: CardService,
-) {}
+  ) {}
 
- 
-@Public()
-@Get('by-url')
-async getByUniqueUrl(
-  @Query('url') encodedUrl: string,
-  @Query('source') source: string | undefined,
-  @Req() req: Request
-) {
-  try {
-    this.logger.debug(` getByUniqueUrl called with URL: ${encodedUrl}`);
-    
-    if (!encodedUrl) {
-      throw new BadRequestException('URL parameter is required');
+  @Public()
+  @Get('secondary-image/:uniqueUrl')
+  @ApiOperation({ summary: 'جلب صورة التحميل للبطاقة' })
+  @ApiResponse({ status: 200, description: 'تم جلب صورة التحميل بنجاح' })
+  @ApiResponse({ status: 404, description: 'البطاقة أو صورة التحميل غير موجودة' })
+  async getSecondaryImageUrl(@Param('uniqueUrl') uniqueUrl: string) {
+    try {
+      this.logger.debug(`getSecondaryImageUrl called with uniqueUrl: ${uniqueUrl}`);
+      
+      if (!uniqueUrl) {
+        throw new BadRequestException('uniqueUrl parameter is required');
+      }
+
+      const result = await this.employeeService.getSecondaryImageUrl(uniqueUrl);
+      
+      return {
+        statusCode: HttpStatus.OK,
+        message: 'تم جلب صورة التحميل بنجاح',
+        data: {
+          secondaryImageUrl: result.secondaryImageUrl
+        }
+      };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب صورة التحميل: ${msg}`);
+      
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('حدث خطأ أثناء جلب صورة التحميل');
     }
-
-    const uniqueUrl = decodeURIComponent(encodedUrl);
-    const finalSource = source || 'link';
-
-    const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
-    if (!result.data) throw new BadRequestException('Employee not found');
-
-    return {
-      statusCode: HttpStatus.OK,
-      message: 'Employee fetched by URL successfully',
-      data: result.data,
-    };
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(` فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
-    throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
   }
-}
+
+  @Public()
+  @Get('by-url')
+  async getByUniqueUrl(
+    @Query('url') encodedUrl: string,
+    @Query('source') source: string | undefined,
+    @Req() req: Request
+  ) {
+    try {
+      this.logger.debug(` getByUniqueUrl called with URL: ${encodedUrl}`);
+      
+      if (!encodedUrl) {
+        throw new BadRequestException('URL parameter is required');
+      }
+
+      const uniqueUrl = decodeURIComponent(encodedUrl);
+      const finalSource = source || 'link';
+
+      const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
+      if (!result.data) throw new BadRequestException('Employee not found');
+
+      return {
+        statusCode: HttpStatus.OK,
+        message: 'Employee fetched by URL successfully',
+        data: result.data,
+      };
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(` فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
+      throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
+    }
+  }
+
   @Public()
   @Get(':id/google-wallet')
   @ApiOperation({ summary: 'رابط Google Wallet للبطاقة' })
@@ -370,6 +403,4 @@ async getByUniqueUrl(
   private getErrorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Unknown error';
   }
-
-  
 }

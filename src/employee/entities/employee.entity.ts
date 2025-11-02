@@ -101,7 +101,7 @@ export class Employee {
   @Column({ type: 'boolean', default: false })
   cardStyleSection: boolean;
 
-    @Column({ type: 'int', default: 1 })
+  @Column({ type: 'int', default: 1 })
   shadowX: number;
 
   @Column({ type: 'int', default: 1 })

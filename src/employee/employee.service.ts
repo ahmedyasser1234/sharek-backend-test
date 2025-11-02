@@ -760,7 +760,7 @@ private safeToString(value: unknown): string {
         message: 'تم تحديث الموظف بنجاح',
         data: finalEmployee || savedEmployee,
       };
-    }
+  }
 
   private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Promise<void> {
       try {
@@ -1046,6 +1046,29 @@ private safeToString(value: unknown): string {
       message: 'تم جلب بيانات البطاقة بنجاح',
       data: employeeWithQrCode,
     };
+  }
+
+  async getSecondaryImageUrl(uniqueUrl: string): Promise<{ secondaryImageUrl: string }> {
+    this.logger.debug(`جلب صورة التحميل للرابط: ${uniqueUrl}`);
+
+    const card = await this.cardRepo.findOne({
+      where: { uniqueUrl },
+      relations: ['employee'],
+    });
+
+    if (!card || !card.employee) {
+      this.logger.warn(`البطاقة غير موجودة للرابط: ${uniqueUrl}`);
+      throw new NotFoundException('البطاقة غير موجودة');
+    }
+
+    const secondaryImageUrl = card.employee.secondaryImageUrl;
+    
+    if (!secondaryImageUrl) {
+      this.logger.warn(`صورة التحميل غير متاحة للموظف: ${card.employee.id}`);
+      throw new NotFoundException('صورة التحميل غير متاحة');
+    }
+    this.logger.debug(`تم جلب صورة التحميل بنجاح: ${secondaryImageUrl}`);
+    return { secondaryImageUrl };
   }
   
   async exportToExcel(companyId: string): Promise<Buffer> {

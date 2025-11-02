@@ -573,7 +573,6 @@ export class CreateEmployeeDto {
 
   @ApiPropertyOptional({ example: 'youtube', enum: ['youtube', 'vimeo'] })
   @IsOptional()
-  @IsIn(['youtube', 'vimeo'])
   videoType?: string;
 
   @ApiPropertyOptional({ example: 'https://youtube.com/embed/xyz' })
