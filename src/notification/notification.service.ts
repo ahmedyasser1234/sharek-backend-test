@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NotificationGateway } from './notification.gateway';
@@ -407,6 +407,61 @@ export class NotificationService {
         readAt: new Date()
       }
     );
+  }
+
+  async deleteNotification(notificationId: string): Promise<void> {
+    const notification = await this.notificationRepo.findOne({
+      where: { id: notificationId }
+    });
+
+    if (!notification) {
+      throw new NotFoundException(`الإشعار غير موجود: ${notificationId}`);
+    }
+
+    await this.notificationRepo.delete(notificationId);
+    this.logger.log(` تم حذف الإشعار: ${notificationId}`);
+  }
+
+  async deleteAllUserNotifications(userId: string, userType: 'admin' | 'company'): Promise<{ deletedCount: number }> {
+    const finalUserId = userType === 'admin' ? this.ADMIN_USER_ID : userId;
+    
+    const result = await this.notificationRepo.delete({
+      userId: finalUserId,
+      userType
+    });
+
+    this.logger.log(` تم حذف ${result.affected} إشعار لـ ${userType}: ${finalUserId}`);
+    
+    return { deletedCount: result.affected || 0 };
+  }
+
+  async deleteReadNotifications(userId: string, userType: 'admin' | 'company'): Promise<{ deletedCount: number }> {
+    const finalUserId = userType === 'admin' ? this.ADMIN_USER_ID : userId;
+    
+    const result = await this.notificationRepo.delete({
+      userId: finalUserId,
+      userType,
+      isRead: true
+    });
+
+    this.logger.log(` تم حذف ${result.affected} إشعار مقروء لـ ${userType}: ${finalUserId}`);
+    
+    return { deletedCount: result.affected || 0 };
+  }
+
+  async deleteOldNotifications(olderThanDays: number = 30): Promise<{ deletedCount: number }> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+
+    const result = await this.notificationRepo
+      .createQueryBuilder()
+      .delete()
+      .where('createdAt < :cutoffDate', { cutoffDate })
+      .execute();
+
+    this.logger.log(` تم حذف ${result.affected} إشعار أقدم من ${olderThanDays} يوم`);
+    
+    return { deletedCount: result.affected || 0 };
   }
 
   getConnectionStats() {

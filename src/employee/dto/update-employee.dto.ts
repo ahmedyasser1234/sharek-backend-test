@@ -1,7 +1,6 @@
 import {
   IsOptional,
   IsString,
-  IsEmail,
   IsBoolean,
   IsNumber,
   IsIn,
@@ -571,7 +570,6 @@ export class UpdateEmployeeDto {
 
   @ApiPropertyOptional({ example: 'youtube', enum: ['youtube', 'vimeo'] })
   @IsOptional()
-  @IsIn(['youtube', 'vimeo'])
   videoType?: string;
 
   @ApiPropertyOptional({ example: 'https://youtube.com/embed/xyz' })

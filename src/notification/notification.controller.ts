@@ -1,11 +1,10 @@
-import { Controller, Get, Param, Patch, Query, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Query, HttpStatus , Delete } from '@nestjs/common';
 import { NotificationService } from './notification.service';
 
 @Controller('notifications')
 export class NotificationController {
   constructor(private readonly notificationService: NotificationService) {}
 
-  // إضافة هذا المسار الجديد لحل مشكلة 404
   @Patch('admin/mark-all-read')
   async markAllAdminAsRead() {
     await this.notificationService.markAllAsRead('admin-system', 'admin');
@@ -81,4 +80,50 @@ export class NotificationController {
       message: 'تم إرسال إشعار تجريبي'
     };
   }
+  
+   @Delete(':id')
+  async deleteNotification(@Param('id') id: string) {
+    await this.notificationService.deleteNotification(id);
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم حذف الإشعار بنجاح'
+    };
+  }
+
+  @Delete('user/all')
+  async deleteAllUserNotifications(
+    @Query('userId') userId: string,
+    @Query('userType') userType: 'admin' | 'company'
+  ) {
+    const result = await this.notificationService.deleteAllUserNotifications(userId, userType);
+    return {
+      statusCode: HttpStatus.OK,
+      message: `تم حذف ${result.deletedCount} إشعار`,
+      data: result
+    };
+  }
+
+  @Delete('user/read')
+  async deleteReadNotifications(
+    @Query('userId') userId: string,
+    @Query('userType') userType: 'admin' | 'company'
+  ) {
+    const result = await this.notificationService.deleteReadNotifications(userId, userType);
+    return {
+      statusCode: HttpStatus.OK,
+      message: `تم حذف ${result.deletedCount} إشعار مقروء`,
+      data: result
+    };
+  }
+
+  @Delete('cleanup/old')
+  async deleteOldNotifications(@Query('days') days: number = 30) {
+    const result = await this.notificationService.deleteOldNotifications(days);
+    return {
+      statusCode: HttpStatus.OK,
+      message: `تم حذف ${result.deletedCount} إشعار أقدم من ${days} يوم`,
+      data: result
+    };
+  }
+
 }
