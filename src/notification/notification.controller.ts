@@ -5,6 +5,16 @@ import { NotificationService } from './notification.service';
 export class NotificationController {
   constructor(private readonly notificationService: NotificationService) {}
 
+  // إضافة هذا المسار الجديد لحل مشكلة 404
+  @Patch('admin/mark-all-read')
+  async markAllAdminAsRead() {
+    await this.notificationService.markAllAsRead('admin-system', 'admin');
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم تحديد جميع إشعارات الأدمن كمقروءة'
+    };
+  }
+
   @Get('admin')
   async getAdminNotifications() {
     const notifications = await this.notificationService.getAdminNotifications();

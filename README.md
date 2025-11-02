@@ -106,6 +106,9 @@ Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
       .leftJoinAndSelect('company.loginLogs', 'log')
 
 
+
+
+
 // hooks/useNotifications.ts
 import { useState, useEffect, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
@@ -134,6 +137,8 @@ export const useNotifications = ({ userType, userId }: UseNotificationsProps) =>
 
   const fetchNotifications = useCallback(async () => {
     try {
+      console.log(' جلب الإشعارات...', { userType, userId });
+      
       let url = '';
       if (userType === 'admin') {
         url = '/api/notifications/admin';
@@ -142,51 +147,74 @@ export const useNotifications = ({ userType, userId }: UseNotificationsProps) =>
       }
 
       if (url) {
+        console.log(' جلب الإشعارات من:', url);
         const response = await fetch(url);
         const result = await response.json();
+        
+        console.log(' نتيجة جلب الإشعارات:', result);
         
         if (result.data) {
           if (userType === 'company' && result.data.notifications) {
             setNotifications(result.data.notifications);
             setUnreadCount(result.data.unreadCount || 0);
+            console.log(` تم جلب ${result.data.notifications.length} إشعار للشركة`);
           } else {
             setNotifications(result.data);
             const unread = result.data.filter((n: Notification) => !n.isRead).length;
             setUnreadCount(unread);
+            console.log(` تم جلب ${result.data.length} إشعار`);
           }
         }
       }
     } catch (error) {
-      console.error('فشل جلب الإشعارات:', error);
+      console.error(' فشل جلب الإشعارات:', error);
     }
   }, [userType, userId]);
 
   useEffect(() => {
-    const newSocket = io('/notifications');
+    console.log(' تهيئة useNotifications:', { userType, userId });
+    
+    if (!userId && userType === 'company') {
+      console.error(' userId مطلوب للشركة');
+      return;
+    }
+
+    const newSocket = io('/notifications', {
+      transports: ['websocket', 'polling']
+    });
+    
     setSocket(newSocket);
 
     newSocket.on('connect', () => {
+      console.log(' متصل بالسوكيت - ID:', newSocket.id);
       setIsConnected(true);
-      console.log(' متصل بالسوكيت');
+      
+      setTimeout(() => {
+        if (userType === 'admin') {
+          newSocket.emit('register_admin');
+          console.log(' مسجل كأدمن');
+        } else if (userType === 'company' && userId) {
+          newSocket.emit('register_company', userId);
+          console.log(` مسجل كشركة: ${userId}`);
+        }
+      }, 500);
+    });
+
+    newSocket.on('registration_success', (data) => {
+      console.log(' تسجيل ناجح في السوكيت:', data.message);
     });
 
     newSocket.on('disconnect', () => {
-      setIsConnected(false);
       console.log(' انقطع الاتصال بالسوكيت');
+      setIsConnected(false);
     });
 
-    if (userType === 'admin') {
-      newSocket.emit('register_admin');
-    } else if (userType === 'company' && userId) {
-      newSocket.emit('register_company', userId);
-    }
+    newSocket.on('connect_error', (error) => {
+      console.error(' خطأ في الاتصال بالسوكيت:', error);
+      setIsConnected(false);
+    });
 
-    const notificationTypes = [
-      'NEW_SUBSCRIPTION_REQUEST',
-      'SUBSCRIPTION_APPROVED', 
-      'SUBSCRIPTION_REJECTED',
-      'PAYMENT_SUCCESS',
-      'NEW_COMPANY_REGISTRATION',
+    const companyNotificationTypes = [
       'COMPANY_SUBSCRIPTION_APPROVED',
       'COMPANY_SUBSCRIPTION_REJECTED',
       'COMPANY_SUBSCRIPTION_EXTENDED',
@@ -194,9 +222,22 @@ export const useNotifications = ({ userType, userId }: UseNotificationsProps) =>
       'TEST_NOTIFICATION'
     ];
 
+    const adminNotificationTypes = [
+      'NEW_SUBSCRIPTION_REQUEST',
+      'SUBSCRIPTION_APPROVED', 
+      'SUBSCRIPTION_REJECTED',
+      'PAYMENT_SUCCESS',
+      'NEW_COMPANY_REGISTRATION',
+      'TEST_NOTIFICATION'
+    ];
+
+    const notificationTypes = userType === 'admin' ? adminNotificationTypes : companyNotificationTypes;
+
+    console.log(' يستمع لأنواع الإشعارات:', notificationTypes);
+
     notificationTypes.forEach(type => {
       newSocket.on(type, (data: Notification) => {
-        console.log(' إشعار جديد:', data);
+        console.log(` إشعار جديد [${type}]:`, data);
         
         setNotifications(prev => [data, ...prev]);
         setUnreadCount(prev => prev + 1);
@@ -212,6 +253,7 @@ export const useNotifications = ({ userType, userId }: UseNotificationsProps) =>
     });
 
     return () => {
+      console.log(' تنظيف useNotifications');
       newSocket.disconnect();
     };
   }, [userType, userId]);
@@ -482,35 +524,98 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
 
 // pages/admin/dashboard.tsx
 import { NotificationBell } from '../../components/NotificationBell';
+import { useAuth } from '../../contexts/AuthContext';
 
 export const AdminDashboard = () => {
+  const { user } = useAuth();
+
+  const testCurrentCompanyNotification = async () => {
+    if (!user?.id) {
+      alert(' يرجى تسجيل الدخول أولاً');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/notifications/test?companyId=${user.id}`, {
+        method: 'GET'
+      });
+      const result = await response.json();
+      
+      if (response.ok) {
+        console.log(` تم إرسال إشعار تجريبي للشركة الحالية: ${user.name}`);
+        alert(` تم إرسال إشعار تجريبي للشركة الحالية: ${user.name}`);
+      } else {
+        throw new Error(result.message);
+      }
+    } catch (error) {
+      console.error(' فشل إرسال إشعار تجريبي:', error);
+      alert(' فشل إرسال الإشعار التجريبي');
+    }
+  };
+
   return (
     <div className="p-6">
       <header className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">لوحة التحكم</h1>
-        <NotificationBell userType="admin" />
+        <div className="flex items-center gap-4">
+          <button
+            onClick={testCurrentCompanyNotification}
+            className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
+          >
+            اختبار إشعار الشركة الحالية
+          </button>
+          <NotificationBell userType="admin" />
+        </div>
       </header>
-      
+
+      {/* معلومات المستخدم */}
+      <div className="bg-white p-6 rounded-lg shadow mb-6">
+        <h2 className="text-xl font-semibold mb-4">معلومات المسؤول</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <p><strong>الاسم:</strong> {user?.name || 'غير محدد'}</p>
+            <p><strong>البريد الإلكتروني:</strong> {user?.email || 'غير محدد'}</p>
+          </div>
+          <div>
+            <p><strong>معرف المستخدم:</strong> {user?.id || 'غير محدد'}</p>
+            <p><strong>نوع المستخدم:</strong> {user?.type || 'غير محدد'}</p>
+          </div>
+        </div>
+      </div>
+
       {/* باقي محتوى الداشبورد */}
     </div>
   );
 };
 
-
 // pages/company/dashboard.tsx
 import { NotificationBell } from '../../components/NotificationBell';
+import { useAuth } from '../../contexts/AuthContext';
 
 export const CompanyDashboard = () => {
-  const companyId = 'company-123'; // جلب من الـ auth
+  const { user } = useAuth();
+  
+  console.log(' user data:', user);
   
   return (
     <div className="p-6">
       <header className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">لوحة الشركة</h1>
-        <NotificationBell userType="company" userId={companyId} />
+        <NotificationBell userType="company" userId={user?.id} />
       </header>
       
+      {/* إضافة معلومات التصحيح */}
+      <div className="mb-4 p-4 bg-gray-100 rounded-lg">
+        <h3 className="font-semibold mb-2">معلومات التصحيح:</h3>
+        <p><strong>User ID:</strong> {user?.id || 'غير محدد'}</p>
+        <p><strong>User Type:</strong> {user?.type || 'غير محدد'}</p>
+      </div>
+      
       {/* باقي محتوى الداشبورد */}
+      <div className="bg-white p-6 rounded-lg shadow">
+        <h2 className="text-xl font-semibold mb-4">مرحباً بك في لوحة تحكم الشركة</h2>
+        <p>هنا يمكنك إدارة اشتراكك ومشاهدة الإشعارات.</p>
+      </div>
     </div>
   );
 };
@@ -598,6 +703,66 @@ export const NotificationsPage = () => {
   );
 };
 
+
+
+// contexts/AuthContext.tsx
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  type: 'admin' | 'company';
+}
+
+interface AuthContextType {
+  user: User | null;
+  login: (userData: User) => void;
+  logout: () => void;
+  isLoading: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
+    }
+    setIsLoading(false);
+  }, []);
+
+  const login = (userData: User) => {
+    setUser(userData);
+    localStorage.setItem('user', JSON.stringify(userData));
+  };
+
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem('user');
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+
+
 // في الفرونت إند
 const checkPlanChange = async (companyId, newPlanId) => {
   const response = await fetch(`/api/subscriptions/${companyId}/validate-plan-change/${newPlanId}`);
@@ -609,4 +774,8 @@ const checkPlanChange = async (companyId, newPlanId) => {
     console.log('لا يمكن تغيير الخطة:', result.message);
   }
 };
+
+
+
+
 

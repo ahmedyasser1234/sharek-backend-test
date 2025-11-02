@@ -1,4 +1,3 @@
-// backup.service.ts
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -6,8 +5,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-
-// كل الـ entities بتاعتك
 import { Company } from '../company/entities/company.entity';
 import { CompanyToken } from '../company/auth/entities/company-token.entity';
 import { CompanyLoginLog } from '../company/auth/entities/company-login-log.entity';
@@ -72,7 +69,6 @@ export class BackupService {
     const backupFileName = `backup_${timestamp}.sql`;
     const backupPath = path.join(process.cwd(), 'backups', backupFileName);
 
-    // إنشاء مجلد backups إذا لم يكن موجوداً
     const backupsDir = path.join(process.cwd(), 'backups');
     if (!fs.existsSync(backupsDir)) {
       fs.mkdirSync(backupsDir, { recursive: true });
@@ -82,7 +78,6 @@ export class BackupService {
     backupContent += `-- Generated: ${new Date().toISOString()}\n`;
     backupContent += `-- Database: ${process.env.DB_NAME}\n\n`;
 
-    // Backup لكل table على حدة
     backupContent += await this.backupTable('company', this.companyRepo);
     backupContent += await this.backupTable('company_token', this.companyTokenRepo);
     backupContent += await this.backupTable('company_login_log', this.companyLoginLogRepo);
@@ -96,7 +91,6 @@ export class BackupService {
     backupContent += await this.backupTable('admin', this.adminRepo);
     backupContent += await this.backupTable('payment_proof', this.paymentProofRepo);
 
-    // حفظ الملف
     fs.writeFileSync(backupPath, backupContent);
     return backupPath;
   }
@@ -133,7 +127,6 @@ export class BackupService {
     return tableContent;
   }
 
-  // طريقة بديلة باستخدام pg_dump (أفضل للأداء)
   async createPgDumpBackup(): Promise<string> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupFileName = `backup_pgdump_${timestamp}.sql`;
@@ -162,7 +155,6 @@ export class BackupService {
     }
   }
 
-  // دالة لمعرفة حجم البيانات
   async getDatabaseStats(): Promise<Record<string, number>> {
     const stats: Record<string, number> = {};
     

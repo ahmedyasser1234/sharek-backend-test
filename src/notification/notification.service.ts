@@ -56,6 +56,8 @@ interface NotificationData {
 @Injectable()
 export class NotificationService {
   private readonly logger = new Logger(NotificationService.name);
+  
+  private readonly ADMIN_USER_ID = '00000000-0000-0000-0000-000000000000';
 
   constructor(
     private readonly notificationGateway: NotificationGateway,
@@ -63,7 +65,6 @@ export class NotificationService {
     private readonly notificationRepo: Repository<Notification>,
   ) {}
 
-  // 🔥 دالة أساسية لحفظ الإشعارات
   private async saveNotification(
     userId: string, 
     userType: 'admin' | 'company', 
@@ -74,8 +75,10 @@ export class NotificationService {
     data?: Record<string, unknown>
   ): Promise<Notification> {
     try {
+      const finalUserId = userType === 'admin' ? this.ADMIN_USER_ID : userId;
+      
       const notification = this.notificationRepo.create({
-        userId,
+        userId: finalUserId,
         userType,
         title,
         message,
@@ -85,16 +88,15 @@ export class NotificationService {
       });
       
       const savedNotification = await this.notificationRepo.save(notification);
-      this.logger.log(`✅ تم حفظ إشعار ${type} لـ ${userType}: ${userId}`);
+      this.logger.log(` تم حفظ إشعار ${type} لـ ${userType}: ${finalUserId}`);
       return savedNotification;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`❌ فشل حفظ إشعار ${type}: ${errorMessage}`);
+      this.logger.error(` فشل حفظ إشعار ${type}: ${errorMessage}`);
       throw error;
     }
   }
 
-  // 🔥 إرسال إشعار للأدمن (متصل أو لا)
   async notifyAdmin(
     title: string, 
     message: string, 
@@ -103,9 +105,8 @@ export class NotificationService {
     data?: Record<string, unknown>
   ): Promise<void> {
     try {
-      // 1. حفظ الإشعار في الداتابيز
       const notification = await this.saveNotification(
-        'admin-system', // معرف ثابت للأدمن
+        this.ADMIN_USER_ID, 
         'admin',
         title,
         message,
@@ -114,7 +115,6 @@ export class NotificationService {
         data
       );
 
-      // 2. محاولة الإرسال للأدمن المتصلين
       const notificationData: NotificationData = {
         id: notification.id,
         title,
@@ -129,11 +129,10 @@ export class NotificationService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`❌ فشل إرسال إشعار للأدمن: ${errorMessage}`);
+      this.logger.error(` فشل إرسال إشعار للأدمن: ${errorMessage}`);
     }
   }
 
-  // 🔥 إرسال إشعار للشركة (متصلة أو لا)
   async notifyCompany(
     companyId: string, 
     title: string, 
@@ -143,7 +142,8 @@ export class NotificationService {
     data?: Record<string, unknown>
   ): Promise<void> {
     try {
-      // 1. حفظ الإشعار في الداتابيز
+      this.logger.log(` محاولة إرسال إشعار للشركة: ${companyId} - ${title}`);
+
       const notification = await this.saveNotification(
         companyId,
         'company',
@@ -154,7 +154,6 @@ export class NotificationService {
         data
       );
 
-      // 2. محاولة الإرسال للشركة إذا كانت متصلة
       const notificationData: NotificationData = {
         id: notification.id,
         title,
@@ -168,16 +167,17 @@ export class NotificationService {
       const sent = this.notificationGateway.sendToCompany(companyId, type, notificationData);
 
       if (!sent) {
-        this.logger.log(`📱 الشركة ${companyId} غير متصلة - الإشعار مخزن للعرض لاحقاً`);
+        this.logger.warn(` الشركة ${companyId} غير متصلة - الإشعار مخزن للعرض لاحقاً`);
+      } else {
+        this.logger.log(` تم إرسال إشعار للشركة: ${companyId} - ${type}`);
       }
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`❌ فشل إرسال إشعار للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(` فشل إرسال إشعار للشركة ${companyId}: ${errorMessage}`);
     }
   }
 
-  // 🔥 الدوال الحالية بعد التعديل
   async notifyNewSubscriptionRequest(proof: ProofData): Promise<void> {
     const data: Record<string, unknown> = {
       companyName: proof.company.name,
@@ -262,9 +262,11 @@ export class NotificationService {
 
   async notifyCompanySubscriptionApproved(proof: ProofData): Promise<void> {
     if (!proof.company.id) {
-      this.logger.warn(`لا يمكن إرسال إشعار موافقة - company.id غير موجود`);
+      this.logger.warn(` لا يمكن إرسال إشعار موافقة - company.id غير موجود`);
       return;
     }
+
+    this.logger.log(` إرسال إشعار موافقة للشركة: ${proof.company.id} - ${proof.company.name}`);
 
     const data: Record<string, unknown> = {
       companyName: proof.company.name,
@@ -274,7 +276,7 @@ export class NotificationService {
 
     await this.notifyCompany(
       proof.company.id,
-      'تم تفعيل الاشتراك',
+      'تم تفعيل الاشتراك ',
       `تم قبول طلب الاشتراك الخاص بك في الخطة ${proof.plan.name}`,
       'COMPANY_SUBSCRIPTION_APPROVED',
       'high',
@@ -284,9 +286,11 @@ export class NotificationService {
 
   async notifyCompanySubscriptionRejected(proof: ProofData): Promise<void> {
     if (!proof.company.id) {
-      this.logger.warn(`لا يمكن إرسال إشعار رفض - company.id غير موجود`);
+      this.logger.warn(` لا يمكن إرسال إشعار رفض - company.id غير موجود`);
       return;
     }
+
+    this.logger.log(` إرسال إشعار رفض للشركة: ${proof.company.id} - ${proof.company.name}`);
 
     const data: Record<string, unknown> = {
       companyName: proof.company.name,
@@ -297,7 +301,7 @@ export class NotificationService {
 
     await this.notifyCompany(
       proof.company.id,
-      'تم رفض الاشتراك',
+      'تم رفض الاشتراك ',
       `تم رفض طلب الاشتراك في الخطة ${proof.plan.name}. السبب: ${proof.decisionNote}`,
       'COMPANY_SUBSCRIPTION_REJECTED',
       'high',
@@ -348,12 +352,14 @@ export class NotificationService {
     );
   }
 
-  // 🔥 دوال جديدة لجلب الإشعارات
   async getAdminNotifications(): Promise<Notification[]> {
     return await this.notificationRepo.find({
-      where: { userType: 'admin' },
+      where: { 
+        userType: 'admin',
+        userId: this.ADMIN_USER_ID 
+      },
       order: { createdAt: 'DESC' },
-      take: 50 // آخر 50 إشعار
+      take: 50 
     });
   }
 
@@ -369,9 +375,11 @@ export class NotificationService {
   }
 
   async getUnreadNotificationsCount(userId: string, userType: 'admin' | 'company'): Promise<number> {
+    const finalUserId = userType === 'admin' ? this.ADMIN_USER_ID : userId;
+    
     return await this.notificationRepo.count({
       where: { 
-        userId: userType === 'admin' ? 'admin-system' : userId,
+        userId: finalUserId,
         userType,
         isRead: false
       }
@@ -386,9 +394,11 @@ export class NotificationService {
   }
 
   async markAllAsRead(userId: string, userType: 'admin' | 'company'): Promise<void> {
+    const finalUserId = userType === 'admin' ? this.ADMIN_USER_ID : userId;
+    
     await this.notificationRepo.update(
       {
-        userId: userType === 'admin' ? 'admin-system' : userId,
+        userId: finalUserId,
         userType,
         isRead: false
       },
@@ -406,7 +416,6 @@ export class NotificationService {
     };
   }
 
-  // 🔥 دالة لاختبار النظام
   async sendTestNotification(companyId?: string): Promise<void> {
     const data: Record<string, unknown> = { 
       test: true, 

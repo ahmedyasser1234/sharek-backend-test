@@ -136,8 +136,30 @@ export class PaymentService {
 
       await this.subRepo.save(subscription);
 
-      // Fixed: Added await
-      await this.notificationService.notifyPaymentSuccess(transaction.company, transaction.plan);
+      // إشعار الأدمن بالدفع الناجح (يبقى للأدمن)
+      await this.notificationService.notifyPaymentSuccess(
+        {
+          name: transaction.company.name,
+          email: transaction.company.email,
+          id: transaction.company.id
+        },
+        {
+          name: transaction.plan.name
+        }
+      );
+
+      // إشعار الشركة بتفعيل الاشتراك
+      await this.notificationService.notifyCompanySubscriptionApproved({
+        id: transaction.id,
+        company: {
+          id: transaction.company.id,
+          name: transaction.company.name,
+          email: transaction.company.email
+        },
+        plan: {
+          name: transaction.plan.name
+        }
+      });
 
       try {
         await this.sendDecisionEmail(
@@ -201,8 +223,20 @@ export class PaymentService {
 
     await this.paymentProofRepo.save(proof);
 
-    // Fixed: Added await
-    await this.notificationService.notifyNewSubscriptionRequest(proof);
+    // إشعار الأدمن بطلب اشتراك جديد (يبقى للأدمن)
+    await this.notificationService.notifyNewSubscriptionRequest({
+      id: proof.id,
+      company: {
+        id: company.id,
+        name: company.name,
+        email: company.email
+      },
+      plan: {
+        name: plan.name
+      },
+      imageUrl: imageUrl,
+      createdAt: proof.createdAt
+    });
 
     try {
       await this.sendProofNotification(company, plan, imageUrl);
@@ -249,8 +283,20 @@ export class PaymentService {
 
     this.logger.log(` تم قبول طلب التحويل: ${proofId} - الشركة: ${proof.company.name}`);
 
-    // Fixed: Added await
-    await this.notificationService.notifySubscriptionApproved(proof);
+    // ✅ إشعار الشركة بالموافقة فقط (تم حذف إشعار الأدمن)
+    await this.notificationService.notifyCompanySubscriptionApproved({
+      id: proof.id,
+      company: {
+        id: proof.company.id,
+        name: proof.company.name,
+        email: proof.company.email
+      },
+      plan: {
+        name: proof.plan.name
+      },
+      imageUrl: proof.imageUrl,
+      createdAt: proof.createdAt
+    });
 
     if (proof.company.email) {
       try {
@@ -287,7 +333,21 @@ export class PaymentService {
 
     this.logger.log(` تم رفض طلب التحويل: ${proofId} - الشركة: ${proof.company.name} - السبب: ${reason}`);
 
-    await this.notificationService.notifySubscriptionRejected(proof);
+    // ✅ إشعار الشركة بالرفض فقط (تم حذف إشعار الأدمن)
+    await this.notificationService.notifyCompanySubscriptionRejected({
+      id: proof.id,
+      company: {
+        id: proof.company.id,
+        name: proof.company.name,
+        email: proof.company.email
+      },
+      plan: {
+        name: proof.plan.name
+      },
+      decisionNote: reason,
+      imageUrl: proof.imageUrl,
+      createdAt: proof.createdAt
+    });
 
     if (proof.company.email) {
       try {
