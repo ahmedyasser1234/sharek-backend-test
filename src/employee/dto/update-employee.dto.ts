@@ -30,15 +30,12 @@ export class UpdateEmployeeDto {
   name: string;
 
   @ApiProperty({ example: 'ahmed@example.com', minLength: 5, maxLength: 100 })
-  @IsEmail()
   @IsOptional()
-  @Length(5, 100)
   email: string;
 
   @ApiProperty({ example: '+966512345678', description: 'رقم الهاتف بصيغة دولية' })
   @IsString()
   @IsOptional()
-  @Length(8, 15)
   phone: string;
 
   @ApiPropertyOptional({ example: 'contact@example.com' })
