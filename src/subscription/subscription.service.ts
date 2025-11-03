@@ -149,7 +149,6 @@ export class SubscriptionService {
     }
   }
 
-  // 🔥 دالة جديدة للتحقق من تغيير الخطة
   async validatePlanChange(companyId: string, newPlanId: string): Promise<{
     canChange: boolean;
     message: string;

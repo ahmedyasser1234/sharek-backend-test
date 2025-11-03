@@ -26,11 +26,11 @@ export class EmployeeImage {
   @Column({ type: 'int' })
   employeeId: number;
 
-  @ManyToOne(() => Employee, (employee) => employee.images, {
+ @ManyToOne(() => Employee, (employee) => employee.images, {
     onDelete: 'CASCADE',
     nullable: false,
   })
-  @JoinColumn({ name: 'employeeId' })
+  @JoinColumn({ name: 'employeeId' }) 
   employee: Employee;
 
   @CreateDateColumn()

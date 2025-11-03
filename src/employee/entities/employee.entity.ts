@@ -457,7 +457,9 @@ export class Employee {
   appleWalletUrl?: string;
 
   // Relations
-  @OneToMany(() => EmployeeImage, (image) => image.employee)
+    @OneToMany(() => EmployeeImage, (image) => image.employee, {
+    onDelete: 'CASCADE'
+  })
   images: EmployeeImage[];
 
   @ManyToOne(() => Company, (company) => company.employees, {

@@ -21,6 +21,31 @@ type WorkingHoursType = {
   sunday?: { from: string; to: string };
 };
 
+type EmployeeImageType = {
+  imageUrl: string;
+  label?: string;
+  publicId?: string;
+};
+
+// دالة مساعدة للتحقق من أن العنصر هو EmployeeImageType صالح
+function isValidEmployeeImage(item: unknown): item is EmployeeImageType {
+  return (
+    typeof item === 'object' &&
+    item !== null &&
+    'imageUrl' in item &&
+    typeof (item as EmployeeImageType).imageUrl === 'string'
+  );
+}
+
+// دالة مساعدة للتحقق مما إذا كانت جميع العناصر فارغة
+function areAllItemsEmpty(items: unknown[]): boolean {
+  return items.every(item => 
+    item === null || 
+    item === undefined || 
+    (typeof item === 'object' && Object.keys(item).length === 0) ||
+    (typeof item === 'object' && !(item as EmployeeImageType).imageUrl)
+  );
+}
 export class UpdateEmployeeDto {
   @ApiProperty({ example: 'Ahmed Ali', maxLength: 1000 })
   @Length(1, 1000)
@@ -841,4 +866,94 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsString()
   workLinkkkkkImageUrl?: string;
+ 
+ @ApiPropertyOptional({ 
+    description: 'قائمة الصور للموظف - إرسال [] لحذف جميع الصور',
+    type: [Object],
+    example: [
+      {
+        imageUrl: 'https://example.com/image1.jpg',
+        label: 'صورة الملف الشخصي',
+        publicId: 'employee-123-image1'
+      }
+    ]
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    console.log('🔄 Transform - القيمة المستلمة:', value);
+    console.log('🔄 Transform - نوع القيمة:', typeof value);
+    
+    if (value === null || value === undefined) {
+      console.log('🔄 Transform - قيمة فارغة، إرجاع undefined');
+      return undefined;
+    }
+
+    // إذا كانت مصفوفة فارغة - هذا مقبول (لحذف الصور)
+    if (Array.isArray(value) && value.length === 0) {
+      console.log('🔄 Transform - مصفوفة فارغة [] - مقبولة لحذف الصور');
+      return [];
+    }
+
+    // حالة خاصة: إذا كانت مصفوفة تحتوي على كائنات فارغة [{}] - تعاملها كمصفوفة فارغة
+    if (Array.isArray(value) && value.length > 0) {
+      console.log('🔄 Transform - فحص محتوى المصفوفة...');
+      
+      // تحقق إذا كانت جميع العناصر فارغة أو غير صالحة
+      if (areAllItemsEmpty(value)) {
+        console.log('🔄 Transform - جميع العناصر فارغة، معاملتها كمصفوفة فارغة []');
+        return [];
+      }
+      
+      // إذا كانت تحتوي على عناصر صالحة، ترجع العناصر الصالحة فقط
+      const validArray: EmployeeImageType[] = value.filter(isValidEmployeeImage);
+      
+      console.log('🔄 Transform - الصور الصالحة:', validArray.length);
+      
+      if (validArray.length === 0) {
+        console.log('🔄 Transform - لا توجد عناصر صالحة، إرجاع undefined');
+        return undefined;
+      }
+      
+      return validArray;
+    }
+
+    // إذا كانت string وتحاول تحويلها
+    if (typeof value === 'string') {
+      try {
+        console.log('🔄 Transform - جاري تحويل string إلى JSON');
+        const parsed: unknown = JSON.parse(value);
+        console.log('🔄 Transform - نتيجة التحويل:', parsed);
+        
+        // نفس المنطق السابق ينطبق هنا
+        if (Array.isArray(parsed) && parsed.length === 0) {
+          console.log('🔄 Transform - تحويل إلى مصفوفة فارغة');
+          return [];
+        }
+        
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          if (areAllItemsEmpty(parsed)) {
+            console.log('🔄 Transform - جميع العناصر فارغة بعد التحويل، معاملتها كمصفوفة فارغة');
+            return [];
+          }
+          
+          const validArray: EmployeeImageType[] = parsed.filter(isValidEmployeeImage);
+          
+          console.log('🔄 Transform - الصور الصالحة بعد التحويل:', validArray.length);
+          
+          if (validArray.length === 0) {
+            return undefined;
+          }
+          
+          return validArray;
+        }
+      } catch (error) {
+        console.log('🔄 Transform - فشل تحويل JSON:', error);
+      }
+    }
+
+    console.log('🔄 Transform - القيمة غير صالحة، إرجاع undefined');
+    return undefined;
+  })
+  images?: EmployeeImageType[];
+
 }

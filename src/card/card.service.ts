@@ -47,10 +47,10 @@ export class CardService {
     
     if (card && card.uniqueUrl) {
       uniqueUrl = card.uniqueUrl;
-      this.logger.log(` استخدام الـ uniqueUrl الحالي: ${uniqueUrl}`);
+      this.logger.log(`🔗 استخدام الـ uniqueUrl الحالي: ${uniqueUrl}`);
     } else {
       uniqueUrl = randomUUID();
-      this.logger.log(` إنشاء uniqueUrl جديد: ${uniqueUrl}`);
+      this.logger.log(`🆕 إنشاء uniqueUrl جديد: ${uniqueUrl}`);
     }
 
     const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}`;
@@ -72,15 +72,32 @@ export class CardService {
       default:
         qrCode = await QRCode.toDataURL(cardUrl);
         if (![1, 2, 3].includes(finalQrStyle)) {
-          this.logger.warn(`qrStyle غير معروف (${finalQrStyle})، تم استخدام الشكل العادي`);
+          this.logger.warn(`⚠️ qrStyle غير معروف (${finalQrStyle})، تم استخدام الشكل العادي`);
         }
         break;
     }
 
     if (!employee.id) {
-      this.logger.error(' لا يمكن إنشاء البطاقة: employee.id غير موجود');
+      this.logger.error('❌ لا يمكن إنشاء البطاقة: employee.id غير موجود');
       throw new Error('employee.id مطلوب لإنشاء البطاقة');
     }
+
+    // الحصول على القيم الحالية للبطاقة إذا كانت موجودة
+    const currentBackgroundImage = card?.backgroundImage;
+    const currentFontColorHead = card?.fontColorHead;
+    const currentFontColorHead2 = card?.fontColorHead2;
+    const currentFontColorParagraph = card?.fontColorParagraph;
+    const currentFontColorExtra = card?.fontColorExtra;
+    const currentSectionBackground = card?.sectionBackground;
+    const currentBackground = card?.Background;
+    const currentSectionBackground2 = card?.sectionBackground2;
+    const currentDropShadow = card?.dropShadow;
+    const currentShadowX = card?.shadowX;
+    const currentShadowY = card?.shadowY;
+    const currentShadowBlur = card?.shadowBlur;
+    const currentShadowSpread = card?.shadowSpread;
+    const currentCardRadius = card?.cardRadius;
+    const currentCardStyleSection = card?.cardStyleSection;
 
     const cardData: Partial<EmployeeCard> = {
       title: `${employee.name} - ${employee.jobTitle} - بطاقة الموظف`,
@@ -89,35 +106,37 @@ export class CardService {
       designId: finalDesignId,
       qrStyle: finalQrStyle,
       employeeId: employee.id,
-      fontColorHead: extra?.fontColorHead || '#000000',
-      fontColorHead2: extra?.fontColorHead2 || '#000000',
-      fontColorParagraph: extra?.fontColorParagraph || '#000000',
-      fontColorExtra: extra?.fontColorExtra || '#000000',
-      sectionBackground: extra?.sectionBackground || '#ffffff',
-      Background: extra?.Background || '#ffffff',
-      sectionBackground2: extra?.sectionBackground2 || '#ffffff',
-      dropShadow: extra?.dropShadow || '#000000',
-      shadowX: extra?.shadowX ?? 1,
-      shadowY: extra?.shadowY ?? 1,
-      shadowBlur: extra?.shadowBlur ?? 3,
-      shadowSpread: extra?.shadowSpread ?? 1,
-      cardRadius: extra?.cardRadius ?? 16,
-      cardStyleSection: extra?.cardStyleSection ?? false,
-      backgroundImage: extra?.backgroundImage || null,
+      
+      // استخدام القيم الجديدة إذا كانت محددة، وإلا استخدام القيم الحالية، وإلا استخدام القيم الافتراضية
+      fontColorHead: extra?.fontColorHead ?? currentFontColorHead ?? '#000000',
+      fontColorHead2: extra?.fontColorHead2 ?? currentFontColorHead2 ?? '#000000',
+      fontColorParagraph: extra?.fontColorParagraph ?? currentFontColorParagraph ?? '#000000',
+      fontColorExtra: extra?.fontColorExtra ?? currentFontColorExtra ?? '#000000',
+      sectionBackground: extra?.sectionBackground ?? currentSectionBackground ?? '#ffffff',
+      Background: extra?.Background ?? currentBackground ?? '#ffffff',
+      sectionBackground2: extra?.sectionBackground2 ?? currentSectionBackground2 ?? '#ffffff',
+      dropShadow: extra?.dropShadow ?? currentDropShadow ?? '#000000',
+      shadowX: extra?.shadowX ?? currentShadowX ?? 1,
+      shadowY: extra?.shadowY ?? currentShadowY ?? 1,
+      shadowBlur: extra?.shadowBlur ?? currentShadowBlur ?? 3,
+      shadowSpread: extra?.shadowSpread ?? currentShadowSpread ?? 1,
+      cardRadius: extra?.cardRadius ?? currentCardRadius ?? 16,
+      cardStyleSection: extra?.cardStyleSection ?? currentCardStyleSection ?? false,
+      
+      // الحفاظ على backgroundImage الحالية إذا لم يتم تقديم قيمة جديدة
+      backgroundImage: extra?.backgroundImage !== undefined ? extra.backgroundImage : currentBackgroundImage,
     };
 
-    if (extra) {
-      Object.assign(cardData, extra);
-    }
+    this.logger.log(`🎨 إعدادات البطاقة - backgroundImage: ${cardData.backgroundImage || 'سيتم الحفاظ على القيمة الحالية'}`);
 
     if (card) {
       Object.assign(card, cardData);
       await this.cardRepo.save(card);
-      this.logger.log(` تم تحديث الكارد الموجود للموظف: ${employee.id} مع الحفاظ على الـ uniqueUrl`);
+      this.logger.log(`✅ تم تحديث الكارد الموجود للموظف: ${employee.id}`);
     } else {
       card = this.cardRepo.create(cardData);
       await this.cardRepo.save(card);
-      this.logger.log(` تم إنشاء كارد جديد للموظف: ${employee.id} مع uniqueUrl جديد`);
+      this.logger.log(`🆕 تم إنشاء كارد جديد للموظف: ${employee.id}`);
     }
 
     return {
@@ -183,7 +202,7 @@ export class CardService {
         backgroundImage: extra?.backgroundImage ?? existingCard.backgroundImage,
       };
 
-      this.logger.log(` تم تحديث بطاقة الموظف ${employee.id} مع الحفاظ على الـ uniqueUrl: ${existingCard.uniqueUrl}`);
+      this.logger.log(`✅ تم تحديث بطاقة الموظف ${employee.id} مع الحفاظ على الـ uniqueUrl: ${existingCard.uniqueUrl}`);
 
       Object.assign(existingCard, updateData);
       await this.cardRepo.save(existingCard);

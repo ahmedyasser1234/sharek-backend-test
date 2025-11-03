@@ -630,8 +630,7 @@ export class CompanyService implements OnModuleInit {
   async getCompanyLogo(companyId: string): Promise<{ 
     logoUrl: string | null; 
     companyId: string; 
-    companyName: string;
-  }> {
+    companyName: string;}> {
     const company = await this.companyRepo.findOne({
       where: { id: companyId },
       select: ['id', 'name', 'logoUrl'] 
@@ -646,5 +645,6 @@ export class CompanyService implements OnModuleInit {
       companyId: company.id,
       companyName: company.name
     };
+
   }
 }

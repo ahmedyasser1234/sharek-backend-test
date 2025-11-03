@@ -59,8 +59,6 @@ export class VisitService {
 
       const country = await this.getCountryFromIP(ipAddress);
 
-      this.logger.debug(`زيارة جديدة: UA=${ua}, IP=${ipAddress}, OS=${os}, Browser=${browser}, Device=${deviceType}, Country=${country}`);
-
       const recentVisit = await this.visitRepo.findOne({
         where: {
           employee: { id: employee.id },
@@ -99,59 +97,58 @@ export class VisitService {
     }
   }
 
- async logVisitById(body: {
-  employeeId: number;
-  source?: string;
-  os?: string;
-  browser?: string;
-  deviceType?: string;
-  ipAddress?: string;
-}): Promise<void> {
-  try {
-    const employee = await this.employeeRepo.findOne({ where: { id: body.employeeId } });
-    if (!employee) throw new NotFoundException('الموظف غير موجود');
+  async logVisitById(body: {
+    employeeId: number;
+    source?: string;
+    os?: string;
+    browser?: string;
+    deviceType?: string;
+    ipAddress?: string;
+  }): Promise<void> {
+    try {
+      const employee = await this.employeeRepo.findOne({ where: { id: body.employeeId } });
+      if (!employee) throw new NotFoundException('الموظف غير موجود');
 
-    const source = body.source || 'linkنن';
-    const os = body.os || 'unknownنن';
-    const browser = body.browser || 'unknownنن';
-    const deviceType = body.deviceType || 'desktopنن';
-    const ipAddress = body.ipAddress || 'unknownنن';
-    const country = await this.getCountryFromIP(ipAddress);
+      const source = body.source || 'link';
+      const os = body.os || 'unknown';
+      const browser = body.browser || 'unknown';
+      const deviceType = body.deviceType || 'desktop';
+      const ipAddress = body.ipAddress || 'unknown';
+      const country = await this.getCountryFromIP(ipAddress);
 
-    const recentVisit = await this.visitRepo.findOne({
-      where: {
+      const recentVisit = await this.visitRepo.findOne({
+        where: {
+          employee: { id: employee.id },
+          source,
+          os,
+          browser,
+          deviceType,
+          ipAddress,
+        },
+        order: { visitedAt: 'DESC' },
+      });
+
+      if (recentVisit) {
+        const diff = Date.now() - new Date(recentVisit.visitedAt).getTime();
+        if (diff < 60000) return;
+      }
+
+      const visit = this.visitRepo.create({
         employee: { id: employee.id },
         source,
         os,
         browser,
         deviceType,
         ipAddress,
-      },
-      order: { visitedAt: 'DESC' },
-    });
+        country,
+      });
 
-    if (recentVisit) {
-      const diff = Date.now() - new Date(recentVisit.visitedAt).getTime();
-      if (diff < 60000) return;
+      await this.visitRepo.save(visit);
+    } catch (err) {
+      if (err instanceof NotFoundException) throw err;
+      throw new HttpException('فشل تسجيل الزيارة', HttpStatus.INTERNAL_SERVER_ERROR);
     }
-
-    const visit = this.visitRepo.create({
-      employee: { id: employee.id },
-      source,
-      os,
-      browser,
-      deviceType,
-      ipAddress,
-      country,
-    });
-
-    await this.visitRepo.save(visit);
-  } catch (err) {
-    if (err instanceof NotFoundException) throw err;
-    throw new HttpException('فشل تسجيل الزيارة', HttpStatus.INTERNAL_SERVER_ERROR);
   }
-}
-
 
   async getVisitCount(employeeId: number): Promise<number> {
     return this.visitRepo

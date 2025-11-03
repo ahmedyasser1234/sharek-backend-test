@@ -136,7 +136,6 @@ export class PaymentService {
 
       await this.subRepo.save(subscription);
 
-      // إشعار الأدمن بالدفع الناجح (يبقى للأدمن)
       await this.notificationService.notifyPaymentSuccess(
         {
           name: transaction.company.name,
@@ -148,7 +147,6 @@ export class PaymentService {
         }
       );
 
-      // إشعار الشركة بتفعيل الاشتراك
       await this.notificationService.notifyCompanySubscriptionApproved({
         id: transaction.id,
         company: {
@@ -223,7 +221,6 @@ export class PaymentService {
 
     await this.paymentProofRepo.save(proof);
 
-    // إشعار الأدمن بطلب اشتراك جديد (يبقى للأدمن)
     await this.notificationService.notifyNewSubscriptionRequest({
       id: proof.id,
       company: {
@@ -283,7 +280,6 @@ export class PaymentService {
 
     this.logger.log(` تم قبول طلب التحويل: ${proofId} - الشركة: ${proof.company.name}`);
 
-    // ✅ إشعار الشركة بالموافقة فقط (تم حذف إشعار الأدمن)
     await this.notificationService.notifyCompanySubscriptionApproved({
       id: proof.id,
       company: {
@@ -333,7 +329,6 @@ export class PaymentService {
 
     this.logger.log(` تم رفض طلب التحويل: ${proofId} - الشركة: ${proof.company.name} - السبب: ${reason}`);
 
-    // ✅ إشعار الشركة بالرفض فقط (تم حذف إشعار الأدمن)
     await this.notificationService.notifyCompanySubscriptionRejected({
       id: proof.id,
       company: {
