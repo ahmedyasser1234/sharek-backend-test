@@ -14,9 +14,12 @@ import { Visit } from '../employee/entities/visit.entity';
 import { PaymentTransaction } from '../payment/entities/payment-transaction.entity';
 import { Admin } from '../admin/entities/admin.entity';
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
+import { JwtModule } from '@nestjs/jwt';
+import { AdminModule } from '../admin/admin.module';
 
 @Module({
   imports: [
+    // 1. الـ entities فقط هنا
     TypeOrmModule.forFeature([
       Company,
       CompanyToken,
@@ -31,6 +34,12 @@ import { PaymentProof } from '../payment/entities/payment-proof.entity';
       Admin,
       PaymentProof,
     ]),
+    
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || 'secretKey',
+      signOptions: { expiresIn: '1d' },
+    }),
+    AdminModule,
   ],
   providers: [BackupService],
   controllers: [BackupController],

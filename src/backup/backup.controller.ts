@@ -1,9 +1,15 @@
-import { Controller, Get, Res, Query, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Res, Query, HttpException, HttpStatus , UseGuards  } from '@nestjs/common';
 import { Response } from 'express';
 import { BackupService } from './backup.service';
+import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import * as fs from 'fs';
 import * as path from 'path';
 
+
+@ApiTags('Backup')
+@ApiBearerAuth()
+@UseGuards(AdminJwtGuard)
 @Controller('backup')
 export class BackupController {
   constructor(private readonly backupService: BackupService) {}
