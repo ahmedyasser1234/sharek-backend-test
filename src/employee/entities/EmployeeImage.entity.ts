@@ -30,7 +30,8 @@ export class EmployeeImage {
     onDelete: 'CASCADE',
     nullable: false,
   })
-  @JoinColumn({ name: 'employeeId' }) 
+  
+  @JoinColumn({ name: 'employeeId' })
   employee: Employee;
 
   @CreateDateColumn()

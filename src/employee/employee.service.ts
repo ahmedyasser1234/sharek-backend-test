@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-base-to-string */
@@ -62,283 +64,277 @@ export class EmployeeService {
     private readonly cloudinaryService: CloudinaryService,
   ) {}
 
-private safeToString(value: unknown): string {
-  if (value === null || value === undefined) return 'null/undefined';
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number' || typeof value === 'boolean') return value.toString();
-  if (typeof value === 'object') {
+  private safeToString(value: unknown): string {
+    if (value === null || value === undefined) return 'null/undefined';
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number' || typeof value === 'boolean') return value.toString();
+    if (typeof value === 'object') {
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return '[Object]';
+      }
+    }
     try {
-      return JSON.stringify(value);
+      return value.toString();
     } catch {
-      return '[Object]';
-    }
-  }
-  try {
-    return value.toString();
-  } catch {
-    return '[Unstringifiable]';
-  }
-}
-
-async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
-  this.logger.log(`محاولة إنشاء موظف جديد للشركة: ${companyId}`);
-
-  const company = await this.companyRepo.findOne({ where: { id: companyId } });
-
-  if (!company) {
-    this.logger.error(`الشركة غير موجودة: ${companyId}`);
-    throw new NotFoundException('Company not found');
-  }
-
-  const { canAdd, current, maxAllowed } = await this.subscriptionService.canAddEmployee(companyId);
-
-  if (!canAdd) {
-    this.logger.error(`الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
-    throw new ForbiddenException(`الخطة لا تسمح بإضافة موظفين جدد - تم الوصول للحد الأقصى (${current}/${maxAllowed}) - يرجى ترقية الخطة`);
-  }
-
-  const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
-
-  if (allowedCount.remaining <= 0) {
-    this.logger.error(`الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
-    throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد - يرجى تجديد الاشتراك');
-  }
-
-  let workingHours: Record<string, { from: string; to: string }> | null = null;
-  let isOpen24Hours = false;
-  let showWorkingHours = dto.showWorkingHours ?? false;
-
-  if (showWorkingHours) {
-    if (dto.isOpen24Hours) {
-      isOpen24Hours = true;
-    } else if (dto.workingHours && Object.keys(dto.workingHours).length > 0) {
-      workingHours = dto.workingHours;
-    } else {
-      showWorkingHours = false;
+      return '[Unstringifiable]';
     }
   }
 
-  const employeeData: Partial<Employee> = {
-    ...dto,
-    company,
-    showWorkingHours,
-    isOpen24Hours,
-    workingHours,
-    cardStyleSection: dto.cardStyleSection ?? false,
-    videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
+  async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
+    const company = await this.companyRepo.findOne({ where: { id: companyId } });
+    if (!company) {
+      this.logger.error(`الشركة غير موجودة: ${companyId}`);
+      throw new NotFoundException('Company not found');
+    }
+    const { canAdd, allowed, current, maxAllowed } = await this.subscriptionService.canAddEmployee(companyId);
+
+    if (!canAdd) {
+      this.logger.error(`الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
+      throw new ForbiddenException(`الخطة لا تسمح بإضافة موظفين جدد - تم الوصول للحد الأقصى (${current}/${maxAllowed}) - يرجى ترقية الخطة`);
+    }
+    const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
+    if (allowedCount.remaining <= 0) {
+      this.logger.error(`الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
+      throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد - يرجى تجديد الاشتراك');
+    }
+
+    let workingHours: Record<string, { from: string; to: string }> | null = null;
+    let isOpen24Hours = false;
+    let showWorkingHours = dto.showWorkingHours ?? false;
+
+    if (showWorkingHours) {
+      if (dto.isOpen24Hours) {
+        isOpen24Hours = true;
+      } else if (dto.workingHours && Object.keys(dto.workingHours).length > 0) {
+        workingHours = dto.workingHours;
+      } else {
+        showWorkingHours = false;
+      }
+    }
+
+    const employeeData: Partial<Employee> = {
+      ...dto,
+      company,
+      showWorkingHours,
+      isOpen24Hours,
+      workingHours,
+      cardStyleSection: dto.cardStyleSection ?? false,
+      videoType: allowedVideoTypes.includes(dto.videoType as VideoType)
       ? (dto.videoType as VideoType)
       : undefined,
-    contactFormDisplayType: allowedContactFormDisplayTypes.includes(dto.contactFormDisplayType as ContactFormDisplayType)
+      contactFormDisplayType: allowedContactFormDisplayTypes.includes(dto.contactFormDisplayType as ContactFormDisplayType)
       ? (dto.contactFormDisplayType as ContactFormDisplayType)
       : undefined,
-    contactFieldType: allowedContactFieldTypes.includes(dto.contactFieldType as ContactFieldType)
+      contactFieldType: allowedContactFieldTypes.includes(dto.contactFieldType as ContactFieldType)
       ? (dto.contactFieldType as ContactFieldType)
       : undefined,
-    feedbackIconType: allowedFeedbackIconTypes.includes(dto.feedbackIconType as FeedbackIconType)
+      feedbackIconType: allowedFeedbackIconTypes.includes(dto.feedbackIconType as FeedbackIconType)
       ? (dto.feedbackIconType as FeedbackIconType)
       : undefined,
-  };
+    };
 
-  const employee = this.employeeRepo.create(employeeData);
-  let saved = await this.employeeRepo.save(employee);
+    const employee = this.employeeRepo.create(employeeData);
+    let saved = await this.employeeRepo.save(employee);
 
-  type ImageMapType = {
-    profileImageUrl: 'profileImageUrl';
-    secondaryImageUrl: 'secondaryImageUrl';
-    logoUrl: 'logoUrl';
-    facebookImageUrl: 'facebookImageUrl';
-    instagramImageUrl: 'instagramImageUrl';
-    tiktokImageUrl: 'tiktokImageUrl';
-    snapchatImageUrl: 'snapchatImageUrl';
-    xImageUrl: 'xImageUrl';
-    linkedinImageUrl: 'linkedinImageUrl';
-    customImageUrl: 'customImageUrl';
-    testimonialImageUrl: 'testimonialImageUrl';
-    workingHoursImageUrl: 'workingHoursImageUrl';
-    contactFormHeaderImageUrl: 'contactFormHeaderImageUrl';
-    pdfThumbnailUrl: 'pdfThumbnailUrl';
-    pdfFile: 'pdfFileUrl';
-    pdfFileUrl: 'pdfFileUrl';
-    workLinkImageUrl: 'workLinkImageUrl';
-    workLinkkImageUrl: 'workLinkkImageUrl';
-    workLinkkkImageUrl: 'workLinkkkImageUrl';
-    workLinkkkkImageUrl: 'workLinkkkkImageUrl';
-    workLinkkkkkImageUrl: 'workLinkkkkkImageUrl';
-    backgroundImageUrl: 'backgroundImage';
-  };
+    type ImageMapType = {
+      profileImageUrl: 'profileImageUrl';
+      secondaryImageUrl: 'secondaryImageUrl';
+      logoUrl: 'logoUrl';
+      facebookImageUrl: 'facebookImageUrl';
+      instagramImageUrl: 'instagramImageUrl';
+      tiktokImageUrl: 'tiktokImageUrl';
+      snapchatImageUrl: 'snapchatImageUrl';
+      xImageUrl: 'xImageUrl';
+      linkedinImageUrl: 'linkedinImageUrl';
+      customImageUrl: 'customImageUrl';
+      testimonialImageUrl: 'testimonialImageUrl';
+      workingHoursImageUrl: 'workingHoursImageUrl';
+      contactFormHeaderImageUrl: 'contactFormHeaderImageUrl';
+      pdfThumbnailUrl: 'pdfThumbnailUrl';
+      pdfFile: 'pdfFileUrl';
+      pdfFileUrl: 'pdfFileUrl';
+      workLinkImageUrl: 'workLinkImageUrl';
+      workLinkkImageUrl: 'workLinkkImageUrl';
+      workLinkkkImageUrl: 'workLinkkkImageUrl';
+      workLinkkkkImageUrl: 'workLinkkkkImageUrl';
+      workLinkkkkkImageUrl: 'workLinkkkkkImageUrl';
+      backgroundImageUrl: 'backgroundImage';
+    };
 
-  const imageMap: ImageMapType = {
-    'profileImageUrl': 'profileImageUrl',
-    'secondaryImageUrl': 'secondaryImageUrl',
-    'logoUrl': 'logoUrl',
-    'facebookImageUrl': 'facebookImageUrl',
-    'instagramImageUrl': 'instagramImageUrl', 
-    'tiktokImageUrl': 'tiktokImageUrl',
-    'snapchatImageUrl': 'snapchatImageUrl',
-    'xImageUrl': 'xImageUrl',
-    'linkedinImageUrl': 'linkedinImageUrl',
-    'customImageUrl': 'customImageUrl',
-    'testimonialImageUrl': 'testimonialImageUrl',
-    'workingHoursImageUrl': 'workingHoursImageUrl',
-    'contactFormHeaderImageUrl': 'contactFormHeaderImageUrl',
-    'pdfThumbnailUrl': 'pdfThumbnailUrl',
-    'pdfFile': 'pdfFileUrl', 
-    'pdfFileUrl': 'pdfFileUrl', 
-    'workLinkImageUrl': 'workLinkImageUrl',
-    'workLinkkImageUrl': 'workLinkkImageUrl',
-    'workLinkkkImageUrl': 'workLinkkkImageUrl',
-    'workLinkkkkImageUrl': 'workLinkkkkImageUrl',
-    'workLinkkkkkImageUrl': 'workLinkkkkkImageUrl',
-    'backgroundImageUrl': 'backgroundImage',
-  } as const;
+    const imageMap: ImageMapType = {
+      'profileImageUrl': 'profileImageUrl',
+      'secondaryImageUrl': 'secondaryImageUrl',
+      'logoUrl': 'logoUrl',
+      'facebookImageUrl': 'facebookImageUrl',
+      'instagramImageUrl': 'instagramImageUrl', 
+      'tiktokImageUrl': 'tiktokImageUrl',
+      'snapchatImageUrl': 'snapchatImageUrl',
+      'xImageUrl': 'xImageUrl',
+      'linkedinImageUrl': 'linkedinImageUrl',
+      'customImageUrl': 'customImageUrl',
+      'testimonialImageUrl': 'testimonialImageUrl',
+      'workingHoursImageUrl': 'workingHoursImageUrl',
+      'contactFormHeaderImageUrl': 'contactFormHeaderImageUrl',
+      'pdfThumbnailUrl': 'pdfThumbnailUrl',
+      'pdfFile': 'pdfFileUrl', 
+      'pdfFileUrl': 'pdfFileUrl', 
+      'workLinkImageUrl': 'workLinkImageUrl',
+      'workLinkkImageUrl': 'workLinkkImageUrl',
+      'workLinkkkImageUrl': 'workLinkkkImageUrl',
+      'workLinkkkkImageUrl': 'workLinkkkkImageUrl',
+      'workLinkkkkkImageUrl': 'workLinkkkkkImageUrl',
+      'backgroundImageUrl': 'backgroundImage',
+    } as const;
 
-  files = Array.isArray(files) ? files : [];
-  const validFiles = files.filter(file => file && file.buffer instanceof Buffer);
+    files = Array.isArray(files) ? files : [];
+    const validFiles = files.filter(file => file && file.buffer instanceof Buffer);
 
-  const hasPdfFile = validFiles.some(file => 
-    (file.fieldname === 'pdfFileUrl' || file.fieldname === 'pdfFile') && 
-    file.originalname.toLowerCase().endsWith('.pdf')
-  );
+    const hasPdfFile = validFiles.some(file => 
+      (file.fieldname === 'pdfFileUrl' || file.fieldname === 'pdfFile') && 
+      file.originalname.toLowerCase().endsWith('.pdf')
+    );
 
-  if (!hasPdfFile) {
-    this.logger.warn(`لم يتم إرسال ملف PDF في حقل pdfFile أو pdfFileUrl`);
-  }
-
-  function chunkArray<T>(array: T[], size: number): T[][] {
-    const result: T[][] = [];
-    for (let i = 0; i < array.length; i += size) {
-      result.push(array.slice(i, i + size));
+    if (!hasPdfFile) {
+      this.logger.warn(`لم يتم إرسال ملف PDF في حقل pdfFile أو pdfFileUrl`);
     }
-    return result;
-  }
 
-  const batches = chunkArray(validFiles, 2);
-  let backgroundImageUrl: string | null = null;
+    function chunkArray<T>(array: T[], size: number): T[][] {
+      const result: T[][] = [];
+      for (let i = 0; i < array.length; i += size) {
+        result.push(array.slice(i, i + size));
+      }
+      return result;
+    }
 
-  interface FileUploadResult {
-    secure_url: string;
-    public_id: string;
-  }
+    const batches = chunkArray(validFiles, 2);
+    let backgroundImageUrl: string | null = null;
+    let uploadedImagesCount = 0;
 
-  const baseUploadsDir: string = path.join(process.cwd(), 'uploads');
-  const companyPdfsDir: string = path.join(baseUploadsDir, companyId, 'pdfs');
+    interface FileUploadResult {
+      secure_url: string;
+      public_id: string;
+    }
 
-  if (!fs.existsSync(companyPdfsDir)) {
-    fs.mkdirSync(companyPdfsDir, { recursive: true });
-  }
+    const baseUploadsDir: string = path.join(process.cwd(), 'uploads');
+    const companyPdfsDir: string = path.join(baseUploadsDir, companyId, 'pdfs');
 
-  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-    const batch = batches[batchIndex];
+    if (!fs.existsSync(companyPdfsDir)) {
+      fs.mkdirSync(companyPdfsDir, { recursive: true });
+    }
 
-    await Promise.allSettled(
-      batch.map(async (file) => {
-        try {
-          if (file.size > 3 * 1024 * 1024) {
-            throw new BadRequestException('الملف أكبر من 3MB');
-          }
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
 
-          let result: FileUploadResult;
+      await Promise.allSettled(
+        batch.map(async (file, fileIndex) => {
+          try {
+            if (file.size > 3 * 1024 * 1024) {
+              throw new BadRequestException('الملف أكبر من 3MB');
+            }
 
-          if (file.originalname.toLowerCase().endsWith('.pdf')) {
-            const fileExtension: string = path.extname(file.originalname);
-            const uniqueFileName: string = `pdf_${Date.now()}_${saved.id}${fileExtension}`;
-            const filePath: string = path.join(companyPdfsDir, uniqueFileName);
+            let result: FileUploadResult;
 
-            await fs.promises.writeFile(filePath, file.buffer);
+            if (file.originalname.toLowerCase().endsWith('.pdf')) {
+              const fileExtension: string = path.extname(file.originalname);
+              const uniqueFileName: string = `pdf_${Date.now()}_${saved.id}${fileExtension}`;
+              const filePath: string = path.join(companyPdfsDir, uniqueFileName);
 
-            const fileUrl: string = `/uploads/${companyId}/pdfs/${uniqueFileName}`;
+              await fs.promises.writeFile(filePath, file.buffer);
+              const fileUrl: string = `/uploads/${companyId}/pdfs/${uniqueFileName}`;
 
-            result = {
-              secure_url: fileUrl,
-              public_id: uniqueFileName
-            };
+              result = {
+                secure_url: fileUrl,
+                public_id: uniqueFileName
+              };
 
-          } else {
-            const compressedBuffer = await sharp(file.buffer, { failOnError: false })
+            } else {
+              const compressedBuffer = await sharp(file.buffer, { failOnError: false })
               .resize({ width: 800 })
               .webp({ quality: 70 })
               .toBuffer();
 
-            const uploadResult = await this.cloudinaryService.uploadBuffer(
-              compressedBuffer,
-              `companies/${companyId}/employees`
-            ) as FileUploadResult;
-            result = uploadResult;
-          }
-
-          const fieldName = file.fieldname as keyof ImageMapType;
-          const field = imageMap[fieldName];
-
-          if (field) {
-            if (field === 'backgroundImage') {
-              backgroundImageUrl = result.secure_url;
-            } else {
-              const updateData: Partial<Employee> = { [field]: result.secure_url };
-              await this.employeeRepo.update(saved.id, updateData);
-              (saved as any)[field] = result.secure_url;
+              const uploadResult = await this.cloudinaryService.uploadBuffer(
+                compressedBuffer,
+                `companies/${companyId}/employees`
+              ) as FileUploadResult;
+              result = uploadResult;
             }
-          } else {
-            const label = typeof file.originalname === 'string'
+
+            const fieldName = file.fieldname as keyof ImageMapType;
+            const field = imageMap[fieldName];
+
+            if (field) {
+              if (field === 'backgroundImage') {
+                backgroundImageUrl = result.secure_url;
+              } else {
+                const updateData: Partial<Employee> = { [field]: result.secure_url };
+                await this.employeeRepo.update(saved.id, updateData);
+                (saved as any)[field] = result.secure_url;
+                uploadedImagesCount++;
+              }
+            } else {
+              const label = typeof file.originalname === 'string'
               ? file.originalname.split('.')[0]
               : 'file';
 
-            const imageEntity = this.imageRepo.create({
-              imageUrl: result.secure_url,
-              publicId: result.public_id,
-              label,
-              employee: saved,
-            });
+              const imageEntity = this.imageRepo.create({
+                imageUrl: result.secure_url,
+                publicId: result.public_id,
+                label,
+                employee: saved,
+              });
 
-            await this.imageRepo.save(imageEntity);
-          }
+              await this.imageRepo.save(imageEntity);
+              uploadedImagesCount++;
+            }
 
-        } catch (error: unknown) {
-          const errMsg = error instanceof Error && typeof error.message === 'string'
+          } catch (error: unknown) {
+            const errMsg = error instanceof Error && typeof error.message === 'string'
             ? error.message
             : 'Unknown error';
-          const fileName = typeof file.originalname === 'string' ? file.originalname : 'غير معروف';
-          this.logger.error(`فشل رفع ملف ${fileName}: ${errMsg}`);
-        }
-      })
-    );
+            const fileName = typeof file.originalname === 'string' ? file.originalname : 'غير معروف';
+            this.logger.error(`فشل رفع ملف ${fileName}: ${errMsg}`);
+          }
+        })
+      );
+    }
+
+    if (!saved.profileImageUrl) {
+      saved.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
+      await this.employeeRepo.update(saved.id, { profileImageUrl: saved.profileImageUrl });
+    }
+
+    const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved, dto.designId, dto.qrStyle, {
+      fontColorHead: dto.fontColorHead,
+      fontColorHead2: dto.fontColorHead2,
+      fontColorParagraph: dto.fontColorParagraph,
+      fontColorExtra: dto.fontColorExtra,
+      sectionBackground: dto.sectionBackground,
+      Background: dto.Background,
+      sectionBackground2: dto.sectionBackground2,
+      dropShadow: dto.dropShadow,
+      shadowX: dto.shadowX,
+      shadowY: dto.shadowY,
+      shadowBlur: dto.shadowBlur,
+      shadowSpread: dto.shadowSpread,
+      cardRadius: dto.cardRadius,
+      cardStyleSection: dto.cardStyleSection,
+      backgroundImage: backgroundImageUrl,
+    });
+
+    saved.cardUrl = cardUrl;
+    saved.designId = designId;
+    saved.qrCode = qrCode;
+    saved = await this.employeeRepo.save(saved);
+    this.logger.log(`تم إنشاء الموظف بنجاح: ${saved.name} (ID: ${saved.id})`);
+    return {
+      statusCode: HttpStatus.CREATED,
+      message: 'تم إنشاء الموظف بنجاح',
+      data: { ...saved, qrCode },
+    };
   }
-
-  if (!saved.profileImageUrl) {
-    saved.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
-    await this.employeeRepo.update(saved.id, { profileImageUrl: saved.profileImageUrl });
-  }
-
-  const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved, dto.designId, dto.qrStyle, {
-    fontColorHead: dto.fontColorHead,
-    fontColorHead2: dto.fontColorHead2,
-    fontColorParagraph: dto.fontColorParagraph,
-    fontColorExtra: dto.fontColorExtra,
-    sectionBackground: dto.sectionBackground,
-    Background: dto.Background,
-    sectionBackground2: dto.sectionBackground2,
-    dropShadow: dto.dropShadow,
-    shadowX: dto.shadowX,
-    shadowY: dto.shadowY,
-    shadowBlur: dto.shadowBlur,
-    shadowSpread: dto.shadowSpread,
-    cardRadius: dto.cardRadius,
-    cardStyleSection: dto.cardStyleSection,
-    backgroundImage: backgroundImageUrl,
-  });
-
-  saved.cardUrl = cardUrl;
-  saved.designId = designId;
-  saved.qrCode = qrCode;
-  saved = await this.employeeRepo.save(saved);
-
-  this.logger.log(`تم إنشاء الموظف بنجاح: ${saved.name} (ID: ${saved.id})`);
-
-  return {
-    statusCode: HttpStatus.CREATED,
-    message: 'تم إنشاء الموظف بنجاح',
-    data: { ...saved, qrCode },
-  };
-}
 
   async findAll(companyId: string, page = 1, limit = 10, search?: string) {
     const query = this.employeeRepo
@@ -346,7 +342,6 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
     .leftJoinAndSelect('employee.cards', 'card')
     .leftJoinAndSelect('employee.images', 'image')
     .where('employee.companyId = :companyId', { companyId });
-
     if (search) {
       query.andWhere('employee.name ILIKE :search OR employee.email ILIKE :search', {
         search: `%${search}%`,
@@ -380,20 +375,20 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
 
   async findOne(id: number) {
     const employee = await this.employeeRepo.findOne({
-        where: { id },
-        relations: ['company', 'cards', 'images'],
+      where: { id },
+      relations: ['company', 'cards', 'images'],
     });
 
     if (!employee) {
-        throw new NotFoundException('Employee not found');
+      throw new NotFoundException('Employee not found');
     }
 
     return {
-        statusCode: HttpStatus.OK,
-        message: 'تم جلب بيانات الموظف بنجاح',
-        data: employee,
+      statusCode: HttpStatus.OK,
+      message: 'تم جلب بيانات الموظف بنجاح',
+      data: employee,
     };
-}
+  }
 
   async generateGoogleWalletLink(employeeId: number): Promise<{ url: string }> {
     const employee = await this.employeeRepo.findOne({
@@ -457,7 +452,7 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
       return buffer;
   }
  
-   private async ensureEmployeeCardExists(employeeId: number): Promise<EmployeeCard> {
+  private async ensureEmployeeCardExists(employeeId: number): Promise<EmployeeCard> {
     let card = await this.cardRepo.findOne({ 
       where: { employeeId: employeeId }
     });
@@ -492,191 +487,135 @@ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.Fi
     return card;
   }
 
-async update(
-  id: number, 
-  dto: UpdateEmployeeDto, 
-  companyId: string, 
-  files?: Express.Multer.File[]
-) {
-  this.logger.log(`🎬 بدء تحديث الموظف: ${id} للشركة: ${companyId}`);
-
-  if (files && files.length > 0) {
-    files.forEach((file, index) => {
-      this.logger.log(`📄 الملف ${index + 1}: ${file.fieldname} - ${file.originalname} - ${file.size} bytes`);
-    });
-  }
-
-  if (dto.images !== undefined) {
-    this.logger.log(`🖼️ معالجة الصور أولاً...`);
-    await this.handleImagesUpdate(id, dto.images);
-  }
-
-  const employee = await this.employeeRepo.findOne({
-    where: { id, company: { id: companyId } },
-    relations: ['company', 'cards', 'images']
-  });
-
-  if (!employee) {
-    this.logger.error(`❌ الموظف غير موجود: ${id}`);
-    throw new NotFoundException('الموظف غير موجود');
-  }
-
-  this.logger.log(`✅ تم العثور على الموظف: ${employee.name} (ID: ${employee.id})`);
-
-  await this.ensureEmployeeCardExists(employee.id);
-
-  const { images, ...updateData } = dto; 
-  
-  this.logger.log(` تطبيق التحديثات على employee...`);
-  Object.assign(employee, updateData);
-
-  this.logger.log(` حفظ بيانات الموظف في قاعدة البيانات...`);
-  let savedEmployee = await this.employeeRepo.save(employee);
-  this.logger.log(` تم تحديث البيانات الأساسية للموظف: ${savedEmployee.id}`);
-
-  let backgroundImageUrl: string | null = null;
-  if (files && files.length > 0) {
-    this.logger.log(` معالجة ${files.length} ملف مرفوع`);
-    backgroundImageUrl = await this.handleEmployeeFiles(savedEmployee, files);
-    this.logger.log(` تم رفع صورة الخلفية: ${backgroundImageUrl}`);
-    
-    const refreshedEmployee = await this.employeeRepo.findOne({
-      where: { id: savedEmployee.id }
-    });
-    
-    if (refreshedEmployee) {
-      savedEmployee = refreshedEmployee;
-    }
-  }
-
-  this.logger.log(`📸 صورة البروفايل بعد المعالجة: ${savedEmployee?.profileImageUrl}`);
-
-  if (!savedEmployee.profileImageUrl) {
-    this.logger.log(`🖼️ تعيين صورة الملف الشخصي الافتراضية`);
-    savedEmployee.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
-    savedEmployee = await this.employeeRepo.save(savedEmployee);
-  }
-
-  const designFields: (keyof UpdateEmployeeDto)[] = [
-    'name', 'jobTitle', 'designId', 'qrStyle',
-    'fontColorHead', 'fontColorHead2', 'fontColorParagraph', 'fontColorExtra',
-    'sectionBackground', 'Background', 'sectionBackground2', 'dropShadow',
-    'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread', 'cardRadius', 'cardStyleSection'
-  ];
-
-  const hasDesignChanges = designFields.some(field => dto[field] !== undefined);
-  const hasFiles = files && files.length > 0;
-  const isCardUpdated = hasDesignChanges || hasFiles;
-
-  if (isCardUpdated) {
-  this.logger.log(`🎴 إنشاء/تحديث بطاقة للموظف: ${savedEmployee.id}`);
-  
-  try {
-    this.logger.log(`🔄 جاري إنشاء البطاقة...`);
-    
-    // الحصول على البطاقة الحالية أولاً
-    const currentCard = await this.cardRepo.findOne({
-      where: { employeeId: savedEmployee.id }
-    });
-    
-    // إنشاء كائن الخيارات
-    const cardOptions: any = {
-      fontColorHead: dto.fontColorHead,
-      fontColorHead2: dto.fontColorHead2,
-      fontColorParagraph: dto.fontColorParagraph,
-      fontColorExtra: dto.fontColorExtra,
-      sectionBackground: dto.sectionBackground,
-      Background: dto.Background,
-      sectionBackground2: dto.sectionBackground2,
-      dropShadow: dto.dropShadow,
-      shadowX: dto.shadowX,
-      shadowY: dto.shadowY,
-      shadowBlur: dto.shadowBlur,
-      shadowSpread: dto.shadowSpread,
-      cardRadius: dto.cardRadius,
-      cardStyleSection: dto.cardStyleSection ?? savedEmployee.cardStyleSection,
-    };
-
-    // إضافة backgroundImage فقط إذا كانت ليست null أو إذا كانت هناك صورة جديدة
-    if (backgroundImageUrl !== null) {
-      cardOptions.backgroundImage = backgroundImageUrl;
-    } else if (currentCard?.backgroundImage) {
-      // الحفاظ على backgroundImage الحالية إذا لم يتم رفع صورة جديدة
-      cardOptions.backgroundImage = currentCard.backgroundImage;
+  async update(
+    id: number, 
+    dto: UpdateEmployeeDto, 
+    companyId: string, 
+    files?: Express.Multer.File[]
+  ) {
+    if (dto.images !== undefined) {
+      await this.handleImagesUpdate(id, dto.images);
     }
 
-    const { cardUrl, qrCode, designId } = await this.cardService.generateCard(
-      savedEmployee,
-      dto.designId || savedEmployee.designId,
-      dto.qrStyle ?? savedEmployee.qrStyle,
-      cardOptions
-    );
+    const employee = await this.employeeRepo.findOne({
+      where: { id, company: { id: companyId } },
+      relations: ['company', 'cards', 'images']
+    });
 
-    const employeeUpdateData: Partial<Employee> = {
-      cardUrl,
-      designId,
-      qrCode,
-      shadowX: dto.shadowX,
-      shadowY: dto.shadowY,
-      shadowBlur: dto.shadowBlur,
-      shadowSpread: dto.shadowSpread,
-      cardRadius: dto.cardRadius,
-      cardStyleSection: dto.cardStyleSection,
-    };
-    
-    this.logger.log(`💾 تحديث بيانات الموظف في الـ database...`);
-    await this.employeeRepo.update(savedEmployee.id, employeeUpdateData);
-    
-    await this.updateCardDesign(savedEmployee.id, dto);
+    if (!employee) {
+      throw new NotFoundException('الموظف غير موجود');
+    }
+    await this.ensureEmployeeCardExists(employee.id);
+    const { images, backgroundImage, ...updateData } = dto;
+    Object.assign(employee, updateData);
+    let savedEmployee = await this.employeeRepo.save(employee);
+    let backgroundImageUrl: string | null = null;
+    let updatedFileFields: string[] = [];
+      if (files && files.length > 0) {
+        const result = await this.handleEmployeeFiles(savedEmployee, files);
+        backgroundImageUrl = result.backgroundImageUrl;
+        updatedFileFields = result.updatedFields;
+      }
 
-  } catch (cardError: unknown) {
-    const errorMessage = cardError instanceof Error ? cardError.message : 'Unknown error';
-    this.logger.error(`❌ فشل إنشاء/تحديث البطاقة: ${errorMessage}`);
+      if (!savedEmployee.profileImageUrl) {
+        savedEmployee.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
+        savedEmployee = await this.employeeRepo.save(savedEmployee);
+      }
+      const designFields: (keyof UpdateEmployeeDto)[] = [
+        'name', 'jobTitle', 'designId', 'qrStyle',
+        'fontColorHead', 'fontColorHead2', 'fontColorParagraph', 'fontColorExtra',
+        'sectionBackground', 'Background', 'sectionBackground2', 'dropShadow',
+        'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread', 'cardRadius', 'cardStyleSection'
+      ];
+
+      const hasDesignChanges = designFields.some(field => dto[field] !== undefined);
+      const hasBackgroundImageUpdate = updatedFileFields.includes('backgroundImage');
+      const hasBackgroundImageInDto = backgroundImage !== undefined;
+      const hasFiles = Boolean(files && files.length > 0);
+      const isCardUpdated = hasDesignChanges || hasBackgroundImageUpdate || hasBackgroundImageInDto || hasFiles;
+
+      if (isCardUpdated) {
+        try {
+          const currentCard = await this.cardRepo.findOne({ 
+            where: { employeeId: savedEmployee.id } 
+          });
+          let finalBackgroundImage: string | null;
+          if (hasBackgroundImageUpdate) {
+            finalBackgroundImage = backgroundImageUrl;
+          } else if (hasBackgroundImageInDto) {
+            finalBackgroundImage = backgroundImage;
+          } else if (currentCard?.backgroundImage) {
+            finalBackgroundImage = currentCard.backgroundImage;
+          } else {
+            finalBackgroundImage = null;
+          }
+
+          const { cardUrl, qrCode, designId } = await this.cardService.generateCard(
+            savedEmployee,
+            dto.designId || savedEmployee.designId,
+            dto.qrStyle ?? savedEmployee.qrStyle,
+            {
+              fontColorHead: dto.fontColorHead,
+              fontColorHead2: dto.fontColorHead2,
+              fontColorParagraph: dto.fontColorParagraph,
+              fontColorExtra: dto.fontColorExtra,
+              sectionBackground: dto.sectionBackground,
+              Background: dto.Background,
+              sectionBackground2: dto.sectionBackground2,
+              dropShadow: dto.dropShadow,
+              shadowX: dto.shadowX,
+              shadowY: dto.shadowY,
+              shadowBlur: dto.shadowBlur,
+              shadowSpread: dto.shadowSpread,
+              cardRadius: dto.cardRadius,
+              cardStyleSection: dto.cardStyleSection ?? savedEmployee.cardStyleSection,
+              backgroundImage: finalBackgroundImage,
+            }
+          );
+          const employeeUpdateData: Partial<Employee> = {};
+
+          if (cardUrl) employeeUpdateData.cardUrl = cardUrl;
+          if (designId) employeeUpdateData.designId = designId;
+          if (qrCode) employeeUpdateData.qrCode = qrCode;
+          if (dto.shadowX !== undefined) employeeUpdateData.shadowX = dto.shadowX;
+          if (dto.shadowY !== undefined) employeeUpdateData.shadowY = dto.shadowY;
+          if (dto.shadowBlur !== undefined) employeeUpdateData.shadowBlur = dto.shadowBlur;
+          if (dto.shadowSpread !== undefined) employeeUpdateData.shadowSpread = dto.shadowSpread;
+          if (dto.cardRadius !== undefined) employeeUpdateData.cardRadius = dto.cardRadius;
+          if (dto.cardStyleSection !== undefined) employeeUpdateData.cardStyleSection = dto.cardStyleSection;
+      
+          if (Object.keys(employeeUpdateData).length > 0) {
+            await this.employeeRepo.update(savedEmployee.id, employeeUpdateData);
+          }
+          await this.updateCardDesign(savedEmployee.id, dto);
+        } catch (cardError: unknown) {
+          const errorMessage = cardError instanceof Error ? cardError.message : 'Unknown error';
+          this.logger.error(` فشل إنشاء/تحديث البطاقة: ${errorMessage}`);
+        }
+      } 
+
+      const finalEmployee = await this.employeeRepo.findOne({
+        where: { id: savedEmployee.id },
+        relations: ['company', 'cards', 'images']
+      });
+
+      if (!finalEmployee) {
+        throw new NotFoundException('فشل في جلب بيانات الموظف بعد التحديث');
+      }
+
+      return {
+        statusCode: HttpStatus.OK,
+        message: 'تم تحديث الموظف بنجاح',
+        data: finalEmployee,
+      };
   }
-} else {
-    this.logger.log(`⏭ لا توجد تغييرات في تصميم البطاقة للموظف: ${savedEmployee.id}`);
-  }
-
-  this.logger.log(`🔍 جلب البيانات النهائية للموظف...`);
-  const finalEmployee = await this.employeeRepo.findOne({
-    where: { id: savedEmployee.id },
-    relations: ['company', 'cards', 'images']
-  });
-
-  if (!finalEmployee) {
-    this.logger.error(`❌ فشل في جلب بيانات الموظف بعد التحديث: ${savedEmployee.id}`);
-    throw new NotFoundException('فشل في جلب بيانات الموظف بعد التحديث');
-  }
-
-  const finalImagesCheck = await this.imageRepo.find({ 
-    where: { employeeId: finalEmployee.id } 
-  });
-  this.logger.log(`📊 التحقق النهائي - عدد الصور في قاعدة البيانات: ${finalImagesCheck.length}`);
-
-  this.logger.log(`✅ تم الانتهاء من تحديث الموظف: ${finalEmployee.id}`);
-  this.logger.log(`🖼️ عدد الصور النهائي: ${finalEmployee.images?.length || 0}`);
-  this.logger.log(`🎴 رابط البطاقة: ${finalEmployee.cardUrl}`);
-
-  return {
-    statusCode: HttpStatus.OK,
-    message: 'تم تحديث الموظف بنجاح',
-    data: finalEmployee,
-  };
-}
 
   private async handleImagesUpdate(employeeId: number, images: any[]): Promise<void> {
     try {
-      this.logger.log(`🔄 معالجة الصور للموظف: ${employeeId}`);
-
       if (Array.isArray(images) && images.length === 0) {
-        this.logger.log(` حذف جميع الصور...`);
         await this.imageRepo.delete({ employeeId });
-        this.logger.log(` تم حذف جميع الصور`);
       } else if (Array.isArray(images) && images.length > 0) {
-        this.logger.log(` استبدال الصور بـ ${images.length} صورة جديدة...`);
-        
         await this.imageRepo.delete({ employeeId });
-        
         const validImages = images.filter(img => 
           img && img.imageUrl && typeof img.imageUrl === 'string'
         );
@@ -690,73 +629,45 @@ async update(
               employeeId: employeeId
             })
           );
-
           await this.imageRepo.save(imageEntities);
-          this.logger.log(` تم إضافة ${imageEntities.length} صورة جديدة`);
         }
       }
-
     } catch (error) {
-      this.logger.error(` فشل معالجة الصور: ${error}`);
+      this.logger.error(`فشل معالجة الصور: ${error}`);
       throw error;
     }
   }
 
-private async updateEmployeeImages(employeeId: number, images: any[]): Promise<void> {
-  try {
-    this.logger.log(` بدء تحديث الصور للموظف: ${employeeId}`);
-    this.logger.log(` الصور الجديدة المستلمة: ${images.length}`);
-
-    const validImages = images.filter((image): image is EmployeeImageType => 
-      image && 
+  private async updateEmployeeImages(employeeId: number, images: any[]): Promise<void> {
+    try {
+      const validImages = images.filter((image): image is EmployeeImageType => 
+        image && 
       typeof image === 'object' && 
       image.imageUrl && 
       typeof image.imageUrl === 'string'
     );
 
     if (validImages.length !== images.length) {
-      this.logger.warn(` بعض الصور غير صالحة، سيتم استخدام ${validImages.length} صورة صالحة فقط`);
+      this.logger.warn(`بعض الصور غير صالحة، سيتم استخدام ${validImages.length} صورة صالحة فقط`);
     }
-
     const oldImages = await this.imageRepo.find({ where: { employeeId } });
-    this.logger.log(` الصور القديمة التي سيتم حذفها: ${oldImages.length}`);
     
-    if (oldImages.length > 0) {
-      this.logger.log(` تفاصيل الصور القديمة:`);
-      oldImages.forEach((image, index) => {
-        this.logger.log(`    ${index + 1}. ${image.imageUrl} (${image.label}) - ID: ${image.id}`);
-      });
-    } else {
-      this.logger.log(`ℹ لا توجد صور قديمة`);
-    }
-
     await this.imageRepo.manager.transaction(async (transactionalEntityManager) => {
-      this.logger.log(` جاري حذف الصور القديمة...`);
-      const deleteResult = await transactionalEntityManager.delete(EmployeeImage, { employeeId });
-      this.logger.log(` تم حذف ${deleteResult.affected} صورة قديمة`);
-
-      this.logger.log(` جاري إنشاء الصور الجديدة...`);
+      await transactionalEntityManager.delete(EmployeeImage, { employeeId });
       const imageEntities = validImages.map((imageData, index) => {
-        this.logger.log(`   إنشاء صورة ${index + 1}: ${imageData.imageUrl} (${imageData.label || 'بدون تسمية'})`);
         return transactionalEntityManager.create(EmployeeImage, {
           imageUrl: imageData.imageUrl,
           label: imageData.label || 'image',
           publicId: imageData.publicId || `employee-${employeeId}-${Date.now()}-${index}`,
           employeeId: employeeId,
         });
-      });
-
-      this.logger.log(` جاري حفظ الصور الجديدة في قاعدة البيانات...`);
+      }); 
       await transactionalEntityManager.save(EmployeeImage, imageEntities);
-      this.logger.log(` تم حفظ ${imageEntities.length} صورة جديدة بنجاح`);
     });
-
-    this.logger.log(` اكتمل تحديث الصور للموظف: ${employeeId}`);
 
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(` فشل تحديث الصور: ${errorMessage}`);
-    this.logger.error(` Stack trace: ${error instanceof Error ? error.stack : 'No stack trace'}`);
+    this.logger.error(`فشل تحديث الصور: ${errorMessage}`);
     throw new Error('حدث خطأ أثناء تحديث الصور');
   }
 }
@@ -788,42 +699,38 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
   }
 }
 
-private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Promise<void> {
-  try {
-    const card = await this.cardRepo.findOne({
-      where: { employeeId }
-    });
+ private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Promise<void> {
+      try {
+        const card = await this.cardRepo.findOne({
+          where: { employeeId }
+        });
 
-    if (card) {
-      const updateData: Partial<EmployeeCard> = {};
-      const designFields = [
-        'designId', 'fontColorHead', 'fontColorHead2', 'fontColorParagraph',
-        'fontColorExtra', 'sectionBackground', 'Background', 'sectionBackground2',
-        'dropShadow', 'qrStyle', 'shadowX', 'shadowY', 'shadowBlur', 
-        'shadowSpread', 'cardRadius', 'cardStyleSection'
-      ];
+        if (card) {
+          const updateData: Partial<EmployeeCard> = {};
+          const designFields = [
+            'designId', 'fontColorHead', 'fontColorHead2', 'fontColorParagraph',
+            'fontColorExtra', 'sectionBackground', 'Background', 'sectionBackground2',
+            'dropShadow', 'qrStyle', 'shadowX', 'shadowY', 'shadowBlur', 
+            'shadowSpread', 'cardRadius', 'cardStyleSection'
+          ];
 
-      designFields.forEach(field => {
-        if (dto[field as keyof UpdateEmployeeDto] !== undefined) {
-          updateData[field as keyof EmployeeCard] = dto[field as keyof UpdateEmployeeDto] as any;
+          designFields.forEach(field => {
+            if (dto[field as keyof UpdateEmployeeDto] !== undefined) {
+              updateData[field as keyof EmployeeCard] = dto[field as keyof UpdateEmployeeDto] as any;
+            }
+          });
+
+          if (Object.keys(updateData).length > 0) {
+            await this.cardRepo.update(card.id, updateData);
+          }
         }
-      });
-
-      // لا تقم بتحديث backgroundImage هنا مطلقاً
-      // هذا سيحافظ على القيمة الحالية لـ backgroundImage
-
-      if (Object.keys(updateData).length > 0) {
-        await this.cardRepo.update(card.id, updateData);
-        this.logger.log(`✅ تم تحديث تصميم البطاقة: ${Object.keys(updateData).join(', ')}`);
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(`فشل تحديث تصميم البطاقة: ${errorMessage}`);
       }
-    }
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`❌ فشل تحديث تصميم البطاقة: ${errorMessage}`);
   }
-}
 
-  private async handleEmployeeFiles(employee: Employee, files: Express.Multer.File[]): Promise<string | null> {
+  private async handleEmployeeFiles(employee: Employee, files: Express.Multer.File[]): Promise<{ backgroundImageUrl: string | null; updatedFields: string[] }> {
   type ImageMapType = {
     [key: string]: keyof Employee | 'backgroundImage';
   };
@@ -853,18 +760,18 @@ private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Prom
   };
 
   const validFiles = files.filter(file => file && file.buffer instanceof Buffer);
-
+  
   if (validFiles.length === 0) {
-    this.logger.warn('⚠️ لا توجد ملفات صالحة للمعالجة');
-    return null;
+    return { backgroundImageUrl: null, updatedFields: [] };
   }
 
   let backgroundImageUrl: string | null = null;
+  const updatedFields: string[] = [];
 
   for (const file of validFiles) {
     try {
       if (file.size > 3 * 1024 * 1024) {
-        this.logger.warn(`⚠️ الملف كبير جداً: ${file.originalname}`);
+        this.logger.warn(`الملف كبير جداً: ${file.originalname}`);
         continue;
       }
 
@@ -876,40 +783,31 @@ private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Prom
         result = await this.handleImageUpload(file, employee.company.id);
       }
 
-      // إضافة تحقق إضافي للتأكد من وجود الحقل في imageMap
       const field = imageMap[file.fieldname]; 
       
       if (field) {
-        this.logger.log(`🖼️ معالجة الحقل: ${file.fieldname} -> ${field}`);
-        
         if (field === 'backgroundImage') {
           backgroundImageUrl = result.secure_url;
           await this.handleBackgroundImage(employee.id, backgroundImageUrl);
-          this.logger.log(`✅ تم تحديث صورة الخلفية: ${backgroundImageUrl}`);
+          updatedFields.push('backgroundImage');
         } else if (this.isValidEmployeeField(field)) {
-          // تحديث الحقل مباشرة في Employee
           await this.employeeRepo.update(employee.id, { [field]: result.secure_url });
-          this.logger.log(`✅ تم تحديث ${field}: ${result.secure_url}`);
-          
-          // إذا كان هذا profileImageUrl، تأكد من تحديث الكائن المحلي أيضاً
-          if (field === 'profileImageUrl') {
-            employee.profileImageUrl = result.secure_url;
-          }
+          updatedFields.push(field);
         }
       } else if (file.fieldname.startsWith('employee_images')) {
         await this.saveEmployeeImage(employee.id, result.secure_url, result.public_id, file.originalname);
-        this.logger.log(`✅ تم حفظ صورة الموظف: ${result.secure_url}`);
+        updatedFields.push('employee_images');
       } else {
-        this.logger.warn(`⚠️ حقل غير معروف: ${file.fieldname}`);
+        this.logger.warn(`حقل غير معروف: ${file.fieldname}`);
       }
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`❌ فشل معالجة الملف ${file.originalname}: ${errorMessage}`);
+      this.logger.error(`فشل معالجة الملف ${file.originalname}: ${errorMessage}`);
     }
   }
 
-  return backgroundImageUrl;
+  return { backgroundImageUrl, updatedFields };
 }
 
   private async handleBackgroundImage(employeeId: number, imageUrl: string): Promise<void> {
@@ -923,45 +821,39 @@ private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Prom
     }
   }
 
- private async saveEmployeeImage(
-  employeeId: number, 
-  imageUrl: string, 
-  publicId: string, 
-  originalName: string
-): Promise<void> {
-  try {
-    const label = originalName.split('.')[0];
-    const imageEntity = this.imageRepo.create({
-      imageUrl,
-      publicId,
-      label,
-      employeeId,
-    });
+  private async saveEmployeeImage(
+    employeeId: number, 
+    imageUrl: string, 
+    publicId: string, 
+    originalName: string
+  ): Promise<void> {
+    try {
+      const label = originalName.split('.')[0];
+      const imageEntity = this.imageRepo.create({
+        imageUrl,
+        publicId,
+        label,
+        employeeId,
+      });
 
-    await this.imageRepo.save(imageEntity);
-    this.logger.log(`✅ تم حفظ صورة الموظف: ${imageUrl} للعامل ${employeeId}`);
+      await this.imageRepo.save(imageEntity);
     
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`❌ فشل حفظ الصورة في الجدول المنفصل: ${errorMessage}`);
-    throw error;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل حفظ الصورة في الجدول المنفصل: ${errorMessage}`);
+    }
   }
-}
 
- private isValidEmployeeField(field: string): field is keyof Employee {
-  const validFields: (keyof Employee)[] = [
-    'profileImageUrl', 'secondaryImageUrl', 'logoUrl', 'contactFormHeaderImageUrl',
-    'testimonialImageUrl', 'pdfThumbnailUrl', 'pdfFileUrl', 'workLinkImageUrl',
-    'workLinkkImageUrl', 'workLinkkkImageUrl', 'workLinkkkkImageUrl', 'workLinkkkkkImageUrl',
-    'facebookImageUrl', 'instagramImageUrl', 'tiktokImageUrl', 'snapchatImageUrl',
-    'xImageUrl', 'linkedinImageUrl', 'customImageUrl', 'workingHoursImageUrl'
-  ];
-  
-  const isValid = validFields.includes(field as keyof Employee);
-  this.logger.log(`🔍 التحقق من الحقل ${field}: ${isValid ? 'صالح' : 'غير صالح'}`);
-  
-  return isValid;
-}
+  private isValidEmployeeField(field: string): field is keyof Employee {
+    const validFields: (keyof Employee)[] = [
+      'profileImageUrl', 'secondaryImageUrl', 'logoUrl' ,'contactFormHeaderImageUrl',
+      'testimonialImageUrl', 'pdfThumbnailUrl', 'pdfFileUrl', 'workLinkImageUrl',
+      'workLinkkImageUrl', 'workLinkkkImageUrl', 'workLinkkkkImageUrl', 'workLinkkkkkImageUrl',
+      'facebookImageUrl', 'instagramImageUrl', 'tiktokImageUrl', 'snapchatImageUrl',
+      'xImageUrl', 'linkedinImageUrl', 'customImageUrl', 'workingHoursImageUrl'
+    ];
+    return validFields.includes(field as keyof Employee);
+  }
 
   private async handlePdfUpload(
     file: Express.Multer.File, 
@@ -1050,7 +942,7 @@ private async updateCardDesign(employeeId: number, dto: UpdateEmployeeDto): Prom
     };
   }
 
-async findByUniqueUrl(uniqueUrl: string, source = 'link', req?: Request) {
+ async findByUniqueUrl(uniqueUrl: string, source = 'link', req?: Request) {
   const card = await this.cardRepo.findOne({
     where: { uniqueUrl },
     relations: ['employee', 'employee.company', 'employee.images', 'employee.cards'],
@@ -1072,9 +964,7 @@ async findByUniqueUrl(uniqueUrl: string, source = 'link', req?: Request) {
     const now = new Date();
     const endDate = new Date(subscription.endDate);
     
-    // إصلاح مشكلة المقارنة مع Enum
-    const subscriptionStatus = subscription.status as string;
-    if (subscriptionStatus !== 'active' || endDate < now) {
+    if (subscription.status !== 'active' || endDate < now) {
       throw new NotFoundException('البطاقة غير موجودة');
     }
 

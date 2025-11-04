@@ -44,7 +44,6 @@ export class CloudinaryService {
             return reject(new Error(reason));
           }
 
-          this.logger.log(` تم رفع الصورة: ${result.secure_url}`);
           resolve({
             secure_url: result.secure_url,
             public_id: result.public_id,
@@ -78,7 +77,6 @@ export class CloudinaryService {
             return reject(new Error(reason));
           }
 
-          this.logger.log(`✅ تم رفع الصورة من buffer: ${result.secure_url}`);
           resolve({
             secure_url: result.secure_url,
             public_id: result.public_id,
@@ -102,7 +100,6 @@ export class CloudinaryService {
         resource_type: 'image',
       });
 
-      this.logger.log(` تم رفع الصورة من رابط: ${result.secure_url}`);
       return {
         secure_url: result.secure_url,
         public_id: result.public_id,
