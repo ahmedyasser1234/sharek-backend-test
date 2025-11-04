@@ -288,12 +288,12 @@ export class CreateEmployeeDto {
   @ApiPropertyOptional({})
   @IsOptional()
   @IsString()
-  instagramTitle?: string;
+  instgramTitle?: string;
 
   @ApiPropertyOptional({})
   @IsOptional()
   @IsString()
-  instagramSubtitle?: string;
+  instgramSubtitle?: string;
 
   @ApiPropertyOptional({ })
   @IsOptional()

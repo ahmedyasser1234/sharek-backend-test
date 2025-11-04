@@ -327,12 +327,12 @@ export class UpdateEmployeeDto {
   @ApiPropertyOptional({})
   @IsOptional()
   @IsString()
-  instagramTitle?: string;
+  instgramTitle?: string;
 
   @ApiPropertyOptional({})
   @IsOptional()
   @IsString()
-  instagramSubtitle?: string;
+  instgramSubtitle?: string;
 
   @ApiPropertyOptional({ })
   @IsOptional()
@@ -880,65 +880,46 @@ export class UpdateEmployeeDto {
   })
   @IsOptional()
   @Transform(({ value }) => {
-    console.log('🔄 Transform - القيمة المستلمة:', value);
-    console.log('🔄 Transform - نوع القيمة:', typeof value);
     
     if (value === null || value === undefined) {
-      console.log('🔄 Transform - قيمة فارغة، إرجاع undefined');
       return undefined;
     }
 
-    // إذا كانت مصفوفة فارغة - هذا مقبول (لحذف الصور)
     if (Array.isArray(value) && value.length === 0) {
-      console.log('🔄 Transform - مصفوفة فارغة [] - مقبولة لحذف الصور');
       return [];
     }
 
-    // حالة خاصة: إذا كانت مصفوفة تحتوي على كائنات فارغة [{}] - تعاملها كمصفوفة فارغة
     if (Array.isArray(value) && value.length > 0) {
-      console.log('🔄 Transform - فحص محتوى المصفوفة...');
       
-      // تحقق إذا كانت جميع العناصر فارغة أو غير صالحة
       if (areAllItemsEmpty(value)) {
-        console.log('🔄 Transform - جميع العناصر فارغة، معاملتها كمصفوفة فارغة []');
         return [];
       }
       
-      // إذا كانت تحتوي على عناصر صالحة، ترجع العناصر الصالحة فقط
       const validArray: EmployeeImageType[] = value.filter(isValidEmployeeImage);
       
-      console.log('🔄 Transform - الصور الصالحة:', validArray.length);
       
       if (validArray.length === 0) {
-        console.log('🔄 Transform - لا توجد عناصر صالحة، إرجاع undefined');
         return undefined;
       }
       
       return validArray;
     }
 
-    // إذا كانت string وتحاول تحويلها
     if (typeof value === 'string') {
       try {
-        console.log('🔄 Transform - جاري تحويل string إلى JSON');
         const parsed: unknown = JSON.parse(value);
-        console.log('🔄 Transform - نتيجة التحويل:', parsed);
         
-        // نفس المنطق السابق ينطبق هنا
         if (Array.isArray(parsed) && parsed.length === 0) {
-          console.log('🔄 Transform - تحويل إلى مصفوفة فارغة');
           return [];
         }
         
         if (Array.isArray(parsed) && parsed.length > 0) {
           if (areAllItemsEmpty(parsed)) {
-            console.log('🔄 Transform - جميع العناصر فارغة بعد التحويل، معاملتها كمصفوفة فارغة');
             return [];
           }
           
           const validArray: EmployeeImageType[] = parsed.filter(isValidEmployeeImage);
           
-          console.log('🔄 Transform - الصور الصالحة بعد التحويل:', validArray.length);
           
           if (validArray.length === 0) {
             return undefined;
@@ -947,11 +928,10 @@ export class UpdateEmployeeDto {
           return validArray;
         }
       } catch (error) {
-        console.log('🔄 Transform - فشل تحويل JSON:', error);
+        console.log(' Transform - فشل تحويل JSON:', error);
       }
     }
 
-    console.log('🔄 Transform - القيمة غير صالحة، إرجاع undefined');
     return undefined;
   })
   images?: EmployeeImageType[];
