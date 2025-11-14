@@ -24,14 +24,15 @@ import { VisitService } from '../visit/visit.service';
 import { CardService } from '../card/card.service';
 import { Request } from 'express';
 import * as ExcelJS from 'exceljs';
-import jwt from 'jsonwebtoken';
+import * as jwt from 'jsonwebtoken';
 import { createEmployeePass } from '../wallet/passkit.adapter';
 import { CloudinaryService } from '../common/services/cloudinary.service';
 import sharp from 'sharp';
 import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'crypto';
-
+import { SubscriptionStatus } from '../subscription/entities/company-subscription.entity'; 
+import { google } from 'googleapis';
 
 type VideoType = 'youtube' | 'vimeo';
 type ContactFormDisplayType = 'overlay' | 'inline';
@@ -48,6 +49,11 @@ type EmployeeImageType = {
   label?: string;
   publicId?: string;
 };
+
+interface FileUploadResult {
+  secure_url: string;
+  public_id: string;
+}
 
 @Injectable()
 export class EmployeeService {
@@ -82,18 +88,20 @@ export class EmployeeService {
     }
   }
 
-  async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
+ async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
     const company = await this.companyRepo.findOne({ where: { id: companyId } });
     if (!company) {
       this.logger.error(`الشركة غير موجودة: ${companyId}`);
       throw new NotFoundException('Company not found');
     }
+    
     const { canAdd, allowed, current, maxAllowed } = await this.subscriptionService.canAddEmployee(companyId);
 
     if (!canAdd) {
       this.logger.error(`الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
       throw new ForbiddenException(`الخطة لا تسمح بإضافة موظفين جدد - تم الوصول للحد الأقصى (${current}/${maxAllowed}) - يرجى ترقية الخطة`);
     }
+    
     const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
     if (allowedCount.remaining <= 0) {
       this.logger.error(`الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
@@ -212,11 +220,6 @@ export class EmployeeService {
     let backgroundImageUrl: string | null = null;
     let uploadedImagesCount = 0;
 
-    interface FileUploadResult {
-      secure_url: string;
-      public_id: string;
-    }
-
     const baseUploadsDir: string = path.join(process.cwd(), 'uploads');
     const companyPdfsDir: string = path.join(baseUploadsDir, companyId, 'pdfs');
 
@@ -234,7 +237,8 @@ export class EmployeeService {
               throw new BadRequestException('الملف أكبر من 3MB');
             }
 
-            let result: FileUploadResult;
+            // التصحيح هنا: استخدام التعريف المباشر بدلاً من FileUploadResult
+            let result: { secure_url: string; public_id: string };
 
             if (file.originalname.toLowerCase().endsWith('.pdf')) {
               const fileExtension: string = path.extname(file.originalname);
@@ -258,8 +262,12 @@ export class EmployeeService {
               const uploadResult = await this.cloudinaryService.uploadBuffer(
                 compressedBuffer,
                 `companies/${companyId}/employees`
-              ) as FileUploadResult;
-              result = uploadResult;
+              );
+              
+              result = {
+                secure_url: uploadResult.secure_url,
+                public_id: uploadResult.public_id
+              };
             }
 
             const fieldName = file.fieldname as keyof ImageMapType;
@@ -306,7 +314,7 @@ export class EmployeeService {
       await this.employeeRepo.update(saved.id, { profileImageUrl: saved.profileImageUrl });
     }
 
-    const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved, dto.designId, dto.qrStyle, {
+    const cardResult = await this.cardService.generateCard(saved, dto.designId, dto.qrStyle, {
       fontColorHead: dto.fontColorHead,
       fontColorHead2: dto.fontColorHead2,
       fontColorParagraph: dto.fontColorParagraph,
@@ -324,15 +332,17 @@ export class EmployeeService {
       backgroundImage: backgroundImageUrl,
     });
 
-    saved.cardUrl = cardUrl;
-    saved.designId = designId;
-    saved.qrCode = qrCode;
+    saved.cardUrl = cardResult.cardUrl;
+    saved.designId = cardResult.designId;
+    saved.qrCode = cardResult.qrCode;
+    
     saved = await this.employeeRepo.save(saved);
     this.logger.log(`تم إنشاء الموظف بنجاح: ${saved.name} (ID: ${saved.id})`);
+    
     return {
       statusCode: HttpStatus.CREATED,
       message: 'تم إنشاء الموظف بنجاح',
-      data: { ...saved, qrCode },
+      data: { ...saved, qrCode: cardResult.qrCode },
     };
   }
 
@@ -390,7 +400,8 @@ export class EmployeeService {
     };
   }
 
-  async generateGoogleWalletLink(employeeId: number): Promise<{ url: string }> {
+async generateGoogleWalletLink(employeeId: number): Promise<{ url: string; saveLink: string }> {
+  try {
     const employee = await this.employeeRepo.findOne({
       where: { id: employeeId },
       relations: ['company'],
@@ -400,56 +411,154 @@ export class EmployeeService {
       throw new NotFoundException('الموظف غير موجود');
     }
 
-    const jwtPayload = {
-      iss: process.env.GOOGLE_ISSUER_ID,
-      aud: 'google',
-      typ: 'savetowallet',
-      payload: {
-        name: employee.name,
-        jobTitle: employee.jobTitle,
-        qrCode: employee.qrCode,
+    if (
+      !process.env.GOOGLE_ISSUER_ID ||
+      !process.env.GOOGLE_PRIVATE_KEY ||
+      !process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
+    ) {
+      throw new Error('إعدادات Google Wallet غير مكتملة');
+    }
+
+    const privateKey = process.env.GOOGLE_PRIVATE_KEY.includes('\\n')
+      ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n').trim()
+      : process.env.GOOGLE_PRIVATE_KEY.trim();
+
+    const genericObject = {
+      id: `${process.env.GOOGLE_ISSUER_ID}.${employeeId}.${Date.now()}`,
+      classId: `${process.env.GOOGLE_ISSUER_ID}.generic_card`,
+      state: 'active',
+      heroImage: {
+        sourceUri: {
+          uri: employee.cardUrl || 'https://sharke1.netlify.app/default-card.png',
+        },
+        contentDescription: {
+          defaultValue: {
+            value: 'بطاقة عمل رقمية',
+          },
+        },
+      },
+      textModulesData: [
+        {
+          header: 'الاسم',
+          body: employee.name || 'موظف',
+        },
+        {
+          header: 'المسمى الوظيفي',
+          body: employee.jobTitle || 'موظف',
+        },
+        {
+          header: 'البريد الإلكتروني',
+          body: employee.email || '',
+        },
+        {
+          header: 'رقم الهاتف',
+          body: employee.phone || '',
+        },
+      ],
+      linksModuleData: {
+        uris: [
+          {
+            uri: 'https://sharke1.netlify.app',
+            description: 'عرض البطاقة',
+          },
+        ],
       },
     };
 
-    const token = jwt.sign(jwtPayload, process.env.GOOGLE_PRIVATE_KEY!, {
+    const jwtPayload = {
+      iss: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      aud: 'google',
+      typ: 'savetowallet',
+      origins: ['https://sharke1.netlify.app'],
+      payload: {
+        genericObjects: [genericObject],
+      },
+    };
+
+    const token = jwt.sign(jwtPayload, privateKey, {
       algorithm: 'RS256',
     });
-    const url = `https://pay.google.com/gp/v/save/${token}`;
-    employee.googleWalletUrl = url;
+
+    const saveLink = `https://pay.google.com/gp/v/save/${token}`;
+
+    employee.googleWalletUrl = saveLink;
     await this.employeeRepo.save(employee);
-    return { url };
+
+    this.logger.log('🔗 تم إنشاء رابط Google Wallet');
+
+    return {
+      url: `${process.env.API_BASE_URL}/employee/${employeeId}/google-wallet/redirect`,
+      saveLink: saveLink,
+    };
+  } catch (error) {
+    this.logger.error(`فشل إنشاء رابط Google Wallet: ${error.message}`);
+    throw new Error(`فشل إنشاء رابط Google Wallet: ${error.message}`);
+  }
+}
+
+  async generateAppleWalletPass(employeeId: number): Promise<{ buffer: Buffer; fileName: string }> {
+    const employee = await this.employeeRepo.findOne({
+      where: { id: employeeId },
+      relations: ['company'],
+    });
+
+    if (!employee) {
+      throw new NotFoundException('الموظف غير موجود');
+    }
+
+    const stream = await createEmployeePass({
+      employeeId: employee.id,
+      employeeName: employee.name,
+      companyName: employee.company?.name || 'شركة',
+      jobTitle: employee.jobTitle || 'موظف',
+      email: employee.email,
+      phone: employee.phone,
+      qrCode: employee.qrCode,
+      cardUrl: employee.cardUrl,
+    });
+
+    if (!stream || typeof stream.on !== 'function') {
+      throw new Error('فشل في إنشاء بطاقة Apple Wallet');
+    }
+
+    const buffer = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Uint8Array[] = [];
+      stream.on('data', (chunk: Uint8Array) => chunks.push(chunk));
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('error', reject);
+    });
+
+    const fileName = `business_card_${employee.id}.pkpass`;
+    
+    employee.appleWalletUrl = `${process.env.API_BASE_URL}/employees/${employeeId}/apple-wallet`;
+    await this.employeeRepo.save(employee);
+
+    return { buffer, fileName };
   }
 
-  async generateAppleWalletPass(employeeId: number): Promise<Buffer> {
-      const employee = await this.employeeRepo.findOne({
-        where: { id: employeeId },
-        relations: ['company'],
-      });
+  async getEmployeeForWallet(employeeId: number) {
+    const employee = await this.employeeRepo.findOne({
+      where: { id: employeeId },
+      relations: ['company'],
+      select: ['id', 'name', 'jobTitle', 'email', 'phone', 'qrCode', 'cardUrl', 'company']
+    });
 
-      if (!employee) {
-        throw new NotFoundException('الموظف غير موجود');
-      }
+    if (!employee) {
+      throw new NotFoundException('الموظف غير موجود');
+    }
 
-      const stream = await createEmployeePass({
-        employeeId: employee.id,
-        employeeName: employee.name,
-        companyName: employee.company.name,
-        qrCode: employee.qrCode,
-        cardUrl: employee.cardUrl,
-      });
-
-      const buffer = await new Promise<Buffer>((resolve, reject) => {
-        const chunks: Uint8Array[] = [];
-        stream.on('data', (chunk: Uint8Array) => chunks.push(chunk));
-        stream.on('end', () => resolve(Buffer.concat(chunks)));
-        stream.on('error', reject);
-      });
-
-      const url = `${process.env.API_BASE_URL}/employees/${employeeId}/apple-wallet`;
-      employee.appleWalletUrl = url;
-      await this.employeeRepo.save(employee);
-
-      return buffer;
+    return {
+      id: employee.id,
+      name: employee.name,
+      jobTitle: employee.jobTitle,
+      email: employee.email,
+      phone: employee.phone,
+      company: employee.company?.name,
+      qrCode: employee.qrCode,
+      cardUrl: employee.cardUrl,
+      googleWalletUrl: employee.googleWalletUrl,
+      appleWalletUrl: employee.appleWalletUrl,
+    };
   }
  
   private async ensureEmployeeCardExists(employeeId: number): Promise<EmployeeCard> {
@@ -505,109 +614,116 @@ export class EmployeeService {
     if (!employee) {
       throw new NotFoundException('الموظف غير موجود');
     }
+  
     await this.ensureEmployeeCardExists(employee.id);
     const { images, backgroundImage, ...updateData } = dto;
     Object.assign(employee, updateData);
     let savedEmployee = await this.employeeRepo.save(employee);
+  
     let backgroundImageUrl: string | null = null;
     let updatedFileFields: string[] = [];
-      if (files && files.length > 0) {
-        const result = await this.handleEmployeeFiles(savedEmployee, files);
-        backgroundImageUrl = result.backgroundImageUrl;
-        updatedFileFields = result.updatedFields;
-      }
+  
+    if (files && files.length > 0) {
+      const result = await this.handleEmployeeFiles(savedEmployee, files);
+      backgroundImageUrl = result.backgroundImageUrl;
+      updatedFileFields = result.updatedFields;
+    }
 
-      if (!savedEmployee.profileImageUrl) {
-        savedEmployee.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
-        savedEmployee = await this.employeeRepo.save(savedEmployee);
-      }
-      const designFields: (keyof UpdateEmployeeDto)[] = [
-        'name', 'jobTitle', 'designId', 'qrStyle',
-        'fontColorHead', 'fontColorHead2', 'fontColorParagraph', 'fontColorExtra',
-        'sectionBackground', 'Background', 'sectionBackground2', 'dropShadow',
-        'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread', 'cardRadius', 'cardStyleSection'
-      ];
+    if (!savedEmployee.profileImageUrl) {
+      savedEmployee.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
+      savedEmployee = await this.employeeRepo.save(savedEmployee);
+    }
+  
+    const designFields: (keyof UpdateEmployeeDto)[] = [
+      'name', 'jobTitle', 'designId', 'qrStyle',
+      'fontColorHead', 'fontColorHead2', 'fontColorParagraph', 'fontColorExtra',    
+      'sectionBackground', 'Background', 'sectionBackground2', 'dropShadow',
+      'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread', 'cardRadius', 'cardStyleSection'
+    ];
 
-      const hasDesignChanges = designFields.some(field => dto[field] !== undefined);
-      const hasBackgroundImageUpdate = updatedFileFields.includes('backgroundImage');
-      const hasBackgroundImageInDto = backgroundImage !== undefined;
-      const hasFiles = Boolean(files && files.length > 0);
-      const isCardUpdated = hasDesignChanges || hasBackgroundImageUpdate || hasBackgroundImageInDto || hasFiles;
+    const hasDesignChanges = designFields.some(field => dto[field] !== undefined);
+    const hasBackgroundImageUpdate = updatedFileFields.includes('backgroundImage');
+    const hasBackgroundImageInDto = backgroundImage !== undefined;
+    const hasFiles = Boolean(files && files.length > 0);
+    const isCardUpdated = hasDesignChanges || hasBackgroundImageUpdate || hasBackgroundImageInDto || hasFiles;
 
-      if (isCardUpdated) {
-        try {
-          const currentCard = await this.cardRepo.findOne({ 
-            where: { employeeId: savedEmployee.id } 
-          });
-          let finalBackgroundImage: string | null;
-          if (hasBackgroundImageUpdate) {
-            finalBackgroundImage = backgroundImageUrl;
-          } else if (hasBackgroundImageInDto) {
-            finalBackgroundImage = backgroundImage;
-          } else if (currentCard?.backgroundImage) {
-            finalBackgroundImage = currentCard.backgroundImage;
-          } else {
-            finalBackgroundImage = null;
-          }
-
-          const { cardUrl, qrCode, designId } = await this.cardService.generateCard(
-            savedEmployee,
-            dto.designId || savedEmployee.designId,
-            dto.qrStyle ?? savedEmployee.qrStyle,
-            {
-              fontColorHead: dto.fontColorHead,
-              fontColorHead2: dto.fontColorHead2,
-              fontColorParagraph: dto.fontColorParagraph,
-              fontColorExtra: dto.fontColorExtra,
-              sectionBackground: dto.sectionBackground,
-              Background: dto.Background,
-              sectionBackground2: dto.sectionBackground2,
-              dropShadow: dto.dropShadow,
-              shadowX: dto.shadowX,
-              shadowY: dto.shadowY,
-              shadowBlur: dto.shadowBlur,
-              shadowSpread: dto.shadowSpread,
-              cardRadius: dto.cardRadius,
-              cardStyleSection: dto.cardStyleSection ?? savedEmployee.cardStyleSection,
-              backgroundImage: finalBackgroundImage,
-            }
-          );
-          const employeeUpdateData: Partial<Employee> = {};
-
-          if (cardUrl) employeeUpdateData.cardUrl = cardUrl;
-          if (designId) employeeUpdateData.designId = designId;
-          if (qrCode) employeeUpdateData.qrCode = qrCode;
-          if (dto.shadowX !== undefined) employeeUpdateData.shadowX = dto.shadowX;
-          if (dto.shadowY !== undefined) employeeUpdateData.shadowY = dto.shadowY;
-          if (dto.shadowBlur !== undefined) employeeUpdateData.shadowBlur = dto.shadowBlur;
-          if (dto.shadowSpread !== undefined) employeeUpdateData.shadowSpread = dto.shadowSpread;
-          if (dto.cardRadius !== undefined) employeeUpdateData.cardRadius = dto.cardRadius;
-          if (dto.cardStyleSection !== undefined) employeeUpdateData.cardStyleSection = dto.cardStyleSection;
+    if (isCardUpdated) {
+      try {
+        const currentCard = await this.cardRepo.findOne({ 
+          where: { employeeId: savedEmployee.id } 
+        });
       
-          if (Object.keys(employeeUpdateData).length > 0) {
-            await this.employeeRepo.update(savedEmployee.id, employeeUpdateData);
-          }
-          await this.updateCardDesign(savedEmployee.id, dto);
-        } catch (cardError: unknown) {
-          const errorMessage = cardError instanceof Error ? cardError.message : 'Unknown error';
-          this.logger.error(` فشل إنشاء/تحديث البطاقة: ${errorMessage}`);
+        let finalBackgroundImage: string | null;
+        if (hasBackgroundImageUpdate) {
+          finalBackgroundImage = backgroundImageUrl;
+        } else if (hasBackgroundImageInDto) {
+          finalBackgroundImage = backgroundImage;
+        } else if (currentCard?.backgroundImage) {
+          finalBackgroundImage = currentCard.backgroundImage;
+        } else {
+          finalBackgroundImage = null;
         }
-      } 
 
-      const finalEmployee = await this.employeeRepo.findOne({
-        where: { id: savedEmployee.id },
-        relations: ['company', 'cards', 'images']
-      });
+        const cardResult = await this.cardService.generateCard(
+          savedEmployee,
+          dto.designId || savedEmployee.designId,
+          dto.qrStyle ?? savedEmployee.qrStyle,
+          {
+            fontColorHead: dto.fontColorHead,
+            fontColorHead2: dto.fontColorHead2,
+            fontColorParagraph: dto.fontColorParagraph,
+            fontColorExtra: dto.fontColorExtra,
+            sectionBackground: dto.sectionBackground,
+            Background: dto.Background,
+            sectionBackground2: dto.sectionBackground2,
+            dropShadow: dto.dropShadow,
+            shadowX: dto.shadowX,
+            shadowY: dto.shadowY,
+            shadowBlur: dto.shadowBlur,
+            shadowSpread: dto.shadowSpread,
+            cardRadius: dto.cardRadius,
+            cardStyleSection: dto.cardStyleSection ?? savedEmployee.cardStyleSection,
+            backgroundImage: finalBackgroundImage,
+          }
+        );
+      
+        const employeeUpdateData: Partial<Employee> = {};
 
-      if (!finalEmployee) {
-        throw new NotFoundException('فشل في جلب بيانات الموظف بعد التحديث');
+        if (cardResult.cardUrl) employeeUpdateData.cardUrl = cardResult.cardUrl;
+        if (cardResult.designId) employeeUpdateData.designId = cardResult.designId;
+        if (cardResult.qrCode) employeeUpdateData.qrCode = cardResult.qrCode;
+        if (dto.shadowX !== undefined) employeeUpdateData.shadowX = dto.shadowX;
+        if (dto.shadowY !== undefined) employeeUpdateData.shadowY = dto.shadowY;      
+        if (dto.shadowBlur !== undefined) employeeUpdateData.shadowBlur = dto.shadowBlur;
+        if (dto.shadowSpread !== undefined) employeeUpdateData.shadowSpread = dto.shadowSpread;
+        if (dto.cardRadius !== undefined) employeeUpdateData.cardRadius = dto.cardRadius;
+        if (dto.cardStyleSection !== undefined) employeeUpdateData.cardStyleSection = dto.cardStyleSection;
+  
+        if (Object.keys(employeeUpdateData).length > 0) {
+          await this.employeeRepo.update(savedEmployee.id, employeeUpdateData);
+        }
+      
+        await this.updateCardDesign(savedEmployee.id, dto);
+      } catch (cardError: unknown) {
+        const errorMessage = cardError instanceof Error ? cardError.message : 'Unknown error';
+        this.logger.error(` فشل إنشاء/تحديث البطاقة: ${errorMessage}`);
       }
+    } 
 
-      return {
-        statusCode: HttpStatus.OK,
-        message: 'تم تحديث الموظف بنجاح',
-        data: finalEmployee,
-      };
+    const finalEmployee = await this.employeeRepo.findOne({
+      where: { id: savedEmployee.id },
+      relations: ['company', 'cards', 'images']
+    });
+
+    if (!finalEmployee) {
+      throw new NotFoundException('فشل في جلب بيانات الموظف بعد التحديث');
+    }
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم تحديث الموظف بنجاح',
+      data: finalEmployee,
+    };
   }
 
   private async handleImagesUpdate(employeeId: number, images: any[]): Promise<void> {
@@ -879,22 +995,25 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
     };
   }
 
-  private async handleImageUpload(
-    file: Express.Multer.File, 
-    companyId: string
-  ): Promise<{ secure_url: string; public_id: string }> {
-    const compressedBuffer = await sharp(file.buffer, { failOnError: false })
-    .resize({ width: 800 })
-    .webp({ quality: 70 })
-    .toBuffer();
+ private async handleImageUpload(
+  file: Express.Multer.File, 
+  companyId: string
+): Promise<{ secure_url: string; public_id: string }> {
+  const compressedBuffer = await sharp(file.buffer, { failOnError: false })
+  .resize({ width: 800 })
+  .webp({ quality: 70 })
+  .toBuffer();
 
-    const uploadResult = await this.cloudinaryService.uploadBuffer(
-      compressedBuffer,
-      `companies/${companyId}/employees`
-    ) as { secure_url: string; public_id: string };
+  const uploadResult = await this.cloudinaryService.uploadBuffer(
+    compressedBuffer,
+    `companies/${companyId}/employees`
+  );
 
-    return uploadResult;
-  }
+  return {
+    secure_url: uploadResult.secure_url,
+    public_id: uploadResult.public_id
+  };
+}
 
   private isCardDesignUpdated(dto: UpdateEmployeeDto, employee: Employee): boolean {
     const designFields: (keyof UpdateEmployeeDto)[] = [
@@ -942,67 +1061,78 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
     };
   }
 
- async findByUniqueUrl(uniqueUrl: string, source = 'link', req?: Request) {
-  const card = await this.cardRepo.findOne({
-    where: { uniqueUrl },
-    relations: ['employee', 'employee.company', 'employee.images', 'employee.cards'],
-  });
-
-  if (!card || !card.employee) {
-    throw new NotFoundException('البطاقة غير موجودة');
-  }
-
-  const { employee } = card;
-
-  try {
-    const subscription = await this.subscriptionService.getCompanySubscription(employee.company.id);
-    
-    if (!subscription) {
-      throw new NotFoundException('البطاقة غير موجودة');
-    }
-
-    const now = new Date();
-    const endDate = new Date(subscription.endDate);
-    
-    if (subscription.status !== 'active' || endDate < now) {
-      throw new NotFoundException('البطاقة غير موجودة');
-    }
-
-  } catch (error) {
-    if (error instanceof NotFoundException) {
-      throw error;
-    }
-    this.logger.error(`خطأ في التحقق من الاشتراك: ${error}`);
-    throw new NotFoundException('البطاقة غير موجودة');
-  }
-
-  if (req) {
-    await this.visitService.logVisit(employee, source, req);
-  } else {
-    await this.visitService.logVisitById({
-      employeeId: employee.id,
-      source,
-      ipAddress: 'unknown',
+  async findByUniqueUrl(uniqueUrl: string, source = 'link', req?: Request) {
+    const card = await this.cardRepo.findOne({
+      where: { uniqueUrl },
+      relations: ['employee', 'employee.company', 'employee.images', 'employee.cards'],
     });
+
+    if (!card || !card.employee) {
+      throw new NotFoundException('البطاقة غير موجودة');
+    }
+
+    const { employee } = card;
+
+    try {
+      const subscription = await this.subscriptionService.getCompanySubscription(employee.company.id);
+
+      if (!subscription) {
+        throw new NotFoundException('البطاقة غير موجودة');
+      }
+
+      const now = new Date();
+      const endDate = new Date(subscription.endDate);
+
+      if (subscription.status !== SubscriptionStatus.ACTIVE || endDate < now) {
+        throw new NotFoundException('البطاقة غير موجودة');
+      }
+
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(`خطأ في التحقق من الاشتراك: ${error}`);
+      throw new NotFoundException('البطاقة غير موجودة');
+    }
+
+    let visitSource = source;
+  
+    if (req && req.query && req.query.source) {
+      visitSource = req.query.source as string;
+    }
+
+    if (req) {
+      await this.visitService.logVisit(employee, visitSource, req);
+    } else {
+      await this.visitService.logVisitById({
+        employeeId: employee.id,
+        source: visitSource,
+        ipAddress: 'unknown',
+      });
+    }
+
+    let qrStyle = card.qrStyle;
+    if (!qrStyle) {
+      const { qrStyle: generatedQr } = await this.cardService.generateCard(employee, card.designId);
+      qrStyle = generatedQr;
+    }
+
+    const employeeWithQrCode = {
+      ...employee,
+      qrStyle,
+      cardInfo: {
+        uniqueUrl: card.uniqueUrl,
+        designId: card.designId,
+        backgroundImage: card.backgroundImage,
+      }
+    };
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم جلب بيانات البطاقة بنجاح',
+      data: employeeWithQrCode,
+    };
   }
-
-  let qrStyle = card.qrStyle;
-  if (!qrStyle) {
-    const { qrStyle: generatedQr } = await this.cardService.generateCard(employee, card.designId);
-    qrStyle = generatedQr;
-  }
-
-  const employeeWithQrCode = {
-    ...employee,
-    qrStyle,
-  };
-
-  return {
-    statusCode: HttpStatus.OK,
-    message: 'تم جلب بيانات البطاقة بنجاح',
-    data: employeeWithQrCode,
-  };
-}
 
   async getSecondaryImageUrl(uniqueUrl: string): Promise<{ secondaryImageUrl: string }> {
     const card = await this.cardRepo.findOne({
@@ -1111,12 +1241,12 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
     }
   }
 
-async importFromExcel(
-  filePath: string,
-  companyId: string
-): Promise<{ 
-  count: number; 
-  imported: Employee[]; 
+  async importFromExcel(
+    filePath: string,
+    companyId: string
+  ): Promise<{ 
+    count: number; 
+    imported: Employee[]; 
   skipped: string[]; 
   limitReached: boolean;
   summary: {

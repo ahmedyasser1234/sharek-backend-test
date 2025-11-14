@@ -1,0 +1,49 @@
+import { Injectable } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+
+interface ManagerPayload {
+  managerId: string;
+  role: string;
+  permissions: Record<string, boolean>;
+  iat?: number;
+  exp?: number;
+}
+
+@Injectable()
+export class ManagerJwtService {
+  constructor(private readonly jwtService: JwtService) {}
+
+  signAccess(payload: ManagerPayload): string {
+    return this.jwtService.sign(payload as object, {
+      secret: process.env.MANAGER_JWT_SECRET || 'manager-secret-key',
+      expiresIn: '1h',
+    });
+  }
+
+  signRefresh(payload: ManagerPayload): string {
+    return this.jwtService.sign(payload as object, {
+      secret: process.env.MANAGER_JWT_REFRESH_SECRET || 'manager-refresh-secret-key',
+      expiresIn: '7d',
+    });
+  }
+
+  verify(token: string): ManagerPayload | null {
+    try {
+      return this.jwtService.verify<ManagerPayload>(token, {
+        secret: process.env.MANAGER_JWT_SECRET || 'manager-secret-key',
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  verifyRefresh(token: string): ManagerPayload | null {
+    try {
+      return this.jwtService.verify<ManagerPayload>(token, {
+        secret: process.env.MANAGER_JWT_REFRESH_SECRET || 'manager-refresh-secret-key',
+      });
+    } catch {
+      return null;
+    }
+  }
+}

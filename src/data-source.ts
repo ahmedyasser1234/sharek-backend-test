@@ -14,14 +14,27 @@ import { PaymentTransaction } from './payment/entities/payment-transaction.entit
 import { Admin } from './admin/entities/admin.entity'; 
 import { PaymentProof } from './payment/entities/payment-proof.entity';
 import { AdminToken } from './admin/auth/entities/admin-token.entity';
+import { CompanyActivity } from './company/entities/company-activity.entity'; 
+import { Manager } from './admin/entities/manager.entity'; // إضافة Manager
+import { ManagerToken } from './admin/entities/manager-token.entity'; // إضافة ManagerToken
+
+const dbHost = process.env.DB_HOST;
+const dbPort = process.env.DB_PORT;
+const dbUsername = process.env.DB_USERNAME;
+const dbPassword = process.env.DB_PASSWORD;
+const dbName = process.env.DB_NAME;
+
+if (!dbHost || !dbPort || !dbUsername || !dbPassword || !dbName) {
+  throw new Error(' إعدادات قاعدة البيانات غير مكتملة في ملف .env');
+}
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
-  host: process.env.DB_HOST,
-  port: Number(process.env.DB_PORT),
-  username: process.env.DB_USERNAME,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
+  host: dbHost,
+  port: Number(dbPort),
+  username: dbUsername,
+  password: dbPassword,
+  database: dbName,
   entities: [
     Company,
     CompanyToken,
@@ -35,7 +48,10 @@ export const AppDataSource = new DataSource({
     PaymentTransaction,
     Admin,
     PaymentProof,
-    AdminToken
+    AdminToken,
+    CompanyActivity,
+    Manager, 
+    ManagerToken, 
   ],
   migrations: ['src/migrations/*.ts'],
   synchronize: true,
@@ -45,4 +61,5 @@ export const AppDataSource = new DataSource({
       rejectUnauthorized: false,
     },
   },
+  logging: true, 
 });

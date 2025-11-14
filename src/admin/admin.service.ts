@@ -1,3 +1,4 @@
+// src/admin/admin.service.ts
 import {
   Injectable,
   NotFoundException,
@@ -7,12 +8,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Admin } from './entities/admin.entity';
+import { Manager, ManagerRole } from './entities/manager.entity';
 import { Company } from '../company/entities/company.entity';
 import { Employee } from '../employee/entities/employee.entity';
 import { CompanySubscription, SubscriptionStatus } from '../subscription/entities/company-subscription.entity';
 import { Plan } from '../plan/entities/plan.entity';
 import * as bcrypt from 'bcryptjs';
-import { JwtService } from '@nestjs/jwt';
 import { AdminToken } from './auth/entities/admin-token.entity';
 import { AdminJwtService } from './auth/admin-jwt.service';
 
@@ -20,76 +21,166 @@ import { AdminJwtService } from './auth/admin-jwt.service';
 export class AdminService {
   constructor(
     @InjectRepository(Admin) private readonly adminRepo: Repository<Admin>,
+    @InjectRepository(Manager) private readonly managerRepo: Repository<Manager>,
     @InjectRepository(Company) private readonly companyRepo: Repository<Company>,
     @InjectRepository(Employee) private readonly employeeRepo: Repository<Employee>,
     @InjectRepository(CompanySubscription) private readonly subRepo: Repository<CompanySubscription>,
     @InjectRepository(Plan) private readonly planRepo: Repository<Plan>,
     @InjectRepository(AdminToken) private readonly tokenRepo: Repository<AdminToken>,
     private readonly adminJwt: AdminJwtService,
-    private readonly jwtService: JwtService,
-
   ) {}
 
   async ensureDefaultAdmin() {
-  const defaultEmail = 'admin@system.local';
-  const defaultPassword = 'admin123';
+    const defaultEmail = 'admin@system.local';
+    const defaultPassword = 'admin123';
 
-  const exists = await this.adminRepo.findOne({ where: { email: defaultEmail } });
-  if (exists) return;
+    const exists = await this.adminRepo.findOne({ where: { email: defaultEmail } });
+    if (exists) return;
 
-  const hashedPassword = await bcrypt.hash(defaultPassword, 10);
-  const admin = this.adminRepo.create({
-    email: defaultEmail,
-    password: hashedPassword,
-  });
+    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+    const admin = this.adminRepo.create({
+      email: defaultEmail,
+      password: hashedPassword,
+    });
 
-  await this.adminRepo.save(admin);
-  console.log(` تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
-}
-
-async login(email: string, password: string) {
-  const admin = await this.adminRepo.findOne({ where: { email } });
-  if (!admin || !(await bcrypt.compare(password, admin.password))) {
-    throw new UnauthorizedException('بيانات الدخول غير صحيحة');
+    await this.adminRepo.save(admin);
+    console.log(`تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
   }
 
-  const payload = { adminId: admin.id, role: 'admin' };
-  const accessToken = this.adminJwt.signAccess(payload);
-  const refreshToken = this.adminJwt.signRefresh(payload);
+  async login(email: string, password: string) {
+    const admin = await this.adminRepo.findOne({ where: { email, isActive: true } });
+    if (!admin || !(await bcrypt.compare(password, admin.password))) {
+      throw new UnauthorizedException('بيانات الدخول غير صحيحة');
+    }
 
-  await this.tokenRepo.save({ admin, refreshToken });
+    const payload = { adminId: admin.id, role: 'admin' };
+    const accessToken = this.adminJwt.signAccess(payload);
+    const refreshToken = this.adminJwt.signRefresh(payload);
 
-  return { accessToken, refreshToken };
-}
+    await this.tokenRepo.save({ admin, refreshToken });
 
-async refresh(refreshToken: string) {
-  const token = await this.tokenRepo.findOne({
-    where: { refreshToken },
-    relations: ['admin'],
-  });
-
-  if (!token) throw new UnauthorizedException('توكن غير صالح');
-
-  const payload = this.adminJwt.verify(refreshToken);
-  if (payload.adminId !== token.admin.id) {
-    throw new UnauthorizedException('توكن غير مطابق');
+    return { accessToken, refreshToken };
   }
 
-  const accessToken = this.adminJwt.signAccess(payload);
-  return { accessToken };
-}
-async logout(refreshToken: string) {
-  await this.tokenRepo.delete({ refreshToken });
-  return { success: true };
-}
+  async refresh(refreshToken: string) {
+    const token = await this.tokenRepo.findOne({
+      where: { refreshToken },
+      relations: ['admin'],
+    });
 
+    if (!token) throw new UnauthorizedException('توكن غير صالح');
+
+    const payload = this.adminJwt.verifyRefresh(refreshToken);
+    if (!payload || payload.adminId !== token.admin.id) {
+      throw new UnauthorizedException('توكن غير مطابق');
+    }
+
+    const accessToken = this.adminJwt.signAccess(payload);
+    return { accessToken };
+  }
+
+  async logout(refreshToken: string) {
+    await this.tokenRepo.delete({ refreshToken });
+    return { success: true };
+  }
 
   async createAdmin(dto: { email: string; password: string }) {
     const exists = await this.adminRepo.findOne({ where: { email: dto.email } });
     if (exists) throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
 
-    const admin = this.adminRepo.create(dto);
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const admin = this.adminRepo.create({
+      email: dto.email,
+      password: hashedPassword,
+    });
+
     return this.adminRepo.save(admin);
+  }
+
+  async createManager(adminId: string, dto: { email: string; password: string; role?: ManagerRole }) {
+    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+    if (!admin) throw new NotFoundException('الأدمن غير موجود');
+
+    const exists = await this.managerRepo.findOne({ where: { email: dto.email } });
+    if (exists) throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const manager = this.managerRepo.create({
+      email: dto.email,
+      password: hashedPassword,
+      role: dto.role || ManagerRole.MANAGER,
+      createdBy: admin,
+    });
+
+    const savedManager = await this.managerRepo.save(manager);
+    
+    const { password, ...result } = savedManager;
+    void password; 
+    return result;
+  }
+
+  async getAllManagers() {
+    const managers = await this.managerRepo.find({
+      relations: ['createdBy'],
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        createdBy: {
+          id: true,
+          email: true,
+        }
+      }
+    });
+
+    return managers.map(manager => ({
+      ...manager,
+      createdBy: manager.createdBy ? { id: manager.createdBy.id, email: manager.createdBy.email } : null
+    }));
+  }
+
+  async updateManager(id: string, dto: Partial<Manager>) {
+    const manager = await this.managerRepo.findOne({ where: { id } });
+    if (!manager) throw new NotFoundException('المدير غير موجود');
+
+    if (dto.email && dto.email !== manager.email) {
+      const emailExists = await this.managerRepo.findOne({ where: { email: dto.email } });
+      if (emailExists) throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
+    }
+
+    if (dto.password) {
+      dto.password = await bcrypt.hash(dto.password, 10);
+    }
+
+    Object.assign(manager, dto);
+    const updatedManager = await this.managerRepo.save(manager);
+    
+    const { password, ...result } = updatedManager;
+    void password; 
+    return result;
+  }
+
+  async toggleManagerStatus(id: string, isActive: boolean) {
+    const manager = await this.managerRepo.findOne({ where: { id } });
+    if (!manager) throw new NotFoundException('المدير غير موجود');
+
+    manager.isActive = isActive;
+    const updatedManager = await this.managerRepo.save(manager);
+    
+    const { password, ...result } = updatedManager;
+    void password; 
+    return result;
+  }
+
+  async deleteManager(id: string) {
+    const manager = await this.managerRepo.findOne({ where: { id } });
+    if (!manager) throw new NotFoundException('المدير غير موجود');
+
+    await this.managerRepo.delete(id);
+    return { message: 'تم حذف المدير بنجاح' };
   }
 
   async updateAdmin(id: string, dto: Partial<Admin>) {
@@ -149,6 +240,7 @@ async logout(refreshToken: string) {
   async getEmployeesByCompany(companyId: string) {
     return this.employeeRepo.find({ where: { company: { id: companyId } } });
   }
+
   async deleteEmployee(id: number) {
     await this.employeeRepo.delete(id);
   }
@@ -167,5 +259,37 @@ async logout(refreshToken: string) {
     if (!plan) throw new NotFoundException('الخطة غير موجودة');
     await this.subRepo.update(id, { plan });
     return this.subRepo.findOne({ where: { id } });
+  }
+
+  async downloadDatabase() {
+    const data = {
+      companies: await this.companyRepo.find(),
+      employees: await this.employeeRepo.find(),
+      subscriptions: await this.subRepo.find({ relations: ['company', 'plan'] }),
+      plans: await this.planRepo.find(),
+      admins: await this.adminRepo.find({ 
+        select: ['id', 'email', 'isActive', 'createdAt' as any] 
+      }),
+      managers: await this.managerRepo.find({ 
+        relations: ['createdBy'],
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          isActive: true,
+          createdAt: true,
+          createdBy: {
+            id: true,
+            email: true,
+          }
+        }
+      }),
+    };
+
+    return {
+      message: 'تم تحميل البيانات بنجاح',
+      data,
+      timestamp: new Date().toISOString(),
+    };
   }
 }

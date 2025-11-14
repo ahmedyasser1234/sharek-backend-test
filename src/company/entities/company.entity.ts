@@ -14,6 +14,7 @@ import { CompanyToken } from '../auth/entities/company-token.entity';
 import { CompanyLoginLog } from '../auth/entities/company-login-log.entity';
 import * as bcrypt from 'bcryptjs';
 import { ApiProperty } from '@nestjs/swagger';
+import { CompanyActivity } from './company-activity.entity';
 
 @Entity()
 export class Company {
@@ -108,6 +109,9 @@ export class Company {
 
   @OneToMany(() => CompanyLoginLog, (log) => log.company)
   loginLogs: CompanyLoginLog[];
+  
+  @OneToMany(() => CompanyActivity, (activity) => activity.company)
+  activities: CompanyActivity[];
 
   @BeforeInsert()
   @BeforeUpdate()

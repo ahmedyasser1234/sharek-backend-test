@@ -35,6 +35,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { SubscriptionService } from '../subscription/subscription.service'; 
+import { ActivityInterceptor } from './interceptors/activity.interceptor';
 
 interface CompanyRequest extends Request {
   user?: { companyId: string; role: string };
@@ -44,6 +45,7 @@ const Public = () => SetMetadata('isPublic', true);
 
 @ApiTags('Company')
 @Controller('company')
+@UseInterceptors(ActivityInterceptor) 
 export class CompanyController {
   private readonly logger = new Logger(CompanyController.name);
   
@@ -373,6 +375,42 @@ export class CompanyController {
     };
   }
 
+@UseGuards(CompanyJwtGuard)
+@ApiBearerAuth()
+@Post('session/renew')
+@ApiOperation({ summary: 'تجديد الجلسة يدوياً' })
+@ApiResponse({ 
+  status: HttpStatus.OK, 
+  description: 'تم تجديد الجلسة بنجاح',
+  schema: {
+    type: 'object',
+    properties: {
+      statusCode: { type: 'number', example: 200 },
+      message: { type: 'string', example: 'تم تجديد الجلسة بنجاح' },
+      data: {
+        type: 'object',
+        properties: {
+          renewedAt: { type: 'string', format: 'date-time' }
+        }
+      }
+    }
+  }
+})
+async renewSession(@Req() req: CompanyRequest) {
+  if (!req.user?.companyId)
+    throw new UnauthorizedException('Unauthorized access');
+
+  await this.companyService.recordUserActivity(req.user.companyId, 'manual-session-renew');
+  
+  return {
+    statusCode: HttpStatus.OK,
+    message: 'تم تجديد الجلسة بنجاح',
+    data: {
+      renewedAt: new Date()
+    }
+  };
+}
+
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
   @Get('profile')
@@ -491,7 +529,7 @@ export class CompanyController {
       cb(null, allowedTypes.includes(file.mimetype));
     },
     limits: {
-      fileSize: 5 * 1024 * 1024, // 5MB
+      fileSize: 5 * 1024 * 1024, 
     }
   }))
   @ApiConsumes('multipart/form-data')
@@ -537,4 +575,68 @@ export class CompanyController {
       message: 'تم حذف الشركة بنجاح'
     };
   }
+   @UseGuards(CompanyJwtGuard)
+  @ApiBearerAuth()
+  @Post('activity/ping')
+  @ApiOperation({ summary: 'تسجيل نشاط المستخدم لإبقاء الجلسة نشطة' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'تم تسجيل النشاط بنجاح',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'تم تسجيل النشاط بنجاح' }
+      }
+    }
+  })
+  async recordActivity(@Req() req: CompanyRequest) {
+    if (!req.user?.companyId)
+      throw new UnauthorizedException('Unauthorized access');
+
+    await this.companyService.recordUserActivity(req.user.companyId, 'ping');
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم تسجيل النشاط بنجاح'
+    };
+  }
+
+  @UseGuards(CompanyJwtGuard)
+  @ApiBearerAuth()
+  @Get('session/check')
+  @ApiOperation({ summary: 'التحقق من حالة الجلسة' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'حالة الجلسة',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'الجلسة نشطة' },
+        data: {
+          type: 'object',
+          properties: {
+            isActive: { type: 'boolean', example: true },
+            lastActivity: { type: 'string', format: 'date-time' }
+          }
+        }
+      }
+    }
+  })
+  async checkSession(@Req() req: CompanyRequest) {
+    if (!req.user?.companyId)
+      throw new UnauthorizedException('Unauthorized access');
+
+    const isActive = !await this.companyService.shouldLogoutDueToInactivity(req.user.companyId);
+    
+    return {
+      statusCode: HttpStatus.OK,
+      message: isActive ? 'الجلسة نشطة' : 'انتهت الجلسة بسبب عدم النشاط',
+      data: {
+        isActive,
+        lastActivity: new Date()
+      }
+    };
+  }
+
 }

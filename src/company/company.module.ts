@@ -10,9 +10,12 @@ import { Company } from './entities/company.entity';
 import { CompanyToken } from './auth/entities/company-token.entity';
 import { CompanyLoginLog } from './auth/entities/company-login-log.entity';
 import { RevokedToken } from './entities/revoked-token.entity';
+import { CompanyActivity } from './entities/company-activity.entity';
 import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard'; 
 import { CloudinaryModule } from '../common/services/cloudinary.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
+import { ActivityTrackerService } from './service/activity-tracker.service';
+import { CleanupService } from './service/cleanup.service';
 
 @Module({
   imports: [
@@ -21,7 +24,8 @@ import { SubscriptionModule } from '../subscription/subscription.module';
       CompanyToken,
       CompanyLoginLog,
       Employee,
-      RevokedToken, 
+      RevokedToken,
+      CompanyActivity, 
     ]),
     forwardRef(() => SubscriptionModule),
     CloudinaryModule,
@@ -36,6 +40,8 @@ import { SubscriptionModule } from '../subscription/subscription.module';
     CompanyJwtService,
     CompanyJwtGuard,
     AdminJwtGuard,
+    ActivityTrackerService, 
+    CleanupService, 
   ],
   exports: [
     CompanyService,

@@ -456,6 +456,9 @@ export class Employee {
   @Column({ type: 'text', nullable: true })
   appleWalletUrl?: string;
 
+  @Column({ nullable: true })
+  directWalletUrl: string;
+
   // Relations
     @OneToMany(() => EmployeeImage, (image) => image.employee, {
     onDelete: 'CASCADE'

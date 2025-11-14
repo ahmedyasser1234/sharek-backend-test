@@ -366,11 +366,26 @@ export class PaymentService {
       throw new HttpException('لا يوجد إيميل للشركة', HttpStatus.BAD_REQUEST);
     }
 
+    const emailHost = process.env.EMAIL_HOST;
+    const emailPort = process.env.EMAIL_PORT;
+    const emailUser = process.env.EMAIL_USER;
+    const emailPass = process.env.EMAIL_PASS;
+
+    if (!emailHost || !emailPort || !emailUser || !emailPass) {
+      throw new HttpException('إعدادات البريد الإلكتروني غير مكتملة', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: emailHost,
+      port: parseInt(emailPort),
+      secure: false,
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
+        user: emailUser,
+        pass: emailPass,
+      },
+      tls: {
+        ciphers: 'SSLv3',
+        rejectUnauthorized: false,
       },
     });
 
@@ -383,8 +398,8 @@ export class PaymentService {
     `;
 
     await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: process.env.EMAIL_USER,
+      from: emailUser,
+      to: emailUser,
       subject,
       html,
     });
@@ -399,11 +414,26 @@ export class PaymentService {
   ): Promise<void> {
     if (!email) return;
 
+    const emailHost = process.env.EMAIL_HOST;
+    const emailPort = process.env.EMAIL_PORT;
+    const emailUser = process.env.EMAIL_USER;
+    const emailPass = process.env.EMAIL_PASS;
+
+    if (!emailHost || !emailPort || !emailUser || !emailPass) {
+      throw new HttpException('إعدادات البريد الإلكتروني غير مكتملة', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: emailHost,
+      port: parseInt(emailPort),
+      secure: false,
       auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
+        user: emailUser,
+        pass: emailPass,
+      },
+      tls: {
+        ciphers: 'SSLv3',
+        rejectUnauthorized: false,
       },
     });
 
@@ -418,7 +448,7 @@ export class PaymentService {
          <p>يرجى التواصل مع الدعم لمزيد من التفاصيل.</p>`;
 
     await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+      from: emailUser,
       to: email,
       subject,
       html,

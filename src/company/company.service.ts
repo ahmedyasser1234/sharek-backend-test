@@ -31,31 +31,54 @@ import sharp from 'sharp';
 import { HttpStatus } from '@nestjs/common';
 import { CompanyResponseDto } from './dto/CompanyResponseDto';
 import { AuthProvider } from './dto/create-company.dto';
+import {ActivityTrackerService} from './service/activity-tracker.service'
+import { CompanyActivity } from './entities/company-activity.entity';
 
 @Injectable()
 export class CompanyService implements OnModuleInit {
   private readonly logger = new Logger(CompanyService.name);
 
-  constructor(
-    @InjectRepository(Company)
-    private readonly companyRepo: Repository<Company>,
+ constructor(
+  @InjectRepository(Company)
+  private readonly companyRepo: Repository<Company>,
 
-    @InjectRepository(Employee)
-    private readonly employeeRepo: Repository<Employee>,
+  @InjectRepository(Employee)
+  private readonly employeeRepo: Repository<Employee>,
 
-    @InjectRepository(CompanyToken)
-    private readonly tokenRepo: Repository<CompanyToken>,
+  @InjectRepository(CompanyToken)
+  private readonly tokenRepo: Repository<CompanyToken>,
 
-    @InjectRepository(RevokedToken)
-    private readonly revokedTokenRepo: Repository<RevokedToken>,
+  @InjectRepository(RevokedToken)
+  private readonly revokedTokenRepo: Repository<RevokedToken>,
 
-    @InjectRepository(CompanyLoginLog)
-    private readonly loginLogRepo: Repository<CompanyLoginLog>,
+  @InjectRepository(CompanyLoginLog)
+  private readonly loginLogRepo: Repository<CompanyLoginLog>,
 
-    public readonly jwtService: CompanyJwtService,
-    private readonly dataSource: DataSource,
-    private readonly cloudinaryService: CloudinaryService,
-  ) {}
+  @InjectRepository(CompanyActivity) 
+  private readonly activityRepo: Repository<CompanyActivity>,
+
+  public readonly jwtService: CompanyJwtService,
+  private readonly dataSource: DataSource,
+  private readonly cloudinaryService: CloudinaryService,
+  private readonly activityTracker: ActivityTrackerService, 
+) {}
+
+async recordUserActivity(companyId: string, action: string): Promise<void> {
+  await this.activityTracker.recordActivity(companyId, action);
+}
+
+async shouldLogoutDueToInactivity(companyId: string): Promise<boolean> {
+  try {
+    return await this.activityTracker.checkInactivity(companyId);
+  } catch (error) {
+    this.logger.error(` خطأ في التحقق من النشاط: ${error}`);
+    return false; 
+  }
+}
+
+async markUserAsOffline(companyId: string): Promise<void> {
+  await this.activityTracker.markAsOffline(companyId);
+}
 
   async onModuleInit() {
     await this.seedDefaultCompany();
@@ -159,39 +182,71 @@ export class CompanyService implements OnModuleInit {
     return saved;
   }
 
-  async sendVerificationCode(email: string, code: string): Promise<string> {
-    const company = await this.companyRepo.findOne({ where: { email } });
-    if (!company) {
-      throw new NotFoundException('Company not found');
-    }
-    company.verificationCode = code;
-    await this.companyRepo.save(company);
-
-    const transportOptions: SMTPTransport.Options = {
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER ?? '',
-        pass: process.env.EMAIL_PASS ?? '',
-      },
-    };
-
-    const transporter = nodemailer.createTransport(transportOptions);
-    const mailOptions: nodemailer.SendMailOptions = {
-      from: process.env.EMAIL_USER ?? '',
-      to: email,
-      subject: 'رمز التحقق من البريد الإلكتروني',
-      text: `كود التفعيل الخاص بك هو: ${code}`,
-    };
-
-    try {
-      await transporter.sendMail(mailOptions);
-      return `تم إرسال كود التحقق إلى ${email}`;
-    } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
-      this.logger.error(`فشل إرسال البريد: ${errorMessage}`);
-      throw new BadRequestException('فشل إرسال البريد الإلكتروني');
-    }
+async sendVerificationCode(email: string, code: string): Promise<string> {
+  const company = await this.companyRepo.findOne({ where: { email } });
+  if (!company) {
+    throw new NotFoundException('Company not found');
   }
+  company.verificationCode = code;
+  await this.companyRepo.save(company);
+
+  const emailHost = process.env.EMAIL_HOST;
+  const emailPort = process.env.EMAIL_PORT;
+  const emailUser = process.env.EMAIL_USER;
+  const emailPass = process.env.EMAIL_PASS;
+
+  if (!emailHost || !emailPort || !emailUser || !emailPass) {
+    throw new InternalServerErrorException('إعدادات البريد الإلكتروني غير مكتملة');
+  }
+
+  // إضافة logging لمشاهدة الإعدادات
+  this.logger.log(`🔧 إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
+
+  const transportOptions: SMTPTransport.Options = {
+    host: emailHost,
+    port: parseInt(emailPort),
+    secure: false,
+    auth: {
+      user: emailUser,
+      pass: emailPass,
+    },
+    tls: {
+      ciphers: 'SSLv3',
+      rejectUnauthorized: false,
+    },
+  };
+
+  // إذا كان المنفذ 465، استخدم secure: true
+  if (parseInt(emailPort) === 465) {
+    transportOptions.secure = true;
+  }
+
+  const transporter = nodemailer.createTransport(transportOptions);
+  
+  const mailOptions: nodemailer.SendMailOptions = {
+    from: `"Sharik SA" <${emailUser}>`, // ← التعديل هنا لإضافة اسم الشركة
+    to: email,
+    subject: 'رمز التحقق من البريد الإلكتروني',
+    text: `كود التفعيل الخاص بك هو: ${code}`,
+    html: `
+      <div dir="rtl">
+        <h2>تفعيل البريد الإلكتروني</h2>
+        <p>كود التفعيل الخاص بك هو: <strong>${code}</strong></p>
+        <p>شكراً لانضمامك إلى منصتنا</p>
+      </div>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    this.logger.log(`✅ تم إرسال كود التحقق إلى ${email}`);
+    return `تم إرسال كود التحقق إلى ${email}`;
+  } catch (error: unknown) {
+    const errorMessage = this.getErrorMessage(error);
+    this.logger.error(`❌ فشل إرسال البريد: ${errorMessage}`);
+    throw new BadRequestException('فشل إرسال البريد الإلكتروني');
+  }
+}
 
   async verifyCode(email: string, code: string): Promise<string> {
     const company = await this.companyRepo.findOne({ where: { email } });
@@ -379,68 +434,70 @@ export class CompanyService implements OnModuleInit {
   }
 
   async login(
-    dto: LoginCompanyDto,
-    ip: string,
-  ): Promise<{ 
-    statusCode: number;
-    message: string;
-    data: {
-      accessToken: string;
-      refreshToken: string;
-      company: CompanyResponseDto;
-    }
-  }> {
-    const company = await this.findByEmail(dto.email);
-    if (!company) throw new UnauthorizedException('Invalid credentials');
-    if (!company.isActive) throw new UnauthorizedException('Company not active');
-    if (!company.isVerified) throw new UnauthorizedException('Email not verified');
-
-    const isMatch = await company.comparePassword(dto.password);
-    if (!isMatch) throw new UnauthorizedException('Invalid credentials');
-
-    const accessToken = this.jwtService.signAccess({
-      companyId: company.id,
-      role: company.role,
-    });
-
-    const refreshToken = this.jwtService.signRefresh({ companyId: company.id });
-
-    await this.tokenRepo.save(this.tokenRepo.create({ refreshToken, company }));
-    await this.loginLogRepo.save(
-      this.loginLogRepo.create({
-        company,
-        ip,
-        action: 'login',
-        success: true,
-      }),
-    );
-
-    const companyResponse: CompanyResponseDto = {
-      id: company.id,
-      name: company.name,
-      email: company.email,
-      phone: company.phone,
-      logoUrl: company.logoUrl,
-      description: company.description,
-      subscriptionStatus: company.subscriptionStatus,
-      fontFamily: company.fontFamily,
-      isActive: company.isActive,
-      isVerified: company.isVerified,
-      provider: company.provider,
-      createdAt: company.createdAt,
-      updatedAt: company.updatedAt,
-    };
-
-    return {
-      statusCode: HttpStatus.OK,
-      message: 'تم تسجيل الدخول بنجاح',
-      data: {
-        accessToken: accessToken,
-        refreshToken: refreshToken, 
-        company: companyResponse
-      },
-    };
+  dto: LoginCompanyDto,
+  ip: string,
+): Promise<{ 
+  statusCode: number;
+  message: string;
+  data: {
+    accessToken: string;
+    refreshToken: string;
+    company: CompanyResponseDto;
   }
+}> {
+  const company = await this.findByEmail(dto.email);
+  if (!company) throw new UnauthorizedException('Invalid credentials');
+  if (!company.isActive) throw new UnauthorizedException('Company not active');
+  if (!company.isVerified) throw new UnauthorizedException('Email not verified');
+
+  const isMatch = await company.comparePassword(dto.password);
+  if (!isMatch) throw new UnauthorizedException('Invalid credentials');
+
+  const accessToken = this.jwtService.signAccess({
+    companyId: company.id,
+    role: company.role,
+  });
+
+  const refreshToken = this.jwtService.signRefresh({ companyId: company.id });
+
+  await this.tokenRepo.save(this.tokenRepo.create({ refreshToken, company }));
+  await this.loginLogRepo.save(
+    this.loginLogRepo.create({
+      company,
+      ip,
+      action: 'login',
+      success: true,
+    }),
+  );
+
+  await this.recordUserActivity(company.id, 'login');
+
+  const companyResponse: CompanyResponseDto = {
+    id: company.id,
+    name: company.name,
+    email: company.email,
+    phone: company.phone,
+    logoUrl: company.logoUrl,
+    description: company.description,
+    subscriptionStatus: company.subscriptionStatus,
+    fontFamily: company.fontFamily,
+    isActive: company.isActive,
+    isVerified: company.isVerified,
+    provider: company.provider,
+    createdAt: company.createdAt,
+    updatedAt: company.updatedAt,
+  };
+
+  return {
+    statusCode: HttpStatus.OK,
+    message: 'تم تسجيل الدخول بنجاح',
+    data: {
+      accessToken: accessToken,
+      refreshToken: refreshToken, 
+      company: companyResponse
+    },
+  };
+}
 
   async oauthLogin(provider: 'google' | 'facebook' | 'linkedin', token: string) {
     if (provider === 'google') return this.loginWithGoogle(token);
@@ -523,46 +580,50 @@ export class CompanyService implements OnModuleInit {
     return { accessToken };
   }
 
-  async logout(refreshToken: string, ip: string, accessToken: string | null): Promise<{ success: boolean }> {
-    const existing: CompanyToken | null = await this.tokenRepo.findOne({
-      where: { refreshToken },
-      relations: ['company'],
-    });
+ async logout(refreshToken: string, ip: string, accessToken: string | null): Promise<{ success: boolean }> {
+  const existing: CompanyToken | null = await this.tokenRepo.findOne({
+    where: { refreshToken },
+    relations: ['company'],
+  });
 
-    if (!existing) {
-      this.logger.warn(`التوكن غير موجود`);
-      throw new NotFoundException('Refresh token غير صالح');
-    }
-
-    const companyId = existing.company?.id;
-
-    if (!companyId || typeof companyId !== 'string') {
-      this.logger.error(`companyId غير موجود أو غير صالح`);
-      throw new InternalServerErrorException('فشل استخراج معرف الشركة');
-    }
-
-    await this.tokenRepo.remove(existing);
-
-    if (accessToken && accessToken.length > 20) {
-      try {
-        this.jwtService.verify(accessToken);
-        const revoked = this.revokedTokenRepo.create({
-          token: accessToken,
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-        });
-        await this.revokedTokenRepo.save(revoked);
-      } catch {
-        this.logger.warn(`التوكن غير صالح للتسجيل كـ ملغي`);
-      }
-    }
-    await this.loginLogRepo.save({
-      company: { id: companyId },
-      ip,
-      action: 'logout',
-      success: true,
-    });
-    return { success: true };
+  if (!existing) {
+    this.logger.warn(`التوكن غير موجود`);
+    throw new NotFoundException('Refresh token غير صالح');
   }
+
+  const companyId = existing.company?.id;
+
+  if (!companyId || typeof companyId !== 'string') {
+    this.logger.error(`companyId غير موجود أو غير صالح`);
+    throw new InternalServerErrorException('فشل استخراج معرف الشركة');
+  }
+
+  await this.tokenRepo.remove(existing);
+
+  await this.markUserAsOffline(companyId);
+
+  if (accessToken && accessToken.length > 20) {
+    try {
+      this.jwtService.verify(accessToken);
+      const revoked = this.revokedTokenRepo.create({
+        token: accessToken,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+      });
+      await this.revokedTokenRepo.save(revoked);
+    } catch {
+      this.logger.warn(`التوكن غير صالح للتسجيل كـ ملغي`);
+    }
+  }
+  
+  await this.loginLogRepo.save({
+    company: { id: companyId },
+    ip,
+    action: 'logout',
+    success: true,
+  });
+  
+  return { success: true };
+}
 
   async activateSubscription(companyId: string, planId: string, provider: string): Promise<void> {
     await this.companyRepo.update(companyId, {
@@ -581,38 +642,6 @@ export class CompanyService implements OnModuleInit {
       .getMany();
   }
 
-  async requestPasswordReset(email: string): Promise<string> {
-    const company = await this.companyRepo.findOne({ where: { email } });
-    if (!company) throw new NotFoundException('Company not found');
-
-    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-    company.verificationCode = resetCode;
-    await this.companyRepo.save(company);
-
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user: process.env.EMAIL_USER ?? '',
-        pass: process.env.EMAIL_PASS ?? '',
-      },
-    });
-
-    const mailOptions: nodemailer.SendMailOptions = {
-      from: process.env.EMAIL_USER ?? '',
-      to: email,
-      subject: 'إعادة تعيين كلمة المرور',
-      text: `رمز إعادة تعيين كلمة المرور هو: ${resetCode}`,
-    };
-
-    try {
-      await transporter.sendMail(mailOptions);
-      return 'تم إرسال كود إعادة تعيين كلمة المرور';
-    } catch (err: unknown) {
-      const errorMessage = this.getErrorMessage(err);
-      this.logger.error(`فشل إرسال البريد: ${errorMessage}`);
-      throw new BadRequestException('فشل إرسال البريد الإلكتروني');
-    }
-  }
 
   async resetPassword(email: string, code: string, newPassword: string): Promise<string> {
     const company = await this.companyRepo.findOne({ where: { email } });
@@ -627,6 +656,63 @@ export class CompanyService implements OnModuleInit {
     return 'تم تغيير كلمة المرور بنجاح';
   }
   
+async requestPasswordReset(email: string): Promise<string> {
+  const company = await this.companyRepo.findOne({ where: { email } });
+  if (!company) throw new NotFoundException('Company not found');
+
+  const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+  company.verificationCode = resetCode;
+  await this.companyRepo.save(company);
+
+  const emailHost = process.env.EMAIL_HOST;
+  const emailPort = process.env.EMAIL_PORT;
+  const emailUser = process.env.EMAIL_USER;
+  const emailPass = process.env.EMAIL_PASS;
+
+  if (!emailHost || !emailPort || !emailUser || !emailPass) {
+    throw new InternalServerErrorException('إعدادات البريد الإلكتروني غير مكتملة');
+  }
+
+  this.logger.log(`🔧 إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
+
+  const transporter = nodemailer.createTransport({
+    host: emailHost,
+    port: parseInt(emailPort),
+    secure: parseInt(emailPort) === 465, 
+    auth: {
+      user: emailUser,
+      pass: emailPass,
+    },
+    tls: {
+      ciphers: 'SSLv3',
+      rejectUnauthorized: false,
+    },
+  });
+
+  const mailOptions: nodemailer.SendMailOptions = {
+    from: `"info@sharik-sa.com" <${emailUser}>`, 
+    to: email,
+    subject: 'إعادة تعيين كلمة المرور',
+    text: `رمز إعادة تعيين كلمة المرور هو: ${resetCode}`,
+    html: `
+      <div dir="rtl">
+        <h2>إعادة تعيين كلمة المرور</h2>
+        <p>رمز إعادة تعيين كلمة المرور هو: <strong>${resetCode}</strong></p>
+        <p>إذا لم تطلب إعادة تعيين كلمة المرور، يرجى تجاهل هذه الرسالة.</p>
+      </div>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    this.logger.log(` تم إرسال كود إعادة تعيين كلمة المرور إلى ${email}`);
+    return 'تم إرسال كود إعادة تعيين كلمة المرور';
+  } catch (err: unknown) {
+    const errorMessage = this.getErrorMessage(err);
+    this.logger.error(` فشل إرسال البريد: ${errorMessage}`);
+    throw new BadRequestException('فشل إرسال البريد الإلكتروني');
+  }
+}
   async getCompanyLogo(companyId: string): Promise<{ 
     logoUrl: string | null; 
     companyId: string; 
@@ -645,6 +731,5 @@ export class CompanyService implements OnModuleInit {
       companyId: company.id,
       companyName: company.name
     };
-
   }
 }

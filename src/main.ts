@@ -24,7 +24,6 @@ async function bootstrap() {
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.enableCors();
 
-  // app.useGlobalGuards(app.get(CompanyJwtGuard));
 
   app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
 
