@@ -9,7 +9,9 @@ export class ManagerToken {
   @Column()
   refreshToken: string;
 
-  @ManyToOne(() => Manager)
+  @ManyToOne(() => Manager, { 
+    onDelete: 'CASCADE'
+  })
   @JoinColumn({ name: 'managerId' })
   manager: Manager;
 

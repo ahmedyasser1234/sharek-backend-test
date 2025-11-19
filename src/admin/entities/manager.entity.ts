@@ -1,5 +1,6 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn } from 'typeorm';
-import { Admin } from './admin.entity';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { Admin } from '../../admin/entities/admin.entity';
+import { ManagerToken } from './manager-token.entity';
 
 export enum ManagerRole {
   SUPER_ADMIN = 'super_admin',
@@ -29,6 +30,9 @@ export class Manager {
 
   @Column()
   createdById: string;
+
+  @OneToMany(() => ManagerToken, token => token.manager)
+  tokens: ManagerToken[];
 
   @CreateDateColumn()
   createdAt: Date;

@@ -4,33 +4,33 @@ import {
   ExecutionContext,
   UnauthorizedException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Request } from 'express';
 import { Manager } from '../entities/manager.entity';
+import { ManagerJwtService } from './manager-jwt.service';
 
-interface ManagerPayload {
-  managerId: string;
-  role: string;
-  permissions?: Record<string, boolean>;
-  iat?: number;
-  exp?: number;
+interface AuthenticatedRequest extends Request {
+  manager?: Manager;
+  managerPayload?: {
+    managerId: string;
+    role: string;
+    permissions: Record<string, boolean>;
+    iat?: number;
+    exp?: number;
+  };
 }
 
 @Injectable()
 export class ManagerJwtGuard implements CanActivate {
   constructor(
-    private readonly jwtService: JwtService,
+    private readonly managerJwtService: ManagerJwtService,
     @InjectRepository(Manager)
     private readonly managerRepo: Repository<Manager>,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context.switchToHttp().getRequest<{
-      manager?: Manager;
-      managerPayload?: ManagerPayload;
-      headers: { authorization?: string };
-    }>();
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     
     const token = this.extractToken(request);
 
@@ -38,30 +38,29 @@ export class ManagerJwtGuard implements CanActivate {
       throw new UnauthorizedException('Token not found');
     }
 
-    try {
-      const payload = this.jwtService.verify<ManagerPayload>(token, {
-        secret: process.env.MANAGER_JWT_SECRET || 'manager-secret-key',
-      });
-      
-      const manager = await this.managerRepo.findOne({
-        where: { id: payload.managerId, isActive: true },
-      });
-
-      if (!manager) {
-        throw new UnauthorizedException('Manager not found or inactive');
-      }
-
-      request.manager = manager!;
-      request.managerPayload = payload!;
-      
-      return true;
-    } catch {
+    const payload = this.managerJwtService.verify(token);
+    
+    if (!payload) {
       throw new UnauthorizedException('Invalid token');
     }
+
+    const manager = await this.managerRepo.findOne({
+      where: { id: payload.managerId, isActive: true },
+    });
+
+    if (!manager) {
+      throw new UnauthorizedException('Manager not found or inactive');
+    }
+
+    request.manager = manager;
+    request.managerPayload = payload;
+    
+    return true;
   }
 
-  private extractToken(request: { headers: { authorization?: string } }): string | null {
+  private extractToken(request: AuthenticatedRequest): string | null {
     const authHeader = request.headers.authorization;
+    
     if (authHeader && authHeader.startsWith('Bearer ')) {
       return authHeader.substring(7);
     }

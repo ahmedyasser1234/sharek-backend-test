@@ -8,7 +8,7 @@ import {
 } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { AdminToken } from '../auth/entities/admin-token.entity';
-import { Manager } from './manager.entity'; 
+import { Manager } from './manager.entity';
 
 @Entity()
 export class Admin {

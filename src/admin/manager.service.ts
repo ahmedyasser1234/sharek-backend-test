@@ -1,4 +1,3 @@
-// src/admin/manager.service.ts
 import {
   Injectable,
   UnauthorizedException,
@@ -167,10 +166,9 @@ export class ManagerService {
   }
 
   changeSubscriptionPlan(): never {
-  throw new ForbiddenException('غير مسموح بتغيير خطط الاشتراكات');
-}
+    throw new ForbiddenException('غير مسموح بتغيير خطط الاشتراكات');
+  }
 
- 
   private getPermissions(role: ManagerRole) {
     const basePermissions = {
       canViewStats: true,

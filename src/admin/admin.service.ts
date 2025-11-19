@@ -16,6 +16,7 @@ import { Plan } from '../plan/entities/plan.entity';
 import * as bcrypt from 'bcryptjs';
 import { AdminToken } from './auth/entities/admin-token.entity';
 import { AdminJwtService } from './auth/admin-jwt.service';
+import { ManagerToken } from './entities/manager-token.entity';
 
 @Injectable()
 export class AdminService {
@@ -27,6 +28,7 @@ export class AdminService {
     @InjectRepository(CompanySubscription) private readonly subRepo: Repository<CompanySubscription>,
     @InjectRepository(Plan) private readonly planRepo: Repository<Plan>,
     @InjectRepository(AdminToken) private readonly tokenRepo: Repository<AdminToken>,
+    @InjectRepository(ManagerToken) private readonly managerTokenRepo: Repository<ManagerToken>,
     private readonly adminJwt: AdminJwtService,
   ) {}
 
@@ -176,10 +178,19 @@ export class AdminService {
   }
 
   async deleteManager(id: string) {
-    const manager = await this.managerRepo.findOne({ where: { id } });
+    const manager = await this.managerRepo.findOne({ 
+      where: { id },
+      relations: ['tokens']
+    });
+    
     if (!manager) throw new NotFoundException('المدير غير موجود');
 
+    // حل المشكلة: حذف التوكنات أولاً
+    await this.managerTokenRepo.delete({ managerId: id });
+    
+    // ثم حذف المدير
     await this.managerRepo.delete(id);
+    
     return { message: 'تم حذف المدير بنجاح' };
   }
 

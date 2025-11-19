@@ -237,7 +237,6 @@ export class EmployeeService {
               throw new BadRequestException('الملف أكبر من 3MB');
             }
 
-            // التصحيح هنا: استخدام التعريف المباشر بدلاً من FileUploadResult
             let result: { secure_url: string; public_id: string };
 
             if (file.originalname.toLowerCase().endsWith('.pdf')) {
