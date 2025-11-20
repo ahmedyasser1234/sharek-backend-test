@@ -15,8 +15,8 @@ import { Admin } from './admin/entities/admin.entity';
 import { PaymentProof } from './payment/entities/payment-proof.entity';
 import { AdminToken } from './admin/auth/entities/admin-token.entity';
 import { CompanyActivity } from './company/entities/company-activity.entity'; 
-import { Manager } from './admin/entities/manager.entity'; // إضافة Manager
-import { ManagerToken } from './admin/entities/manager-token.entity'; // إضافة ManagerToken
+import { Manager } from './admin/entities/manager.entity'; 
+import { ManagerToken } from './admin/entities/manager-token.entity'; 
 
 const dbHost = process.env.DB_HOST;
 const dbPort = process.env.DB_PORT;

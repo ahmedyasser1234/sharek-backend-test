@@ -6,7 +6,6 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import * as express from 'express';
 import { join } from 'path';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import { AppDataSource } from './data-source';
 import { AdminService } from './admin/admin.service';
 import * as bodyParser from 'body-parser';
 import { Request, Response, NextFunction } from 'express';
@@ -14,8 +13,7 @@ import { Request, Response, NextFunction } from 'express';
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
-  await AppDataSource.initialize();
-  logger.log(' تم تهيئة قاعدة البيانات');
+
 
   const app = await NestFactory.create(AppModule);
 
