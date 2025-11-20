@@ -157,7 +157,6 @@ export class SubscriptionService {
     action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
   }> {
     try {
-
       const currentSubscription = await this.getCompanySubscription(companyId);
       if (!currentSubscription) {
         throw new NotFoundException('لا يوجد اشتراك حالي للشركة');
@@ -212,7 +211,6 @@ export class SubscriptionService {
 
   async changeSubscriptionPlan(companyId: string, newPlanId: string): Promise<any> {
     try {
-
       const validation = await this.validatePlanChange(companyId, newPlanId);
       
       if (!validation.canChange) {
@@ -224,6 +222,13 @@ export class SubscriptionService {
       
       if (!currentSubscription || !newPlan) {
         throw new NotFoundException('الاشتراك أو الخطة غير موجودة');
+      }
+
+      // منع التغيير من خطة أعلى إلى خطة أقل
+      if (validation.action === 'DOWNGRADE') {
+        throw new BadRequestException(
+          `لا يمكن التغيير من خطة ${currentSubscription.plan?.name} (${validation.currentPlanMax} موظف) إلى خطة ${newPlan.name} (${validation.newPlanMax} موظف) - غير مسموح بالانتقال لخطة أقل`
+        );
       }
 
       const currentEmployees = validation.currentEmployees;
@@ -276,13 +281,21 @@ export class SubscriptionService {
 
   async requestPlanChange(companyId: string, newPlanId: string): Promise<any> {
     try {
-
       const validation = await this.validatePlanChange(companyId, newPlanId);
       
       if (!validation.canChange) {
         return {
           success: false,
           message: validation.message,
+          validation: validation
+        };
+      }
+
+      // منع الانتقال من خطة أعلى إلى أقل
+      if (validation.action === 'DOWNGRADE') {
+        return {
+          success: false,
+          message: `غير مسموح بالانتقال من خطة أعلى إلى خطة أقل`,
           validation: validation
         };
       }
@@ -481,8 +494,8 @@ export class SubscriptionService {
   }
 
   async cancelSubscription(companyId: string): Promise<any> {
-
     try {
+      // جلب جميع الاشتراكات النشطة
       const subscriptions = await this.subscriptionRepo.find({
         where: { 
           company: { id: companyId },
@@ -491,49 +504,35 @@ export class SubscriptionService {
         relations: ['plan', 'company']
       });
 
-
       if (subscriptions.length === 0) {
         this.logger.warn(` لا يوجد اشتراكات نشطة للشركة: ${companyId}`);
         throw new NotFoundException('لا يوجد اشتراكات نشطة للشركة');
       }
 
-      
-      const updatePromises = subscriptions.map(async (sub, index) => {
-        this.logger.debug(` تحديث الاشتراك ${index + 1}: 
-          - ID: ${sub.id}
-          - الحالة السابقة: ${sub.status}
-          - الخطة: ${sub.plan?.name}
-          - الشركة: ${sub.company?.name}`);
-        
-        const oldStatus = sub.status;
-        sub.status = 'inactive' as SubscriptionStatus;
-        
-        await this.subscriptionRepo.save(sub);
-        this.logger.debug(` تم تحديث الاشتراك ${sub.id} من ${oldStatus} إلى inactive`);
-        
-        return sub;
+      // حذف جميع الاشتراكات القديمة بدلاً من تعطيلها فقط
+      await this.subscriptionRepo.delete({
+        company: { id: companyId }
       });
 
-      await Promise.all(updatePromises);
+      this.logger.log(` تم حذف جميع الاشتراكات القديمة للشركة: ${companyId}`);
 
-      const company = subscriptions[0].company;
+      // تحديث حالة الشركة
+      const company = await this.companyRepo.findOne({ where: { id: companyId } });
       if (company) {
-        
-        const oldStatus = company.subscriptionStatus;
         company.subscriptionStatus = 'inactive';
         company.planId = null;
         company.paymentProvider = '';
-        company.subscribedAt = null as unknown as Date; 
+        company.subscribedAt = null as unknown as Date;
         
         await this.companyRepo.save(company);
-        this.logger.debug(` تم تحديث حالة الشركة من ${oldStatus} إلى inactive`);
+        this.logger.debug(` تم تحديث حالة الشركة إلى inactive`);
       }
 
       const planNames = [...new Set(subscriptions.map(sub => sub.plan?.name).filter(Boolean))];
 
       const result = { 
-        message: ' تم إلغاء جميع اشتراكات الشركة بنجاح', 
-        updatedSubscriptions: subscriptions.length,
+        message: ' تم إلغاء وحذف جميع اشتراكات الشركة بنجاح', 
+        deletedSubscriptions: subscriptions.length,
         disconnectedPlans: planNames,
         companyStatus: 'inactive - غير قادرة على إضافة موظفين',
         note: 'الشركة لن تتمكن من إضافة موظفين جدد حتى تشترك في خطة جديدة'
@@ -555,7 +554,6 @@ export class SubscriptionService {
 
   async extendSubscription(companyId: string, options?: { forceExtend?: boolean }): Promise<any> {
     try {
-      
       const sub = await this.getCompanySubscription(companyId);
       if (!sub || !sub.plan) {
         throw new NotFoundException('لا يوجد اشتراك صالح للتمديد');
@@ -563,7 +561,16 @@ export class SubscriptionService {
 
       const allowedEmployees = await this.getAllowedEmployees(companyId);
       const currentEmployeeCount = allowedEmployees.current;
-      const maxAllowed = allowedEmployees.maxAllowed;;
+      const maxAllowed = allowedEmployees.maxAllowed;
+
+      // التحقق من عدم التمديد لخطة أقل
+      const currentPlanMax = sub.plan.maxEmployees;
+      if (maxAllowed < currentPlanMax) {
+        throw new BadRequestException(
+          `لا يمكن تمديد الاشتراك - الخطة الحالية تدعم ${maxAllowed} موظف بينما الخطة الأصلية كانت ${currentPlanMax} موظف.\n\n` +
+          `يجب الاشتراك في خطة تدعم ${currentEmployeeCount} موظف أو أكثر.`
+        );
+      }
 
       if (options?.forceExtend) {
         this.logger.warn(` تم تمديد الاشتراك إجبارياً للشركة ${companyId}`);
@@ -599,7 +606,6 @@ export class SubscriptionService {
       }
 
       if (maxAllowed >= currentEmployeeCount) {
-
         const oldEndDate = sub.endDate;
         sub.endDate = new Date(sub.endDate.getTime() + sub.plan.durationInDays * 86400000);
         await this.subscriptionRepo.save(sub);

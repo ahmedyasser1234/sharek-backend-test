@@ -10,6 +10,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
   Post,
+  BadRequestException,
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CompanyService } from '../company/company.service';
@@ -50,6 +51,39 @@ export class AdminSubscriptionController {
     } catch (error: unknown) {
       this.logger.error('فشل جلب الخطط', error as any);
       throw new InternalServerErrorException('فشل جلب الخطط');
+    }
+  }
+
+  @Post(':companyId/subscribe/:planId')
+  @ApiOperation({ summary: 'اشتراك شركة في خطة جديدة (بواسطة الأدمن)' })
+  @ApiParam({ name: 'companyId', description: 'معرف الشركة' })
+  @ApiParam({ name: 'planId', description: 'معرف الخطة' })
+  @ApiResponse({ status: 200, description: 'تم الاشتراك بنجاح' })
+  @ApiResponse({ status: 400, description: 'بيانات غير صالحة' })
+  @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
+  async subscribeCompanyToPlan(
+    @Param('companyId') companyId: string,
+    @Param('planId') planId: string,
+  ): Promise<ReturnType<SubscriptionService['subscribe']>> {
+    this.logger.log(` طلب اشتراك جديد من الأدمن: الشركة ${companyId} في الخطة ${planId}`);
+    
+    try {
+      const result = await this.subscriptionService.subscribe(companyId, planId, true);
+      
+      this.logger.log(` تم الاشتراك بنجاح: الشركة ${companyId} في الخطة ${planId}`);
+      return result;
+    } catch (error: unknown) {
+      this.logger.error(` فشل اشتراك الشركة ${companyId} في الخطة ${planId}`, error as any);
+      
+      if (error instanceof NotFoundException) {
+        throw new NotFoundException(error.message);
+      }
+      
+      if (error instanceof BadRequestException) {
+        throw new BadRequestException(error.message);
+      }
+      
+      throw new InternalServerErrorException('فشل إتمام الاشتراك');
     }
   }
 
