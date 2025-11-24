@@ -20,7 +20,7 @@ export class CardController {
 
   @Get(':uniqueUrl')
   async renderCard(@Param('uniqueUrl') uniqueUrl: string) {
-    this.logger.log(`🔍 محاولة تحميل البطاقة: ${uniqueUrl}`);
+    this.logger.log(` محاولة تحميل البطاقة: ${uniqueUrl}`);
 
     const card = await this.cardRepo.findOne({
       where: { uniqueUrl },
@@ -105,7 +105,7 @@ export class CardController {
       images: employee.images?.map((img) => img.imageUrl) || [],
     };
     return {
-      message: '✅ تم تحميل البطاقة بنجاح',
+      message: ' تم تحميل البطاقة بنجاح',
       data: {
         design,
         employee: employeeData,

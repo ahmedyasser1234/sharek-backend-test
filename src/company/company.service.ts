@@ -8,6 +8,7 @@ import {
   OnModuleInit,
   BadRequestException,
   InternalServerErrorException,
+  HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DeepPartial } from 'typeorm';
@@ -28,57 +29,69 @@ import { RevokedToken } from './entities/revoked-token.entity';
 import { DataSource } from 'typeorm';
 import { CloudinaryService } from '../common/services/cloudinary.service';
 import sharp from 'sharp';
-import { HttpStatus } from '@nestjs/common';
 import { CompanyResponseDto } from './dto/CompanyResponseDto';
 import { AuthProvider } from './dto/create-company.dto';
-import {ActivityTrackerService} from './service/activity-tracker.service'
+import { ActivityTrackerService } from './service/activity-tracker.service';
 import { CompanyActivity } from './entities/company-activity.entity';
+import { FileUploadService } from '../common/services/file-upload.service';
 
 @Injectable()
 export class CompanyService implements OnModuleInit {
   private readonly logger = new Logger(CompanyService.name);
 
- constructor(
-  @InjectRepository(Company)
-  private readonly companyRepo: Repository<Company>,
+  constructor(
+    @InjectRepository(Company)
+    private readonly companyRepo: Repository<Company>,
 
-  @InjectRepository(Employee)
-  private readonly employeeRepo: Repository<Employee>,
+    @InjectRepository(Employee)
+    private readonly employeeRepo: Repository<Employee>,
 
-  @InjectRepository(CompanyToken)
-  private readonly tokenRepo: Repository<CompanyToken>,
+    @InjectRepository(CompanyToken)
+    private readonly tokenRepo: Repository<CompanyToken>,
 
-  @InjectRepository(RevokedToken)
-  private readonly revokedTokenRepo: Repository<RevokedToken>,
+    @InjectRepository(RevokedToken)
+    private readonly revokedTokenRepo: Repository<RevokedToken>,
 
-  @InjectRepository(CompanyLoginLog)
-  private readonly loginLogRepo: Repository<CompanyLoginLog>,
+    @InjectRepository(CompanyLoginLog)
+    private readonly loginLogRepo: Repository<CompanyLoginLog>,
 
-  @InjectRepository(CompanyActivity) 
-  private readonly activityRepo: Repository<CompanyActivity>,
+    @InjectRepository(CompanyActivity) 
+    private readonly activityRepo: Repository<CompanyActivity>,
 
-  public readonly jwtService: CompanyJwtService,
-  private readonly dataSource: DataSource,
-  private readonly cloudinaryService: CloudinaryService,
-  private readonly activityTracker: ActivityTrackerService, 
-) {}
+    public readonly jwtService: CompanyJwtService,
+    private readonly dataSource: DataSource,
+    private readonly cloudinaryService: CloudinaryService,
+    private readonly activityTracker: ActivityTrackerService,
+    private readonly fileUploadService: FileUploadService, 
+  ) {}
 
-async recordUserActivity(companyId: string, action: string): Promise<void> {
-  await this.activityTracker.recordActivity(companyId, action);
-}
-
-async shouldLogoutDueToInactivity(companyId: string): Promise<boolean> {
-  try {
-    return await this.activityTracker.checkInactivity(companyId);
-  } catch (error) {
-    this.logger.error(` خطأ في التحقق من النشاط: ${error}`);
-    return false; 
+  async recordUserActivity(companyId: string, action: string): Promise<void> {
+    try {
+      await this.activityTracker.recordActivity(companyId, action);
+    } catch (error) {
+      this.logger.error(` فشل تسجيل النشاط في CompanyService: ${error}`);
+    }
   }
-}
 
-async markUserAsOffline(companyId: string): Promise<void> {
-  await this.activityTracker.markAsOffline(companyId);
-}
+  async shouldLogoutDueToInactivity(companyId: string): Promise<boolean> {
+    try {
+      const result = await this.activityTracker.checkInactivity(companyId);
+      this.logger.debug(` نتيجة التحقق من النشاط للشركة ${companyId}: ${result}`);
+      return result;
+    } catch (error) {
+      this.logger.error(` خطأ في التحقق من النشاط في CompanyService: ${error}`);
+      return false; 
+    }
+  }
+
+  async markUserAsOffline(companyId: string): Promise<void> {
+    try {
+      await this.activityTracker.markAsOffline(companyId);
+      this.logger.log(` تم تسجيل خروج الشركة ${companyId} بسبب عدم النشاط`);
+    } catch (error) {
+      this.logger.error(` فشل تعيين حالة غير متصل في CompanyService: ${error}`);
+    }
+  }
 
   async onModuleInit() {
     await this.seedDefaultCompany();
@@ -182,71 +195,69 @@ async markUserAsOffline(companyId: string): Promise<void> {
     return saved;
   }
 
-async sendVerificationCode(email: string, code: string): Promise<string> {
-  const company = await this.companyRepo.findOne({ where: { email } });
-  if (!company) {
-    throw new NotFoundException('Company not found');
+  async sendVerificationCode(email: string, code: string): Promise<string> {
+    const company = await this.companyRepo.findOne({ where: { email } });
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+    company.verificationCode = code;
+    await this.companyRepo.save(company);
+
+    const emailHost = process.env.EMAIL_HOST;
+    const emailPort = process.env.EMAIL_PORT;
+    const emailUser = process.env.EMAIL_USER;
+    const emailPass = process.env.EMAIL_PASS;
+
+    if (!emailHost || !emailPort || !emailUser || !emailPass) {
+      throw new InternalServerErrorException('إعدادات البريد الإلكتروني غير مكتملة');
+    }
+
+    this.logger.log(` إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
+
+    const transportOptions: SMTPTransport.Options = {
+      host: emailHost,
+      port: parseInt(emailPort),
+      secure: false,
+      auth: {
+        user: emailUser,
+        pass: emailPass,
+      },
+      tls: {
+        ciphers: 'SSLv3',
+        rejectUnauthorized: false,
+      },
+    };
+
+    if (parseInt(emailPort) === 465) {
+      transportOptions.secure = true;
+    }
+
+    const transporter = nodemailer.createTransport(transportOptions);
+    
+    const mailOptions: nodemailer.SendMailOptions = {
+      from: `"Sharik SA" <${emailUser}>`, 
+      to: email,
+      subject: 'رمز التحقق من البريد الإلكتروني',
+      text: `كود التفعيل الخاص بك هو: ${code}`,
+      html: `
+        <div dir="rtl">
+          <h2>تفعيل البريد الإلكتروني</h2>
+          <p>كود التفعيل الخاص بك هو: <strong>${code}</strong></p>
+          <p>شكراً لانضمامك إلى منصتنا</p>
+        </div>
+      `,
+    };
+
+    try {
+      await transporter.sendMail(mailOptions);
+      this.logger.log(` تم إرسال كود التحقق إلى ${email}`);
+      return `تم إرسال كود التحقق إلى ${email}`;
+    } catch (error: unknown) {
+      const errorMessage = this.getErrorMessage(error);
+      this.logger.error(` فشل إرسال البريد: ${errorMessage}`);
+      throw new BadRequestException('فشل إرسال البريد الإلكتروني');
+    }
   }
-  company.verificationCode = code;
-  await this.companyRepo.save(company);
-
-  const emailHost = process.env.EMAIL_HOST;
-  const emailPort = process.env.EMAIL_PORT;
-  const emailUser = process.env.EMAIL_USER;
-  const emailPass = process.env.EMAIL_PASS;
-
-  if (!emailHost || !emailPort || !emailUser || !emailPass) {
-    throw new InternalServerErrorException('إعدادات البريد الإلكتروني غير مكتملة');
-  }
-
-  // إضافة logging لمشاهدة الإعدادات
-  this.logger.log(`🔧 إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
-
-  const transportOptions: SMTPTransport.Options = {
-    host: emailHost,
-    port: parseInt(emailPort),
-    secure: false,
-    auth: {
-      user: emailUser,
-      pass: emailPass,
-    },
-    tls: {
-      ciphers: 'SSLv3',
-      rejectUnauthorized: false,
-    },
-  };
-
-  // إذا كان المنفذ 465، استخدم secure: true
-  if (parseInt(emailPort) === 465) {
-    transportOptions.secure = true;
-  }
-
-  const transporter = nodemailer.createTransport(transportOptions);
-  
-  const mailOptions: nodemailer.SendMailOptions = {
-    from: `"Sharik SA" <${emailUser}>`, // ← التعديل هنا لإضافة اسم الشركة
-    to: email,
-    subject: 'رمز التحقق من البريد الإلكتروني',
-    text: `كود التفعيل الخاص بك هو: ${code}`,
-    html: `
-      <div dir="rtl">
-        <h2>تفعيل البريد الإلكتروني</h2>
-        <p>كود التفعيل الخاص بك هو: <strong>${code}</strong></p>
-        <p>شكراً لانضمامك إلى منصتنا</p>
-      </div>
-    `,
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    this.logger.log(`✅ تم إرسال كود التحقق إلى ${email}`);
-    return `تم إرسال كود التحقق إلى ${email}`;
-  } catch (error: unknown) {
-    const errorMessage = this.getErrorMessage(error);
-    this.logger.error(`❌ فشل إرسال البريد: ${errorMessage}`);
-    throw new BadRequestException('فشل إرسال البريد الإلكتروني');
-  }
-}
 
   async verifyCode(email: string, code: string): Promise<string> {
     const company = await this.companyRepo.findOne({ where: { email } });
@@ -261,7 +272,12 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
     return 'تم تفعيل البريد الإلكتروني بنجاح';
   }
 
-  async updateCompany(id: string, dto: UpdateCompanyDto, logo?: Express.Multer.File): Promise<void> {
+  async updateCompany(
+    id: string, 
+    dto: UpdateCompanyDto, 
+    logo?: Express.Multer.File,
+    customFont?: Express.Multer.File 
+  ): Promise<void> {
     const company = await this.companyRepo.findOne({ where: { id } });
     if (!company) throw new NotFoundException('Company not found');
 
@@ -270,6 +286,8 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
     }
 
     let logoUrl: string | undefined;
+    let customFontUrl: string | undefined;
+
     if (logo) {
       try {
         if (!logo.buffer || !(logo.buffer instanceof Buffer)) {
@@ -290,8 +308,23 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
         logoUrl = result.secure_url;
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
+        this.logger.error(` فشل رفع الشعار على Cloudinary: ${errorMessage}`);
         throw new InternalServerErrorException('فشل رفع صورة الشعار');
+      }
+    }
+
+    if (customFont) {
+      try {
+        const fontUploadResult = await this.fileUploadService.uploadFont(customFont, id);
+        customFontUrl = fontUploadResult.fileUrl;
+
+        if (company.customFontUrl) {
+          await this.fileUploadService.deleteFont(company.customFontUrl);
+        }
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(` فشل رفع الخط المخصص: ${errorMessage}`);
+        throw new InternalServerErrorException('فشل رفع ملف الخط');
       }
     }
 
@@ -299,6 +332,8 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
       ...dto,
       logoUrl: logoUrl ?? company.logoUrl,
       fontFamily: dto.fontFamily ?? company.fontFamily,
+      customFontUrl: customFontUrl ?? company.customFontUrl, 
+      customFontName: dto.customFontName ?? company.customFontName, 
     };
 
     await this.companyRepo.update(id, updateData);
@@ -378,19 +413,19 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
           );
         } catch (tableError: unknown) {
           const errorMessage = this.getErrorMessage(tableError);
-          this.logger.warn(`لا يوجد جدول ${table}: ${errorMessage}`);
+          this.logger.warn(` لا يوجد جدول ${table}: ${errorMessage}`);
         }
       }
 
       await queryRunner.query(`DELETE FROM company WHERE id = $1`, [id]);
 
       await queryRunner.commitTransaction();
-      this.logger.log(`تم حذف الشركة ${id} وجميع بياناتها`);
+      this.logger.log(` تم حذف الشركة ${id} وجميع بياناتها`);
 
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
       const errorMessage = this.getErrorMessage(error);
-      this.logger.error(`فشل حذف الشركة: ${errorMessage}`);
+      this.logger.error(` فشل حذف الشركة: ${errorMessage}`);
       
       await this.forceDeleteWithCascade(id);
     } finally {
@@ -413,7 +448,7 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
         await queryRunner.query(`DELETE FROM company WHERE id = $1`, [id]);
 
         await queryRunner.commitTransaction();
-        this.logger.log(`تم حذف الشركة ${id} بعد إزالة الـ constraint`);
+        this.logger.log(` تم حذف الشركة ${id} بعد إزالة الـ constraint`);
 
       } catch (innerError: unknown) {
         await queryRunner.rollbackTransaction();
@@ -424,7 +459,7 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
       }
     } catch (error: unknown) {
       const errorMessage = this.getErrorMessage(error);
-      this.logger.error(`فشل جميع محاولات الحذف: ${errorMessage}`);
+      this.logger.error(` فشل جميع محاولات الحذف: ${errorMessage}`);
       throw new InternalServerErrorException('فشل حذف الشركة. يرجى التحقق من قاعدة البيانات يدوياً.');
     }
   }
@@ -434,70 +469,71 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
   }
 
   async login(
-  dto: LoginCompanyDto,
-  ip: string,
-): Promise<{ 
-  statusCode: number;
-  message: string;
-  data: {
-    accessToken: string;
-    refreshToken: string;
-    company: CompanyResponseDto;
-  }
-}> {
-  const company = await this.findByEmail(dto.email);
-  if (!company) throw new UnauthorizedException('Invalid credentials');
-  if (!company.isActive) throw new UnauthorizedException('Company not active');
-  if (!company.isVerified) throw new UnauthorizedException('Email not verified');
-
-  const isMatch = await company.comparePassword(dto.password);
-  if (!isMatch) throw new UnauthorizedException('Invalid credentials');
-
-  const accessToken = this.jwtService.signAccess({
-    companyId: company.id,
-    role: company.role,
-  });
-
-  const refreshToken = this.jwtService.signRefresh({ companyId: company.id });
-
-  await this.tokenRepo.save(this.tokenRepo.create({ refreshToken, company }));
-  await this.loginLogRepo.save(
-    this.loginLogRepo.create({
-      company,
-      ip,
-      action: 'login',
-      success: true,
-    }),
-  );
-
-  await this.recordUserActivity(company.id, 'login');
-
-  const companyResponse: CompanyResponseDto = {
-    id: company.id,
-    name: company.name,
-    email: company.email,
-    phone: company.phone,
-    logoUrl: company.logoUrl,
-    description: company.description,
-    subscriptionStatus: company.subscriptionStatus,
-    fontFamily: company.fontFamily,
-    isActive: company.isActive,
-    isVerified: company.isVerified,
-    provider: company.provider,
-    createdAt: company.createdAt,
-    updatedAt: company.updatedAt,
-  };
-
-  return {
-    statusCode: HttpStatus.OK,
-    message: 'تم تسجيل الدخول بنجاح',
+    dto: LoginCompanyDto,
+    ip: string,
+  ): Promise<{ 
+    statusCode: number;
+    message: string;
     data: {
-      accessToken: accessToken,
-      refreshToken: refreshToken, 
-      company: companyResponse
-    },
-  };
-}
+      accessToken: string;
+      refreshToken: string;
+      company: CompanyResponseDto;
+    }
+  }> {
+    const company = await this.findByEmail(dto.email);
+    if (!company) throw new UnauthorizedException('Invalid credentials');
+    if (!company.isActive) throw new UnauthorizedException('Company not active');
+    if (!company.isVerified) throw new UnauthorizedException('Email not verified');
+
+    const isMatch = await company.comparePassword(dto.password);
+    if (!isMatch) throw new UnauthorizedException('Invalid credentials');
+
+    const accessToken = this.jwtService.signAccess({
+      companyId: company.id,
+      role: company.role,
+    });
+
+    const refreshToken = this.jwtService.signRefresh({ companyId: company.id });
+
+    await this.tokenRepo.save(this.tokenRepo.create({ refreshToken, company }));
+    await this.loginLogRepo.save(
+      this.loginLogRepo.create({
+        company,
+        ip,
+        action: 'login',
+        success: true,
+      }),
+    );
+
+    await this.activityTracker.markAsOnline(company.id);
+    await this.recordUserActivity(company.id, 'login');
+
+    const companyResponse: CompanyResponseDto = {
+      id: company.id,
+      name: company.name,
+      email: company.email,
+      phone: company.phone,
+      logoUrl: company.logoUrl,
+      description: company.description,
+      subscriptionStatus: company.subscriptionStatus,
+      fontFamily: company.fontFamily,
+      isActive: company.isActive,
+      isVerified: company.isVerified,
+      provider: company.provider,
+      createdAt: company.createdAt,
+      updatedAt: company.updatedAt,
+    };
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم تسجيل الدخول بنجاح',
+      data: {
+        accessToken: accessToken,
+        refreshToken: refreshToken, 
+        company: companyResponse
+      },
+    };
+  }
 
   async oauthLogin(provider: 'google' | 'facebook' | 'linkedin', token: string) {
     if (provider === 'google') return this.loginWithGoogle(token);
@@ -549,6 +585,10 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
       company = this.companyRepo.create(newCompany);
       await this.companyRepo.save(company);
     }
+    
+    await this.activityTracker.markAsOnline(company.id);
+    await this.recordUserActivity(company.id, `social-login:${provider}`);
+    
     const accessToken = this.jwtService.signAccess({
       companyId: company.id,
       role: company.role,
@@ -566,7 +606,7 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
       return await this.jwtService.verifyAsync<CompanyPayload>(token);
     } catch (err: unknown) {
       const errorMessage = this.getErrorMessage(err);
-      this.logger.error(`خطأ في التحقق من Refresh Token: ${errorMessage}`);
+      this.logger.error(` خطأ في التحقق من Refresh Token: ${errorMessage}`);
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }
@@ -580,50 +620,53 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
     return { accessToken };
   }
 
- async logout(refreshToken: string, ip: string, accessToken: string | null): Promise<{ success: boolean }> {
-  const existing: CompanyToken | null = await this.tokenRepo.findOne({
-    where: { refreshToken },
-    relations: ['company'],
-  });
+  async logout(refreshToken: string, ip: string, accessToken: string | null): Promise<{ success: boolean }> {
+    const existing: CompanyToken | null = await this.tokenRepo.findOne({
+      where: { refreshToken },
+      relations: ['company'],
+    });
 
-  if (!existing) {
-    this.logger.warn(`التوكن غير موجود`);
-    throw new NotFoundException('Refresh token غير صالح');
-  }
-
-  const companyId = existing.company?.id;
-
-  if (!companyId || typeof companyId !== 'string') {
-    this.logger.error(`companyId غير موجود أو غير صالح`);
-    throw new InternalServerErrorException('فشل استخراج معرف الشركة');
-  }
-
-  await this.tokenRepo.remove(existing);
-
-  await this.markUserAsOffline(companyId);
-
-  if (accessToken && accessToken.length > 20) {
-    try {
-      this.jwtService.verify(accessToken);
-      const revoked = this.revokedTokenRepo.create({
-        token: accessToken,
-        expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-      });
-      await this.revokedTokenRepo.save(revoked);
-    } catch {
-      this.logger.warn(`التوكن غير صالح للتسجيل كـ ملغي`);
+    if (!existing) {
+      this.logger.warn(` التوكن غير موجود في عملية تسجيل الخروج`);
+      throw new NotFoundException('Refresh token غير صالح');
     }
+
+    const companyId = existing.company?.id;
+
+    if (!companyId || typeof companyId !== 'string') {
+      this.logger.error(` companyId غير موجود أو غير صالح في عملية تسجيل الخروج`);
+      throw new InternalServerErrorException('فشل استخراج معرف الشركة');
+    }
+
+    await this.tokenRepo.remove(existing);
+
+    await this.markUserAsOffline(companyId);
+
+    if (accessToken && accessToken.length > 20) {
+      try {
+        this.jwtService.verify(accessToken);
+        const revoked = this.revokedTokenRepo.create({
+          token: accessToken,
+          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        });
+        await this.revokedTokenRepo.save(revoked);
+        this.logger.debug(`تم إلغاء توكن الوصول للشركة ${companyId}`);
+      } catch {
+        this.logger.warn(` التوكن غير صالح للتسجيل كـ ملغي`);
+      }
+    }
+    
+    await this.loginLogRepo.save({
+      company: { id: companyId },
+      ip,
+      action: 'logout',
+      success: true,
+    });
+
+    this.logger.log(` تم تسجيل خروج الشركة ${companyId} بنجاح`);
+    
+    return { success: true };
   }
-  
-  await this.loginLogRepo.save({
-    company: { id: companyId },
-    ip,
-    action: 'logout',
-    success: true,
-  });
-  
-  return { success: true };
-}
 
   async activateSubscription(companyId: string, planId: string, provider: string): Promise<void> {
     await this.companyRepo.update(companyId, {
@@ -642,7 +685,6 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
       .getMany();
   }
 
-
   async resetPassword(email: string, code: string, newPassword: string): Promise<string> {
     const company = await this.companyRepo.findOne({ where: { email } });
     if (!company) throw new NotFoundException('Company not found');
@@ -656,63 +698,64 @@ async sendVerificationCode(email: string, code: string): Promise<string> {
     return 'تم تغيير كلمة المرور بنجاح';
   }
   
-async requestPasswordReset(email: string): Promise<string> {
-  const company = await this.companyRepo.findOne({ where: { email } });
-  if (!company) throw new NotFoundException('Company not found');
+  async requestPasswordReset(email: string): Promise<string> {
+    const company = await this.companyRepo.findOne({ where: { email } });
+    if (!company) throw new NotFoundException('Company not found');
 
-  const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
-  company.verificationCode = resetCode;
-  await this.companyRepo.save(company);
+    const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+    company.verificationCode = resetCode;
+    await this.companyRepo.save(company);
 
-  const emailHost = process.env.EMAIL_HOST;
-  const emailPort = process.env.EMAIL_PORT;
-  const emailUser = process.env.EMAIL_USER;
-  const emailPass = process.env.EMAIL_PASS;
+    const emailHost = process.env.EMAIL_HOST;
+    const emailPort = process.env.EMAIL_PORT;
+    const emailUser = process.env.EMAIL_USER;
+    const emailPass = process.env.EMAIL_PASS;
 
-  if (!emailHost || !emailPort || !emailUser || !emailPass) {
-    throw new InternalServerErrorException('إعدادات البريد الإلكتروني غير مكتملة');
+    if (!emailHost || !emailPort || !emailUser || !emailPass) {
+      throw new InternalServerErrorException('إعدادات البريد الإلكتروني غير مكتملة');
+    }
+
+    this.logger.log(` إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
+
+    const transporter = nodemailer.createTransport({
+      host: emailHost,
+      port: parseInt(emailPort),
+      secure: parseInt(emailPort) === 465, 
+      auth: {
+        user: emailUser,
+        pass: emailPass,
+      },
+      tls: {
+        ciphers: 'SSLv3',
+        rejectUnauthorized: false,
+      },
+    });
+
+    const mailOptions: nodemailer.SendMailOptions = {
+      from: `"info@sharik-sa.com" <${emailUser}>`, 
+      to: email,
+      subject: 'إعادة تعيين كلمة المرور',
+      text: `رمز إعادة تعيين كلمة المرور هو: ${resetCode}`,
+      html: `
+        <div dir="rtl">
+          <h2>إعادة تعيين كلمة المرور</h2>
+          <p>رمز إعادة تعيين كلمة المرور هو: <strong>${resetCode}</strong></p>
+          <p>إذا لم تطلب إعادة تعيين كلمة المرور، يرجى تجاهل هذه الرسالة.</p>
+        </div>
+      `,
+    };
+
+    try {
+      await transporter.sendMail(mailOptions);
+      this.logger.log(` تم إرسال كود إعادة تعيين كلمة المرور إلى ${email}`);
+      return 'تم إرسال كود إعادة تعيين كلمة المرور';
+    } catch (err: unknown) {
+      const errorMessage = this.getErrorMessage(err);
+      this.logger.error(` فشل إرسال البريد: ${errorMessage}`);
+      throw new BadRequestException('فشل إرسال البريد الإلكتروني');
+    }
   }
 
-  this.logger.log(`🔧 إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
-
-  const transporter = nodemailer.createTransport({
-    host: emailHost,
-    port: parseInt(emailPort),
-    secure: parseInt(emailPort) === 465, 
-    auth: {
-      user: emailUser,
-      pass: emailPass,
-    },
-    tls: {
-      ciphers: 'SSLv3',
-      rejectUnauthorized: false,
-    },
-  });
-
-  const mailOptions: nodemailer.SendMailOptions = {
-    from: `"info@sharik-sa.com" <${emailUser}>`, 
-    to: email,
-    subject: 'إعادة تعيين كلمة المرور',
-    text: `رمز إعادة تعيين كلمة المرور هو: ${resetCode}`,
-    html: `
-      <div dir="rtl">
-        <h2>إعادة تعيين كلمة المرور</h2>
-        <p>رمز إعادة تعيين كلمة المرور هو: <strong>${resetCode}</strong></p>
-        <p>إذا لم تطلب إعادة تعيين كلمة المرور، يرجى تجاهل هذه الرسالة.</p>
-      </div>
-    `,
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    this.logger.log(` تم إرسال كود إعادة تعيين كلمة المرور إلى ${email}`);
-    return 'تم إرسال كود إعادة تعيين كلمة المرور';
-  } catch (err: unknown) {
-    const errorMessage = this.getErrorMessage(err);
-    this.logger.error(` فشل إرسال البريد: ${errorMessage}`);
-    throw new BadRequestException('فشل إرسال البريد الإلكتروني');
-  }
-}
   async getCompanyLogo(companyId: string): Promise<{ 
     logoUrl: string | null; 
     companyId: string; 
@@ -731,5 +774,62 @@ async requestPasswordReset(email: string): Promise<string> {
       companyId: company.id,
       companyName: company.name
     };
+  }
+
+  async getCompanyFont(companyId: string): Promise<{
+    fontFamily: string;
+    customFontUrl: string | null;
+    customFontName: string | null;
+    fontCss: string;
+  }> {
+    const company = await this.companyRepo.findOne({ where: { id: companyId } });
+    if (!company) {
+      throw new NotFoundException('الشركة غير موجودة');
+    }
+
+    const fontCss = this.generateFontCss(company);
+
+    return {
+      fontFamily: company.fontFamily,
+      customFontUrl: company.customFontUrl,
+      customFontName: company.customFontName,
+      fontCss: fontCss
+    };
+  }
+
+  private generateFontCss(company: Company): string {
+    if (company.customFontUrl && company.customFontName) {
+      const fontUrl = `http://localhost:3000${company.customFontUrl}`;
+      
+      return `
+        @font-face {
+          font-family: '${company.customFontName}';
+          src: url('${fontUrl}') format('woff2');
+          font-display: swap;
+          font-weight: normal;
+          font-style: normal;
+        }
+      `;
+    }
+    return '';
+  }
+
+  async deleteCustomFont(companyId: string): Promise<void> {
+    const company = await this.companyRepo.findOne({ where: { id: companyId } });
+    if (!company) throw new NotFoundException('Company not found');
+
+    if (company.customFontUrl) {
+      try {
+        await this.fileUploadService.deleteFont(company.customFontUrl);
+      } catch (error) {
+        this.logger.error(` فشل حذف الخط من التخزين: ${error}`);
+      }
+    }
+
+    await this.companyRepo.update(companyId, {
+      customFontUrl: undefined, 
+      customFontName: undefined, 
+      fontFamily: 'Cairo, sans-serif'
+    });
   }
 }

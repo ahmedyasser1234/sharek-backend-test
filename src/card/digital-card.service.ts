@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 
-// تعريف نوع آمن للموظف
 export interface EmployeeForWallet {
   id: number;
   name: string;

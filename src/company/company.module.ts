@@ -16,6 +16,8 @@ import { CloudinaryModule } from '../common/services/cloudinary.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { ActivityTrackerService } from './service/activity-tracker.service';
 import { CleanupService } from './service/cleanup.service';
+import { FileUploadService } from '../common/services/file-upload.service'; 
+import { ActivityInterceptor } from './interceptors/activity.interceptor';
 
 @Module({
   imports: [
@@ -30,8 +32,11 @@ import { CleanupService } from './service/cleanup.service';
     forwardRef(() => SubscriptionModule),
     CloudinaryModule,
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key', 
-      signOptions: { expiresIn: '1d' },
+      secret: process.env.JWT_SECRET || 'your-secret-key',
+      signOptions: { 
+        expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+        issuer: 'sharik-app'
+      },
     }),
   ],
   controllers: [CompanyController],
@@ -42,11 +47,14 @@ import { CleanupService } from './service/cleanup.service';
     AdminJwtGuard,
     ActivityTrackerService, 
     CleanupService, 
+    FileUploadService,
+    ActivityInterceptor,
   ],
   exports: [
     CompanyService,
     CompanyJwtService,
     CompanyJwtGuard,
+    ActivityTrackerService,
     JwtModule, 
   ],
 })

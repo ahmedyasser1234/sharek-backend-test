@@ -71,40 +71,63 @@ export class EmployeeService {
   ) {}
 
   private safeToString(value: unknown): string {
-    if (value === null || value === undefined) return 'null/undefined';
-    if (typeof value === 'string') return value;
+    if (value === null || value === undefined) return 'NULL/UNDEFINED';
+    if (typeof value === 'string') {
+      return value === '' ? 'EMPTY_STRING' : value;
+    }
     if (typeof value === 'number' || typeof value === 'boolean') return value.toString();
     if (typeof value === 'object') {
       try {
+        if (Object.keys(value).length === 0) return 'EMPTY_OBJECT';
         return JSON.stringify(value);
       } catch {
-        return '[Object]';
+        return '[OBJECT]';
       }
     }
     try {
       return value.toString();
     } catch {
-      return '[Unstringifiable]';
+      return '[UNSTRINGIFIABLE]';
     }
   }
 
- async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
+  async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
+    this.logger.log(' بدء إنشاء موظف جديد');
+    this.logger.log(`🏢 companyId: ${companyId}`);
+    this.logger.log(` البيانات المستلمة من DTO:`);
+    
+    Object.keys(dto).forEach(key => {
+      const value = dto[key as keyof CreateEmployeeDto];
+      if (value === null || value === undefined || value === '') {
+        this.logger.warn(`  ${key}: NULL/EMPTY`);
+      } else {
+        this.logger.log(` ${key}: ${this.safeToString(value)}`);
+      }
+    });
+
+    this.logger.log(` الملفات المستلمة: ${files?.length || 0} ملف`);
+    if (files && files.length > 0) {
+      files.forEach((file, index) => {
+        this.logger.log(`    ملف ${index + 1}: ${file.fieldname} - ${file.originalname} - ${file.size} bytes`);
+      });
+    }
+
     const company = await this.companyRepo.findOne({ where: { id: companyId } });
     if (!company) {
-      this.logger.error(`الشركة غير موجودة: ${companyId}`);
+      this.logger.error(` الشركة غير موجودة: ${companyId}`);
       throw new NotFoundException('Company not found');
     }
     
     const { canAdd, allowed, current, maxAllowed } = await this.subscriptionService.canAddEmployee(companyId);
 
     if (!canAdd) {
-      this.logger.error(`الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
+      this.logger.error(` الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
       throw new ForbiddenException(`الخطة لا تسمح بإضافة موظفين جدد - تم الوصول للحد الأقصى (${current}/${maxAllowed}) - يرجى ترقية الخطة`);
     }
     
     const allowedCount = await this.subscriptionService.getAllowedEmployees(companyId);
     if (allowedCount.remaining <= 0) {
-      this.logger.error(`الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
+      this.logger.error(` الشركة ${companyId} حاولت إضافة موظف بدون اشتراك نشط أو تجاوز الحد`);
       throw new ForbiddenException('الخطة لا تسمح بإضافة موظفين جدد - يرجى تجديد الاشتراك');
     }
 
@@ -143,8 +166,37 @@ export class EmployeeService {
       : undefined,
     };
 
+    this.logger.log(' بيانات الموظف قبل الحفظ:');
+    const employeeDataForLog = {
+      name: employeeData.name,
+      email: employeeData.email,
+      jobTitle: employeeData.jobTitle,
+      phone: employeeData.phone,
+      showWorkingHours: employeeData.showWorkingHours,
+      isOpen24Hours: employeeData.isOpen24Hours,
+      workingHours: employeeData.workingHours,
+    };
+    
+    Object.keys(employeeDataForLog).forEach(key => {
+      const value = employeeDataForLog[key as keyof typeof employeeDataForLog];
+      if (value === null || value === undefined || value === '') {
+        this.logger.warn(`  ${key}: NULL/EMPTY في البيانات النهائية`);
+      } else {
+        this.logger.log(` ${key}: ${this.safeToString(value)}`);
+      }
+    });
+
     const employee = this.employeeRepo.create(employeeData);
     let saved = await this.employeeRepo.save(employee);
+
+    this.logger.log(` تم إنشاء الموظف بنجاح - ID: ${saved.id}`);
+    this.logger.log(` البيانات المحفوظة فعلياً:`);
+    this.logger.log(`    ID: ${saved.id}`);
+    this.logger.log(`    Name: ${saved.name}`);
+    this.logger.log(`    Email: ${saved.email || 'NULL'}`);
+    this.logger.log(`    Job Title: ${saved.jobTitle || 'NULL'}`);
+    this.logger.log(`    Phone: ${saved.phone || 'NULL'}`);
+    this.logger.log(`    Profile Image: ${saved.profileImageUrl || 'NULL'}`);
 
     type ImageMapType = {
       profileImageUrl: 'profileImageUrl';
@@ -205,7 +257,7 @@ export class EmployeeService {
     );
 
     if (!hasPdfFile) {
-      this.logger.warn(`لم يتم إرسال ملف PDF في حقل pdfFile أو pdfFileUrl`);
+      this.logger.warn(` لم يتم إرسال ملف PDF في حقل pdfFile أو pdfFileUrl`);
     }
 
     function chunkArray<T>(array: T[], size: number): T[][] {
@@ -227,19 +279,23 @@ export class EmployeeService {
       fs.mkdirSync(companyPdfsDir, { recursive: true });
     }
 
+    this.logger.log(` بدء رفع${validFiles.length} ملف`);
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const batch = batches[batchIndex];
+      this.logger.log(` معالجة باتش${batchIndex + 1} من ${batches.length} (${batch.length} ملف)`);
 
       await Promise.allSettled(
         batch.map(async (file, fileIndex) => {
           try {
             if (file.size > 3 * 1024 * 1024) {
+              this.logger.warn(` الملف كبير جداً: ${file.originalname} - ${file.size} bytes`);
               throw new BadRequestException('الملف أكبر من 3MB');
             }
 
             let result: { secure_url: string; public_id: string };
 
             if (file.originalname.toLowerCase().endsWith('.pdf')) {
+              this.logger.log(` رفع ملف PDF: ${file.originalname}`);
               const fileExtension: string = path.extname(file.originalname);
               const uniqueFileName: string = `pdf_${Date.now()}_${saved.id}${fileExtension}`;
               const filePath: string = path.join(companyPdfsDir, uniqueFileName);
@@ -251,8 +307,10 @@ export class EmployeeService {
                 secure_url: fileUrl,
                 public_id: uniqueFileName
               };
+              this.logger.log(` تم رفع PDF: ${fileUrl}`);
 
             } else {
+              this.logger.log(` رفع صورة: ${file.originalname}`);
               const compressedBuffer = await sharp(file.buffer, { failOnError: false })
               .resize({ width: 800 })
               .webp({ quality: 70 })
@@ -267,6 +325,7 @@ export class EmployeeService {
                 secure_url: uploadResult.secure_url,
                 public_id: uploadResult.public_id
               };
+              this.logger.log(` تم رفع الصورة: ${uploadResult.secure_url}`);
             }
 
             const fieldName = file.fieldname as keyof ImageMapType;
@@ -275,11 +334,13 @@ export class EmployeeService {
             if (field) {
               if (field === 'backgroundImage') {
                 backgroundImageUrl = result.secure_url;
+                this.logger.log(` تم تعيين صورة الخلفية: ${backgroundImageUrl}`);
               } else {
                 const updateData: Partial<Employee> = { [field]: result.secure_url };
                 await this.employeeRepo.update(saved.id, updateData);
                 (saved as any)[field] = result.secure_url;
                 uploadedImagesCount++;
+                this.logger.log(` تم تحديث حقل ${field}: ${result.secure_url}`);
               }
             } else {
               const label = typeof file.originalname === 'string'
@@ -295,6 +356,7 @@ export class EmployeeService {
 
               await this.imageRepo.save(imageEntity);
               uploadedImagesCount++;
+              this.logger.log(`تم حفظ صورة إضافية: ${result.secure_url}`);
             }
 
           } catch (error: unknown) {
@@ -302,7 +364,7 @@ export class EmployeeService {
             ? error.message
             : 'Unknown error';
             const fileName = typeof file.originalname === 'string' ? file.originalname : 'غير معروف';
-            this.logger.error(`فشل رفع ملف ${fileName}: ${errMsg}`);
+            this.logger.error(` فشل رفع ملف ${fileName}: ${errMsg}`);
           }
         })
       );
@@ -311,8 +373,10 @@ export class EmployeeService {
     if (!saved.profileImageUrl) {
       saved.profileImageUrl = 'https://res.cloudinary.com/dk3wwuy5d/image/upload/v1761151124/default-profile_jgtihy.jpg';
       await this.employeeRepo.update(saved.id, { profileImageUrl: saved.profileImageUrl });
+      this.logger.log(` تم تعيين الصورة الافتراضية: ${saved.profileImageUrl}`);
     }
 
+    this.logger.log(` بدء إنشاء بطاقة الموظف`);
     const cardResult = await this.cardService.generateCard(saved, dto.designId, dto.qrStyle, {
       fontColorHead: dto.fontColorHead,
       fontColorHead2: dto.fontColorHead2,
@@ -336,8 +400,18 @@ export class EmployeeService {
     saved.qrCode = cardResult.qrCode;
     
     saved = await this.employeeRepo.save(saved);
-    this.logger.log(`تم إنشاء الموظف بنجاح: ${saved.name} (ID: ${saved.id})`);
+    this.logger.log(` تم إنشاء البطاقة: ${saved.cardUrl}`);
     
+    this.logger.log(' ملخص عملية الإنشاء:');
+    this.logger.log(`   ✅ الموظف: ${saved.name} (ID: ${saved.id})`);
+    this.logger.log(`    البريد الإلكتروني: ${saved.email || 'لم يتم تعيينه'}`);
+    this.logger.log(`   📞 الهاتف: ${saved.phone || 'لم يتم تعيينه'}`);
+    this.logger.log(`    الصورة الشخصية: ${saved.profileImageUrl ? 'تم رفعها' : 'افتراضية'}`);
+    this.logger.log(`    تصميم البطاقة: ${saved.designId || 'افتراضي'}`);
+    this.logger.log(`    رابط البطاقة: ${saved.cardUrl ? 'تم إنشاؤه' : 'NULL'}`);
+    this.logger.log(`    عدد الملفات المرفوعة: ${uploadedImagesCount}`);
+    this.logger.log(`   🎯 QR Code: ${saved.qrCode ? 'تم إنشاؤه' : 'NULL'}`);
+
     return {
       statusCode: HttpStatus.CREATED,
       message: 'تم إنشاء الموظف بنجاح',
@@ -483,7 +557,7 @@ async generateGoogleWalletLink(employeeId: number): Promise<{ url: string; saveL
     employee.googleWalletUrl = saveLink;
     await this.employeeRepo.save(employee);
 
-    this.logger.log('🔗 تم إنشاء رابط Google Wallet');
+    this.logger.log(' تم إنشاء رابط Google Wallet');
 
     return {
       url: `${process.env.API_BASE_URL}/employee/${employeeId}/google-wallet/redirect`,
@@ -748,7 +822,7 @@ async generateGoogleWalletLink(employeeId: number): Promise<{ url: string; saveL
         }
       }
     } catch (error) {
-      this.logger.error(`فشل معالجة الصور: ${error}`);
+      this.logger.error(` فشل معالجة الصور: ${error}`);
       throw error;
     }
   }
@@ -763,7 +837,7 @@ async generateGoogleWalletLink(employeeId: number): Promise<{ url: string; saveL
     );
 
     if (validImages.length !== images.length) {
-      this.logger.warn(`بعض الصور غير صالحة، سيتم استخدام ${validImages.length} صورة صالحة فقط`);
+      this.logger.warn(`⚠️ بعض الصور غير صالحة، سيتم استخدام ${validImages.length} صورة صالحة فقط`);
     }
     const oldImages = await this.imageRepo.find({ where: { employeeId } });
     
@@ -782,7 +856,7 @@ async generateGoogleWalletLink(employeeId: number): Promise<{ url: string; saveL
 
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`فشل تحديث الصور: ${errorMessage}`);
+    this.logger.error(` فشل تحديث الصور: ${errorMessage}`);
     throw new Error('حدث خطأ أثناء تحديث الصور');
   }
 }
@@ -806,7 +880,7 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
       const afterDelete = await this.imageRepo.find({ where: { employeeId } });
       this.logger.log(` عدد الصور بعد الحذف: ${afterDelete.length}`);
     } else {
-      this.logger.log(`ℹ لا توجد صور لحذفها`);
+      this.logger.log(`لا توجد صور لحذفها`);
     }
   } catch (error) {
     this.logger.error(` فشل في حذف الصور: ${error}`);
@@ -841,7 +915,7 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
         }
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(`فشل تحديث تصميم البطاقة: ${errorMessage}`);
+        this.logger.error(` فشل تحديث تصميم البطاقة: ${errorMessage}`);
       }
   }
 
@@ -886,7 +960,7 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
   for (const file of validFiles) {
     try {
       if (file.size > 3 * 1024 * 1024) {
-        this.logger.warn(`الملف كبير جداً: ${file.originalname}`);
+        this.logger.warn(` الملف كبير جداً: ${file.originalname}`);
         continue;
       }
 
@@ -913,12 +987,12 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
         await this.saveEmployeeImage(employee.id, result.secure_url, result.public_id, file.originalname);
         updatedFields.push('employee_images');
       } else {
-        this.logger.warn(`حقل غير معروف: ${file.fieldname}`);
+        this.logger.warn(` حقل غير معروف: ${file.fieldname}`);
       }
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل معالجة الملف ${file.originalname}: ${errorMessage}`);
+      this.logger.error(` فشل معالجة الملف ${file.originalname}: ${errorMessage}`);
     }
   }
 
@@ -932,7 +1006,7 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
       await this.cardRepo.save(card);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل تحديث صورة الخلفية: ${errorMessage}`);
+      this.logger.error(` فشل تحديث صورة الخلفية: ${errorMessage}`);
     }
   }
 
@@ -955,7 +1029,7 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
     
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل حفظ الصورة في الجدول المنفصل: ${errorMessage}`);
+      this.logger.error(` فشل حفظ الصورة في الجدول المنفصل: ${errorMessage}`);
     }
   }
 
@@ -1090,7 +1164,7 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(`خطأ في التحقق من الاشتراك: ${error}`);
+      this.logger.error(` خطأ في التحقق من الاشتراك: ${error}`);
       throw new NotFoundException('البطاقة غير موجودة');
     }
 
@@ -1236,7 +1310,7 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
       const errorMessage = err && typeof err === 'object' && 'message' in err
       ? String((err as { message?: unknown }).message)      
       : 'Unknown error';
-      throw new Error(`فشل إنشاء ملف Excel: ${errorMessage}`);
+      throw new Error(` فشل إنشاء ملف Excel: ${errorMessage}`);
     }
   }
 

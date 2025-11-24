@@ -23,7 +23,7 @@ export class CardService {
     extra?: Partial<EmployeeCard>
   ): Promise<{ 
     cardUrl: string; 
-    qrCode: string; // تغيير من qrCodeUrl إلى qrCode
+    qrCode: string; 
     designId: string; 
     qrStyle: number 
   }> {
@@ -44,10 +44,8 @@ export class CardService {
       this.logger.log(`إنشاء uniqueUrl جديد: ${uniqueUrl}`);
     }
 
-    // رابط البطاقة العادي (بدون source)
     const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}`;
     
-    // رابط QR Code (مميز بـ source=qr)
     const qrCode = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}?source=qr`;
 
     this.logger.log(`رابط البطاقة العادي: ${cardUrl}`);
@@ -77,7 +75,7 @@ export class CardService {
     const cardData: Partial<EmployeeCard> = {
       title: `${employee.name} - ${employee.jobTitle} - بطاقة الموظف`,
       uniqueUrl, 
-      qrCode, // حفظ رابط QR المميز
+      qrCode, 
       designId: finalDesignId,
       qrStyle: finalQrStyle,
       employeeId: employee.id,
@@ -114,7 +112,7 @@ export class CardService {
 
     return {
       cardUrl,
-      qrCode, // تغيير من qrCodeUrl إلى qrCode
+      qrCode, 
       designId: finalDesignId,
       qrStyle: finalQrStyle,
     };

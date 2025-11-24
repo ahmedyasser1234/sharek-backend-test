@@ -57,7 +57,7 @@ export class EmployeeController {
     private readonly employeeService: EmployeeService,
     private readonly visitService: VisitService,
     private readonly cardService: CardService,
-    private readonly digitalCardService: DigitalCardService, // أضف هذا
+    private readonly digitalCardService: DigitalCardService,
   ) {}
 
   @Public()

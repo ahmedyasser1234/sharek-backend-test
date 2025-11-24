@@ -74,6 +74,14 @@ export class Company {
   @Column({ nullable: true, type: 'text' })
   fontFamily: string;
 
+  @ApiProperty({ example: '/uploads/fonts/company-123/font.woff2' })
+  @Column({ nullable: true, type: 'text' })
+  customFontUrl: string;
+
+  @ApiProperty({ example: 'MyCustomFont' })
+  @Column({ nullable: true, type: 'text' })
+  customFontName: string;
+
   @ApiProperty({ example: 'inactive' })
   @Column({ default: 'inactive', type: 'text' })
   subscriptionStatus: 'active' | 'inactive' | 'expired';

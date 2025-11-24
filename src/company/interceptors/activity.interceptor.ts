@@ -35,7 +35,7 @@ export class ActivityInterceptor implements NestInterceptor {
           
           this.activityTracker.recordActivity(companyId, action)
             .catch((err: Error) => 
-              this.logger.error(` فشل تسجيل النشاط: ${err.message}`)
+              this.logger.error(` فشل تسجيل النشاط في الإنترسيبتور: ${err.message}`)
             );
         }
       })

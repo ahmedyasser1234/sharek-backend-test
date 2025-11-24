@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, MoreThan } from 'typeorm';
 import { CompanyActivity } from '../entities/company-activity.entity';
 
 @Injectable()
 export class ActivityTrackerService {
   private readonly logger = new Logger(ActivityTrackerService.name);
-  private readonly INACTIVITY_TIMEOUT = 24 * 60 * 60 * 1000; 
+  private readonly INACTIVITY_THRESHOLD = 30 * 60 * 1000; 
 
   constructor(
     @InjectRepository(CompanyActivity)
@@ -19,24 +19,25 @@ export class ActivityTrackerService {
         where: { companyId }
       });
 
+      const now = new Date();
+      
       if (activity) {
-        activity.lastActivity = new Date();
+        activity.lastActivity = now;
         activity.action = action;
         activity.isOnline = true;
-        await this.activityRepo.save(activity);
       } else {
         activity = this.activityRepo.create({
           companyId,
-          lastActivity: new Date(),
+          lastActivity: now,
           action,
-          isOnline: true,
+          isOnline: true
         });
-        await this.activityRepo.save(activity);
       }
-      
-      this.logger.debug(` تم تسجيل نشاط للشركة: ${companyId} - ${action}`);
-    } catch (error: unknown) {
-      this.logger.error(` فشل تسجيل النشاط: ${error instanceof Error ? error.message : 'Unknown error'}`);
+
+      await this.activityRepo.save(activity);
+      this.logger.debug(` تم تسجيل نشاط للشركة ${companyId}: ${action}`);
+    } catch (error) {
+      this.logger.error(` فشل تسجيل النشاط للشركة ${companyId}: ${error}`);
     }
   }
 
@@ -46,25 +47,27 @@ export class ActivityTrackerService {
         where: { companyId }
       });
 
-      if (!activity || !activity.lastActivity) {
+      if (!activity) {
+        this.logger.debug(` لا توجد سجلات نشاط للشركة ${companyId}`);
         return false; 
       }
 
-      const now = new Date();
-      const lastActivityTime = new Date(activity.lastActivity).getTime();
-      const currentTime = now.getTime();
-      const timeDiff = currentTime - lastActivityTime;
+      const now = Date.now();
+      const lastActivityTime = activity.lastActivity.getTime();
+      const inactivityPeriod = now - lastActivityTime;
 
-      const shouldLogout = timeDiff > this.INACTIVITY_TIMEOUT;
+      this.logger.debug(` التحقق من النشاط للشركة ${companyId}: ${inactivityPeriod}ms منذ آخر نشاط`);
+
+      const isInactive = inactivityPeriod > this.INACTIVITY_THRESHOLD;
       
-      if (shouldLogout) {
-        this.logger.warn(` الشركة ${companyId} انتهت جلستها بسبب عدم النشاط`);
+      if (isInactive) {
+        this.logger.warn(` الشركة ${companyId} غير نشطة لمدة ${Math.round(inactivityPeriod / 60000)} دقيقة`);
       }
-      
-      return shouldLogout;
+
+      return isInactive;
     } catch (error) {
-      this.logger.error(` خطأ في التحقق من النشاط: ${error}`);
-      return false;
+      this.logger.error(` خطأ في التحقق من النشاط للشركة ${companyId}: ${error}`);
+      return false; 
     }
   }
 
@@ -72,33 +75,52 @@ export class ActivityTrackerService {
     try {
       await this.activityRepo.update(
         { companyId },
-        { isOnline: false }
+        { isOnline: false, lastActivity: new Date() }
       );
       this.logger.debug(` تم تعيين الشركة ${companyId} كغير متصل`);
     } catch (error) {
-      this.logger.error(` فشل تعيين حالة غير متصل: ${error}`);
+      this.logger.error(` فشل تعيين حالة غير متصل للشركة ${companyId}: ${error}`);
     }
   }
 
-  async getLastActivity(companyId: string): Promise<Date | null> {
-    const activity = await this.activityRepo.findOne({
-      where: { companyId }
-    });
-    return activity?.lastActivity || null;
+  async markAsOnline(companyId: string): Promise<void> {
+    try {
+      await this.recordActivity(companyId, 'login');
+      this.logger.debug(` تم تعيين الشركة ${companyId} كمتصل`);
+    } catch (error) {
+      this.logger.error(` فشل تعيين حالة متصل للشركة ${companyId}: ${error}`);
+    }
   }
 
-  async cleanupOldActivities(): Promise<void> {
+  async getActiveSessions(): Promise<CompanyActivity[]> {
     try {
-      const cutoffTime = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000)); 
+      const threshold = new Date(Date.now() - this.INACTIVITY_THRESHOLD);
+      return await this.activityRepo.find({
+        where: {
+          lastActivity: MoreThan(threshold),
+          isOnline: true
+        }
+      });
+    } catch (error) {
+      this.logger.error(` فشل جلب الجلسات النشطة: ${error}`);
+      return [];
+    }
+  }
+
+  async cleanupOldActivities(): Promise<number> {
+    try {
+      const threshold = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)); 
       const result = await this.activityRepo
         .createQueryBuilder()
         .delete()
-        .where('lastActivity < :cutoffTime', { cutoffTime })
+        .where('lastActivity < :threshold', { threshold })
         .execute();
-      
+
       this.logger.log(` تم تنظيف ${result.affected} سجل نشاط قديم`);
+      return result.affected || 0;
     } catch (error) {
-      this.logger.error(` فشل تنظيف السجلات القديمة: ${error}`);
+      this.logger.error(` فشل تنظيف سجلات النشاط القديمة: ${error}`);
+      return 0;
     }
   }
 }

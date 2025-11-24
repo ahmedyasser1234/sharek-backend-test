@@ -9,6 +9,7 @@ import {
   UseGuards,
   Req,
   UploadedFile,
+  UploadedFiles,
   UseInterceptors,
   BadRequestException,
   UnauthorizedException,
@@ -17,6 +18,7 @@ import {
   Logger,
   InternalServerErrorException,
   NotFoundException,
+  Header,
 } from '@nestjs/common';
 import { CompanyService } from './company.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
@@ -32,7 +34,7 @@ import {
   ApiBearerAuth,
   ApiConsumes,
 } from '@nestjs/swagger';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { SubscriptionService } from '../subscription/subscription.service'; 
 import { ActivityInterceptor } from './interceptors/activity.interceptor';
@@ -93,7 +95,7 @@ export class CompanyController {
     };
   }
 
-    @Public()
+  @Public()
   @Get(':id/logo')
   @ApiOperation({ summary: 'جلب رابط الشعار الخاص بالشركة' })
   @ApiResponse({ 
@@ -519,6 +521,55 @@ async renewSession(@Req() req: CompanyRequest) {
     };
   }
 
+  // ← أضف هذه الـ endpoint الجديدة لتحديث الشركة مع الخط المخصص
+  @UseGuards(CompanyJwtGuard)
+  @ApiBearerAuth()
+  @Put('update-with-font')
+  @UseInterceptors(FileFieldsInterceptor([
+    { name: 'logo', maxCount: 1 },
+    { name: 'customFont', maxCount: 1 }
+  ]))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'تحديث بيانات الشركة مع الخط المخصص' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'تم تحديث بيانات الشركة والخط بنجاح',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'تم تحديث بيانات الشركة والخط بنجاح' }
+      }
+    }
+  })
+  async updateWithFont(
+    @Body() dto: UpdateCompanyDto,
+    @UploadedFiles() files: { 
+      logo?: Express.Multer.File[], 
+      customFont?: Express.Multer.File[] 
+    },
+    @Req() req: CompanyRequest
+  ) {
+    if (!req.user?.companyId) {
+      throw new UnauthorizedException('Unauthorized access');
+    }
+
+    const logo = files.logo?.[0];
+    const customFont = files.customFont?.[0];
+
+    await this.companyService.updateCompany(
+      req.user.companyId, 
+      dto, 
+      logo, 
+      customFont
+    );
+    
+    return { 
+      statusCode: HttpStatus.OK,
+      message: 'تم تحديث بيانات الشركة والخط بنجاح' 
+    };
+  }
+
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
   @Put(':id')
@@ -575,7 +626,8 @@ async renewSession(@Req() req: CompanyRequest) {
       message: 'تم حذف الشركة بنجاح'
     };
   }
-   @UseGuards(CompanyJwtGuard)
+
+  @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
   @Post('activity/ping')
   @ApiOperation({ summary: 'تسجيل نشاط المستخدم لإبقاء الجلسة نشطة' })
@@ -639,4 +691,96 @@ async renewSession(@Req() req: CompanyRequest) {
     };
   }
 
+  // ← أضف هذه الـ endpoints الجديدة للخطوط
+
+  @Public()
+  @Get(':companyId/font.css')
+  @Header('Content-Type', 'text/css')
+  @ApiOperation({ summary: 'جلب ملف CSS للخط المخصص للشركة' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'تم جلب ملف CSS بنجاح',
+    content: {
+      'text/css': {
+        schema: {
+          type: 'string'
+        }
+      }
+    }
+  })
+  async getCompanyFontCss(@Param('companyId') companyId: string) {
+    try {
+      const fontData = await this.companyService.getCompanyFont(companyId);
+      return fontData.fontCss;
+    } catch (error: unknown) {
+      // إذا فشل، ارجع CSS افتراضي
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب CSS الخط للشركة ${companyId}: ${errorMessage}`);
+      return `/* خطأ في تحميل الخط: ${errorMessage} */`;
+    }
+  }
+
+  @UseGuards(CompanyJwtGuard)
+  @ApiBearerAuth()
+  @Get('my-font/data')
+  @ApiOperation({ summary: 'جلب بيانات الخط المخصص للشركة الحالية' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'تم جلب بيانات الخط بنجاح',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'تم جلب بيانات الخط بنجاح' },
+        data: {
+          type: 'object',
+          properties: {
+            fontFamily: { type: 'string' },
+            customFontUrl: { type: 'string', nullable: true },
+            customFontName: { type: 'string', nullable: true },
+            fontCss: { type: 'string' }
+          }
+        }
+      }
+    }
+  })
+  async getMyFont(@Req() req: CompanyRequest) {
+    if (!req.user?.companyId) {
+      throw new UnauthorizedException('Unauthorized access');
+    }
+
+    const fontData = await this.companyService.getCompanyFont(req.user.companyId);
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم جلب بيانات الخط بنجاح',
+      data: fontData
+    };
+  }
+
+  @UseGuards(CompanyJwtGuard)
+  @ApiBearerAuth()
+  @Delete('custom-font')
+  @ApiOperation({ summary: 'حذف الخط المخصص للشركة الحالية' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'تم حذف الخط المخصص بنجاح',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'تم حذف الخط المخصص بنجاح' }
+      }
+    }
+  })
+  async deleteCustomFont(@Req() req: CompanyRequest) {
+    if (!req.user?.companyId) {
+      throw new UnauthorizedException('Unauthorized access');
+    }
+
+    await this.companyService.deleteCustomFont(req.user.companyId);
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم حذف الخط المخصص بنجاح'
+    };
+  }
 }
