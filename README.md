@@ -776,8 +776,6 @@ const checkPlanChange = async (companyId, newPlanId) => {
 };
 
 
-git add .
-git commit -m  "update"
-git push
+
 
 
