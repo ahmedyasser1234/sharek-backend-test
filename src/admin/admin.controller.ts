@@ -10,14 +10,27 @@ import {
   UnauthorizedException,
   UseGuards,
   Request,
+  Req,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AdminJwtGuard } from './auth/admin-jwt.guard';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { Company } from '../company/entities/company.entity';
 import { Admin } from './entities/admin.entity';
-import { Manager, ManagerRole } from './entities/manager.entity';
+import { Manager } from './entities/manager.entity';
 import { AdminRequest } from './auth/interfaces/admin-request.interface';
+import { 
+  ManagerWithoutPassword, 
+  DatabaseDownloadResponse, 
+  CompanyWithActivator,
+  SubscriptionResult 
+} from './admin.service';
+import { Employee } from '../employee/entities/employee.entity';
+import { CompanySubscription } from '../subscription/entities/company-subscription.entity';
+
+interface ExtendedAdminRequest extends Request {
+  user?: { adminId: string; role: string };
+}
 
 @ApiTags('Admin')
 @Controller('admin')
@@ -48,48 +61,48 @@ export class AdminController {
   @Post('managers')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'إنشاء مدير جديد' })
-  createManager(@Request() req: AdminRequest, @Body() dto: { email: string; password: string; role?: ManagerRole }) {
+  @ApiOperation({ summary: 'إنشاء بائع جديد' })
+  createManager(@Request() req: AdminRequest, @Body() dto: { email: string; password: string }): Promise<ManagerWithoutPassword> {
     return this.service.createManager(req.user.adminId, dto);
   }
 
   @Get('managers')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'عرض جميع المديرين' })
-  getAllManagers() {
+  @ApiOperation({ summary: 'عرض جميع البائعين' })
+  getAllManagers(): Promise<ManagerWithoutPassword[]> {
     return this.service.getAllManagers();
   }
 
   @Put('managers/:id')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'تحديث بيانات المدير' })
-  updateManager(@Param('id') id: string, @Body() dto: Partial<Manager>) {
+  @ApiOperation({ summary: 'تحديث بيانات البائع' })
+  updateManager(@Param('id') id: string, @Body() dto: Partial<Manager>): Promise<ManagerWithoutPassword> {
     return this.service.updateManager(id, dto);
   }
 
   @Patch('managers/:id/activate')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'تفعيل المدير' })
-  activateManager(@Param('id') id: string) {
+  @ApiOperation({ summary: 'تفعيل البائع' })
+  activateManager(@Param('id') id: string): Promise<ManagerWithoutPassword> {
     return this.service.toggleManagerStatus(id, true);
   }
 
   @Patch('managers/:id/deactivate')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'إلغاء تفعيل المدير' })
-  deactivateManager(@Param('id') id: string) {
+  @ApiOperation({ summary: 'إلغاء تفعيل البائع' })
+  deactivateManager(@Param('id') id: string): Promise<ManagerWithoutPassword> {
     return this.service.toggleManagerStatus(id, false);
   }
 
   @Delete('managers/:id')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'حذف المدير' })
-  deleteManager(@Param('id') id: string) {
+  @ApiOperation({ summary: 'حذف البائع' })
+  deleteManager(@Param('id') id: string): Promise<{ message: string }> {
     return this.service.deleteManager(id);
   }
 
@@ -97,7 +110,7 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'إنشاء أدمن جديد' })
-  createAdmin(@Body() dto: { email: string; password: string }) {
+  createAdmin(@Body() dto: { email: string; password: string }): Promise<Admin> {
     return this.service.createAdmin(dto);
   }
 
@@ -105,7 +118,7 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'تحديث بيانات الأدمن' })
-  updateAdmin(@Param('id') id: string, @Body() dto: Partial<Admin>) {
+  updateAdmin(@Param('id') id: string, @Body() dto: Partial<Admin>): Promise<Admin> {
     return this.service.updateAdmin(id, dto);
   }
 
@@ -113,7 +126,7 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'تحميل قاعدة البيانات (للأدمن فقط)' })
-  downloadDatabase() {
+  downloadDatabase(): Promise<DatabaseDownloadResponse> {
     return this.service.downloadDatabase();
   }
 
@@ -121,7 +134,7 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'إحصائيات النظام' })
-  getStats() {
+  getStats(): Promise<{ companies: number; employees: number; activeSubscriptions: number }> {
     return this.service.getStats();
   }
 
@@ -129,15 +142,32 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'عرض جميع الشركات' })
-  getCompanies() {
+  getCompanies(): Promise<Array<{
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    isActive: boolean;
+    isVerified: boolean;
+    subscriptionStatus: string;
+    employeesCount: number;
+  }>> {
     return this.service.getAllCompaniesWithEmployeeCount();
+  }
+
+  @Get('companies/with-activator')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'عرض جميع الشركات مع معلومات المفعّل' })
+  getAllCompaniesWithActivator(): Promise<CompanyWithActivator[]> {
+    return this.service.getAllCompaniesWithActivator();
   }
 
   @Patch('companies/:id/activate')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'تفعيل شركة' })
-  activateCompany(@Param('id') id: string) {
+  activateCompany(@Param('id') id: string): Promise<Company | null> {
     return this.service.toggleCompany(id, true);
   }
 
@@ -145,7 +175,7 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'إلغاء تفعيل شركة' })
-  deactivateCompany(@Param('id') id: string) {
+  deactivateCompany(@Param('id') id: string): Promise<Company | null> {
     return this.service.toggleCompany(id, false);
   }
 
@@ -153,7 +183,7 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'تحديث بيانات الشركة' })
-  updateCompany(@Param('id') id: string, @Body() dto: Partial<Company>) {
+  updateCompany(@Param('id') id: string, @Body() dto: Partial<Company>): Promise<Company | null> {
     return this.service.updateCompany(id, dto);
   }
 
@@ -161,7 +191,7 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'حذف شركة' })
-  deleteCompany(@Param('id') id: string) {
+  deleteCompany(@Param('id') id: string): Promise<void> {
     return this.service.deleteCompany(id);
   }
 
@@ -169,7 +199,7 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'عرض موظفي الشركة' })
-  getEmployees(@Param('companyId') companyId: string) {
+  getEmployees(@Param('companyId') companyId: string): Promise<Employee[]> {
     return this.service.getEmployeesByCompany(companyId);
   }
 
@@ -177,7 +207,7 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'حذف موظف' })
-  deleteEmployee(@Param('id') id: number) {
+  deleteEmployee(@Param('id') id: number): Promise<void> {
     return this.service.deleteEmployee(id);
   }
 
@@ -185,7 +215,7 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'عرض جميع الاشتراكات' })
-  getSubscriptions() {
+  getSubscriptions(): Promise<CompanySubscription[]> {
     return this.service.getAllSubscriptions();
   }
 
@@ -193,7 +223,7 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'تفعيل اشتراك' })
-  activateSubscription(@Param('id') id: string) {
+  activateSubscription(@Param('id') id: string): Promise<CompanySubscription | null> {
     return this.service.activateSubscription(id);
   }
 
@@ -201,7 +231,22 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'تغيير خطة الاشتراك' })
-  changePlan(@Param('id') id: string, @Body() body: { planId: string }) {
+  changePlan(@Param('id') id: string, @Body() body: { planId: string }): Promise<CompanySubscription | null> {
     return this.service.changeSubscriptionPlan(id, body.planId);
+  }
+
+  @Post('subscriptions/:companyId/subscribe/:planId')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'اشتراك شركة في خطة جديدة بواسطة الأدمن' })
+  async subscribeCompanyToPlan(
+    @Param('companyId') companyId: string,
+    @Param('planId') planId: string,
+    @Req() req: ExtendedAdminRequest
+  ): Promise<SubscriptionResult> {
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+
+    return this.service.subscribeCompanyToPlan(companyId, planId, adminId);
   }
 }

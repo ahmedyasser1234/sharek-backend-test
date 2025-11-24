@@ -1,4 +1,5 @@
-import { forwardRef, Module } from '@nestjs/common';import { TypeOrmModule } from '@nestjs/typeorm';
+import { forwardRef, Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { SubscriptionService } from './subscription.service';
 import { SubscriptionController } from './subscription.controller';
 import { AdminSubscriptionController } from './AdminSubscription.Controller';
@@ -13,6 +14,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard'; 
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { Employee } from '../employee/entities/employee.entity'; 
+import { Manager } from '../admin/entities/manager.entity'; // إضافة Manager entity
+import { Admin } from '../admin/entities/admin.entity'; // إضافة Admin entity
 
 @Module({
   imports: [
@@ -21,12 +24,14 @@ import { Employee } from '../employee/entities/employee.entity';
       Company,
       Plan,
       PaymentTransaction,
-      PaymentProof, 
-       Employee,
+      PaymentProof,
+      Employee,
+      Manager, // إضافة Manager entity
+      Admin, // إضافة Admin entity
     ]),
     forwardRef(() => CompanyModule),
-     PaymentModule,
-     JwtModule.register({
+    PaymentModule,
+    JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '1d' },
     }), 

@@ -1,10 +1,19 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { 
+  Entity, 
+  PrimaryGeneratedColumn, 
+  Column, 
+  CreateDateColumn, 
+  UpdateDateColumn, 
+  ManyToOne, 
+  JoinColumn, 
+  OneToMany 
+} from 'typeorm';
 import { Admin } from '../../admin/entities/admin.entity';
 import { ManagerToken } from './manager-token.entity';
+import { CompanySubscription } from '../../subscription/entities/company-subscription.entity';
 
 export enum ManagerRole {
-  SUPER_ADMIN = 'super_admin',
-  MANAGER = 'manager'
+  SELLER = 'seller'  
 }
 
 @Entity('managers')
@@ -18,7 +27,7 @@ export class Manager {
   @Column()
   password: string;
 
-  @Column({ type: 'enum', enum: ManagerRole, default: ManagerRole.MANAGER })
+  @Column({ type: 'enum', enum: ManagerRole, default: ManagerRole.SELLER })
   role: ManagerRole;
 
   @Column({ default: true })
@@ -33,6 +42,9 @@ export class Manager {
 
   @OneToMany(() => ManagerToken, token => token.manager)
   tokens: ManagerToken[];
+
+  @OneToMany(() => CompanySubscription, subscription => subscription.activatedBySeller)
+  activatedSubscriptions: CompanySubscription[];
 
   @CreateDateColumn()
   createdAt: Date;

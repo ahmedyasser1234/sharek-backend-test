@@ -21,6 +21,81 @@ import { Employee } from '../employee/entities/employee.entity';
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
 
+export interface SubscriptionResponse {
+  message: string;
+  redirectToDashboard?: boolean;
+  redirectToPayment?: boolean;
+  checkoutUrl?: string;
+  subscription?: CompanySubscription;
+}
+
+export interface CancelSubscriptionResult {
+  message: string;
+  deletedSubscriptions: number;
+  disconnectedPlans: string[];
+  companyStatus: string;
+  note: string;
+}
+
+export interface ExtendSubscriptionResult {
+  message: string;
+  subscription: CompanySubscription;
+  warning?: string;
+  details?: {
+    currentEmployees: number;
+    maxAllowed: number;
+    exceededBy?: number;
+    remainingSlots?: number;
+    newEndDate: Date;
+    planStatus: string;
+    planName: string;
+    durationAdded: string;
+  };
+}
+
+export interface PlanChangeValidation {
+  canChange: boolean;
+  message: string;
+  currentPlanMax: number;
+  newPlanMax: number;
+  currentEmployees: number;
+  action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
+}
+
+export interface PlanChangeRequestResult {
+  success: boolean;
+  message: string;
+  validation: PlanChangeValidation;
+  changeDetails?: {
+    currentPlan: string;
+    newPlan: string;
+    currentMaxEmployees: number;
+    newMaxEmployees: number;
+    currentEmployees: number;
+    daysRemaining: number;
+    newDuration: number;
+    price: number;
+    action: string;
+  };
+}
+
+export interface PlanChangeResult {
+  message: string;
+  subscription: CompanySubscription;
+  details: {
+    action: string;
+    oldPlan: string;
+    newPlan: string;
+    currentEmployees: number;
+    oldMaxAllowed: number;
+    newMaxAllowed: number;
+    daysRemaining: number;
+    newDuration: number;
+    newEndDate: Date;
+    employeeLimitUpdated: boolean;
+  };
+}
+
 @Injectable()
 export class SubscriptionService {
   private readonly logger = new Logger(SubscriptionService.name);
@@ -54,7 +129,13 @@ export class SubscriptionService {
     }
   }
 
-  async subscribe(companyId: string, planId: string, isAdminOverride = false): Promise<any> {
+  async subscribe(
+    companyId: string, 
+    planId: string, 
+    isAdminOverride = false,
+    activatedBySellerId?: string,
+    activatedByAdminId?: string
+  ): Promise<SubscriptionResponse> {
     try {
       this.logger.log(` بدء الاشتراك: الشركة ${companyId} في الخطة ${planId}`);
 
@@ -96,6 +177,15 @@ export class SubscriptionService {
         price: planPrice,
         status: SubscriptionStatus.ACTIVE,
       };
+
+      // إضافة حقول التتبع فقط إذا كانت موجودة
+      if (activatedBySellerId) {
+        subscriptionData.activatedBySellerId = activatedBySellerId;
+      }
+      
+      if (activatedByAdminId) {
+        subscriptionData.activatedByAdminId = activatedByAdminId;
+      }
 
       if (planPrice === 0 || isAdminOverride) {
         const subscription = existingSub
@@ -148,68 +238,7 @@ export class SubscriptionService {
     }
   }
 
-  async validatePlanChange(companyId: string, newPlanId: string): Promise<{
-    canChange: boolean;
-    message: string;
-    currentPlanMax: number;
-    newPlanMax: number;
-    currentEmployees: number;
-    action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
-  }> {
-    try {
-      const currentSubscription = await this.getCompanySubscription(companyId);
-      if (!currentSubscription) {
-        throw new NotFoundException('لا يوجد اشتراك حالي للشركة');
-      }
-      const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
-      if (!newPlan) {
-        throw new NotFoundException('الخطة الجديدة غير موجودة');
-      }
-      const currentEmployees = await this.employeeRepo.count({
-        where: { company: { id: companyId } }
-      });
-
-      const currentPlanMax = currentSubscription.plan?.maxEmployees || 0;
-      const newPlanMax = newPlan.maxEmployees;
-      let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
-      let message = '';
-
-      if (newPlanMax > currentPlanMax) {
-        action = 'UPGRADE';
-        message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف`;
-      } else if (newPlanMax === currentPlanMax) {
-        action = 'RENEW';
-        message = `يمكنك التجديد في نفس الخطة ${newPlan.name} لمدة سنة إضافية`;
-      } else if (newPlanMax < currentPlanMax) {
-        if (newPlanMax >= currentEmployees) {
-          action = 'DOWNGRADE';
-          message = `يمكنك التغيير إلى الخطة ${newPlan.name} ولكن سيكون الحد الأقصى ${newPlanMax} موظف`;
-        } else {
-          action = 'INVALID';
-          message = `لا يمكن التغيير إلى خطة أقل - عدد الموظفين الحاليين (${currentEmployees}) يتجاوز الحد المسموح في الخطة الجديدة (${newPlanMax})`;
-        }
-      } else {
-        action = 'INVALID';
-        message = 'لا يمكن تغيير الخطة';
-      }
-
-      const canChange = action !== 'INVALID';
-
-      return {
-        canChange,
-        message,
-        currentPlanMax,
-        newPlanMax,
-        currentEmployees,
-        action
-      };
-    } catch (error: unknown) {
-      this.logger.error(`فشل التحقق من تغيير الخطة: ${error instanceof Error ? error.message : String(error)}`);      
-      throw error;
-    }
-  }
-
-  async changeSubscriptionPlan(companyId: string, newPlanId: string): Promise<any> {
+  async changeSubscriptionPlan(companyId: string, newPlanId: string): Promise<PlanChangeResult> {
     try {
       const validation = await this.validatePlanChange(companyId, newPlanId);
       
@@ -224,7 +253,6 @@ export class SubscriptionService {
         throw new NotFoundException('الاشتراك أو الخطة غير موجودة');
       }
 
-      // منع التغيير من خطة أعلى إلى خطة أقل
       if (validation.action === 'DOWNGRADE') {
         throw new BadRequestException(
           `لا يمكن التغيير من خطة ${currentSubscription.plan?.name} (${validation.currentPlanMax} موظف) إلى خطة ${newPlan.name} (${validation.newPlanMax} موظف) - غير مسموح بالانتقال لخطة أقل`
@@ -238,8 +266,9 @@ export class SubscriptionService {
       const endDate = new Date(currentSubscription.endDate);
       const daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
       const newDurationInDays = daysRemaining + 365;
-      const oldPlanName = currentSubscription.plan?.name;
+      const oldPlanName = currentSubscription.plan?.name || 'غير معروف';
       const oldMaxEmployees = currentPlanMax;
+      
       currentSubscription.plan = newPlan;
       currentSubscription.price = newPlan.price;
       currentSubscription.endDate = new Date(now.getTime() + newDurationInDays * 86400000);
@@ -279,7 +308,7 @@ export class SubscriptionService {
     }
   }
 
-  async requestPlanChange(companyId: string, newPlanId: string): Promise<any> {
+  async requestPlanChange(companyId: string, newPlanId: string): Promise<PlanChangeRequestResult> {
     try {
       const validation = await this.validatePlanChange(companyId, newPlanId);
       
@@ -291,7 +320,6 @@ export class SubscriptionService {
         };
       }
 
-      // منع الانتقال من خطة أعلى إلى أقل
       if (validation.action === 'DOWNGRADE') {
         return {
           success: false,
@@ -317,7 +345,7 @@ export class SubscriptionService {
         message: validation.message,
         validation: validation,
         changeDetails: {
-          currentPlan: currentSubscription.plan?.name,
+          currentPlan: currentSubscription.plan?.name || 'غير معروف',
           newPlan: newPlan.name,
           currentMaxEmployees: validation.currentPlanMax,
           newMaxEmployees: validation.newPlanMax,
@@ -385,6 +413,8 @@ export class SubscriptionService {
       return await this.subscriptionRepo
         .createQueryBuilder('sub')
         .leftJoinAndSelect('sub.plan', 'plan')
+        .leftJoinAndSelect('sub.activatedBySeller', 'activatedBySeller')
+        .leftJoinAndSelect('sub.activatedByAdmin', 'activatedByAdmin')
         .leftJoin('sub.company', 'company')
         .where('company.id = :companyId', { companyId })
         .orderBy('sub.startDate', 'DESC')
@@ -493,9 +523,8 @@ export class SubscriptionService {
     }
   }
 
-  async cancelSubscription(companyId: string): Promise<any> {
+  async cancelSubscription(companyId: string): Promise<CancelSubscriptionResult> {
     try {
-      // جلب جميع الاشتراكات النشطة
       const subscriptions = await this.subscriptionRepo.find({
         where: { 
           company: { id: companyId },
@@ -509,14 +538,12 @@ export class SubscriptionService {
         throw new NotFoundException('لا يوجد اشتراكات نشطة للشركة');
       }
 
-      // حذف جميع الاشتراكات القديمة بدلاً من تعطيلها فقط
       await this.subscriptionRepo.delete({
         company: { id: companyId }
       });
 
       this.logger.log(` تم حذف جميع الاشتراكات القديمة للشركة: ${companyId}`);
 
-      // تحديث حالة الشركة
       const company = await this.companyRepo.findOne({ where: { id: companyId } });
       if (company) {
         company.subscriptionStatus = 'inactive';
@@ -530,7 +557,7 @@ export class SubscriptionService {
 
       const planNames = [...new Set(subscriptions.map(sub => sub.plan?.name).filter(Boolean))];
 
-      const result = { 
+      const result: CancelSubscriptionResult = { 
         message: ' تم إلغاء وحذف جميع اشتراكات الشركة بنجاح', 
         deletedSubscriptions: subscriptions.length,
         disconnectedPlans: planNames,
@@ -552,7 +579,7 @@ export class SubscriptionService {
     }
   }
 
-  async extendSubscription(companyId: string, options?: { forceExtend?: boolean }): Promise<any> {
+  async extendSubscription(companyId: string, options?: { forceExtend?: boolean }): Promise<ExtendSubscriptionResult> {
     try {
       const sub = await this.getCompanySubscription(companyId);
       if (!sub || !sub.plan) {
@@ -563,7 +590,6 @@ export class SubscriptionService {
       const currentEmployeeCount = allowedEmployees.current;
       const maxAllowed = allowedEmployees.maxAllowed;
 
-      // التحقق من عدم التمديد لخطة أقل
       const currentPlanMax = sub.plan.maxEmployees;
       if (maxAllowed < currentPlanMax) {
         throw new BadRequestException(
@@ -577,16 +603,21 @@ export class SubscriptionService {
         sub.endDate = new Date(sub.endDate.getTime() + sub.plan.durationInDays * 86400000);
         await this.subscriptionRepo.save(sub);
         
-        return { 
+        const result: ExtendSubscriptionResult = { 
           message: 'تم تمديد الاشتراك بنجاح (وضع إجباري)', 
           subscription: sub,
           warning: 'تم تمديد الاشتراك رغم تجاوز الحد الأقصى للموظفين',
           details: {
             currentEmployees: currentEmployeeCount,
             maxAllowed: maxAllowed,
-            exceededBy: currentEmployeeCount - maxAllowed
+            exceededBy: currentEmployeeCount - maxAllowed,
+            newEndDate: sub.endDate,
+            planStatus: 'تم التمديد رغم تجاوز الحد',
+            planName: sub.plan.name,
+            durationAdded: `${sub.plan.durationInDays} يوم`
           }
         };
+        return result;
       }
 
       if (maxAllowed < currentEmployeeCount) {
@@ -615,7 +646,7 @@ export class SubscriptionService {
           - إلى: ${sub.endDate.toISOString().split('T')[0]}
           - المدة المضافة: ${sub.plan.durationInDays} يوم`);
 
-        return { 
+        const result: ExtendSubscriptionResult = { 
           message: 'تم تمديد الاشتراك بنجاح', 
           subscription: sub,
           details: {
@@ -628,12 +659,69 @@ export class SubscriptionService {
             durationAdded: `${sub.plan.durationInDays} يوم`
           }
         };
+        return result;
       }
 
       throw new BadRequestException('لا يمكن تمديد الاشتراك - حالة غير متوقعة');
 
     } catch (error: unknown) {
       this.logger.error(` فشل تمديد الاشتراك للشركة ${companyId}`, error as any);
+      throw error;
+    }
+  }
+
+  async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChangeValidation> {
+    try {
+      const currentSubscription = await this.getCompanySubscription(companyId);
+      if (!currentSubscription) {
+        throw new NotFoundException('لا يوجد اشتراك حالي للشركة');
+      }
+      const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
+      if (!newPlan) {
+        throw new NotFoundException('الخطة الجديدة غير موجودة');
+      }
+      const currentEmployees = await this.employeeRepo.count({
+        where: { company: { id: companyId } }
+      });
+
+      const currentPlanMax = currentSubscription.plan?.maxEmployees || 0;
+      const newPlanMax = newPlan.maxEmployees;
+      let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
+      let message = '';
+
+      if (newPlanMax > currentPlanMax) {
+        action = 'UPGRADE';
+        message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف`;
+      } else if (newPlanMax === currentPlanMax) {
+        action = 'RENEW';
+        message = `يمكنك التجديد في نفس الخطة ${newPlan.name} لمدة سنة إضافية`;
+      } else if (newPlanMax < currentPlanMax) {
+        if (newPlanMax >= currentEmployees) {
+          action = 'DOWNGRADE';
+          message = `يمكنك التغيير إلى الخطة ${newPlan.name} ولكن سيكون الحد الأقصى ${newPlanMax} موظف`;
+        } else {
+          action = 'INVALID';
+          message = `لا يمكن التغيير إلى خطة أقل - عدد الموظفين الحاليين (${currentEmployees}) يتجاوز الحد المسموح في الخطة الجديدة (${newPlanMax})`;
+        }
+      } else {
+        action = 'INVALID';
+        message = 'لا يمكن تغيير الخطة';
+      }
+
+      const canChange = action !== 'INVALID';
+
+      const result: PlanChangeValidation = {
+        canChange,
+        message,
+        currentPlanMax,
+        newPlanMax,
+        currentEmployees,
+        action
+      };
+
+      return result;
+    } catch (error: unknown) {
+      this.logger.error(`فشل التحقق من تغيير الخطة: ${error instanceof Error ? error.message : String(error)}`);      
       throw error;
     }
   }
@@ -647,6 +735,8 @@ export class SubscriptionService {
         .createQueryBuilder('sub')
         .leftJoinAndSelect('sub.company', 'company')
         .leftJoinAndSelect('sub.plan', 'plan')
+        .leftJoinAndSelect('sub.activatedBySeller', 'activatedBySeller')
+        .leftJoinAndSelect('sub.activatedByAdmin', 'activatedByAdmin')
         .where('sub.status = :status', { status: SubscriptionStatus.ACTIVE })
         .andWhere('sub.endDate <= :thresholdDate', { thresholdDate })
         .orderBy('sub.endDate', 'ASC')
@@ -664,7 +754,7 @@ export class SubscriptionService {
     try {
       return await this.subscriptionRepo.find({
         where: { company: { id: companyId } },
-        relations: ['plan', 'paymentTransaction'],
+        relations: ['plan', 'paymentTransaction', 'activatedBySeller', 'activatedByAdmin'],
         order: { startDate: 'DESC' },
       });
     } catch (error: unknown) {

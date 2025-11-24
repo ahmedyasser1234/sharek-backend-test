@@ -23,6 +23,13 @@ import {
 import { PaymentProvider } from '../payment/payment-provider.enum';
 import { PaymentService } from '../payment/payment.service';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Plan } from '../plan/entities/plan.entity';
+import { 
+  SubscriptionResponse,
+  PlanChangeValidation,
+  PlanChangeRequestResult,
+  PlanChangeResult 
+} from './subscription.service';
 
 @ApiTags('Subscription')
 @Controller()
@@ -38,7 +45,7 @@ export class SubscriptionController {
   @Get('plans')
   @ApiOperation({ summary: 'جلب جميع الخطط المتاحة' })
   @ApiResponse({ status: 200, description: 'تم جلب الخطط بنجاح' })
-  async getPlans(): Promise<ReturnType<SubscriptionService['getPlans']>> {
+  async getPlans(): Promise<Plan[]> {
     try {
       return await this.subscriptionService.getPlans();
     } catch (error: unknown) {
@@ -56,7 +63,7 @@ export class SubscriptionController {
   async subscribe(
     @Param('id') companyId: string,
     @Param('planId') planId: string,
-  ): Promise<ReturnType<SubscriptionService['subscribe']>> {
+  ): Promise<SubscriptionResponse> {
     try {
       return await this.subscriptionService.subscribe(companyId, planId);
     } catch (error: unknown) {
@@ -72,7 +79,7 @@ export class SubscriptionController {
   @ApiResponse({ status: 200, description: 'تم جلب الاشتراك بنجاح' })
   async getCompanySubscription(
     @Param('id') companyId: string
-  ): Promise<ReturnType<SubscriptionService['getCompanySubscription']>> {
+  ): Promise<CompanySubscription | null> {
     try {
       return await this.subscriptionService.getCompanySubscription(companyId);
     } catch (error: unknown) {
@@ -165,9 +172,10 @@ export class SubscriptionController {
   async validatePlanChange(
     @Param('id') companyId: string,
     @Param('newPlanId') newPlanId: string,
-  ): Promise<ReturnType<SubscriptionService['validatePlanChange']>> {
+  ): Promise<PlanChangeValidation> {
     try {
-      return await this.subscriptionService.validatePlanChange(companyId, newPlanId);
+      const result: PlanChangeValidation = await this.subscriptionService.validatePlanChange(companyId, newPlanId);
+      return result;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`فشل التحقق من تغيير الخطة: ${msg}`);
@@ -183,9 +191,10 @@ export class SubscriptionController {
   async requestPlanChange(
     @Param('id') companyId: string,
     @Param('newPlanId') newPlanId: string,
-  ): Promise<ReturnType<SubscriptionService['requestPlanChange']>> {
+  ): Promise<PlanChangeRequestResult> {
     try {
-      return await this.subscriptionService.requestPlanChange(companyId, newPlanId);
+      const result: PlanChangeRequestResult = await this.subscriptionService.requestPlanChange(companyId, newPlanId);
+      return result;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`فشل طلب تغيير الخطة: ${msg}`);
@@ -201,9 +210,10 @@ export class SubscriptionController {
   async changePlan(
     @Param('id') companyId: string,
     @Param('newPlanId') newPlanId: string,
-  ): Promise<ReturnType<SubscriptionService['changeSubscriptionPlan']>> {
+  ): Promise<PlanChangeResult> {
     try {
-      return await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId);
+      const result: PlanChangeResult = await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId);
+      return result;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`فشل تغيير الخطة: ${msg}`);

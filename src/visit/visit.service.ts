@@ -26,8 +26,6 @@ interface IpApiResponse {
   country?: string;
 }
 
-
-
 @Injectable()
 export class VisitService {
   private readonly logger = new Logger(VisitService.name);
@@ -154,39 +152,56 @@ export class VisitService {
     }
   }
 
-  async logVisit(employee: Employee, source: string = 'link', req?: Request): Promise<void> {
-  try {
-    const ua = req?.headers['user-agent'] || '';
-    const parser = new UAParser(ua);
+  private determineFinalSource(req?: Request, defaultSource: string = 'link'): string {
+    if (!req) return defaultSource;
 
-    const os = parser.getOS().name || 'unknown';
-    const browser = parser.getBrowser().name || 'unknown';
-    const device = parser.getDevice();
-    const deviceType = device.type || 'desktop';
-
-    const ipAddress = this.extractIPFromRequest(req);
-
-    let finalSource = source;
-    if (req && req.query && req.query.source) {
-      finalSource = req.query.source as string;
-    }
-
-    // الحصول على الدولة باستخدام await
-    let country = 'unknown';
     try {
-      country = await this.getCountryFromIP(ipAddress);
+      // الطريقة البسيطة: إذا كان فيه source في query نأخذه، إذا لا نعتبره link
+      if (req.query?.source) {
+        return req.query.source as string;
+      }
+
+      // إذا مفيش source محدد في query، نعتبرها زيارة عادية من رابط
+      return 'link';
+
     } catch (error) {
-      this.logger.error(`فشل الحصول على الدولة لـ IP ${ipAddress}: ${error}`);
+      this.logger.error(`فشل تحديد المصدر: ${error}`);
+      return defaultSource;
     }
-
-    // حفظ الزيارة باستخدام await
-    await this.saveVisit(employee, finalSource, os, browser, deviceType, ipAddress, country);
-
-  } catch (error: unknown) {
-    const errMsg = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`فشل تسجيل الزيارة: ${errMsg}`);
   }
-}
+
+  async logVisit(employee: Employee, source: string = 'link', req?: Request): Promise<void> {
+    try {
+      const ua = req?.headers['user-agent'] || '';
+      const parser = new UAParser(ua);
+
+      const os = parser.getOS().name || 'unknown';
+      const browser = parser.getBrowser().name || 'unknown';
+      const device = parser.getDevice();
+      const deviceType = device.type || 'desktop';
+
+      const ipAddress = this.extractIPFromRequest(req);
+
+      // ✅ استخدام الدالة المحسنة لتحديد المصدر
+      const finalSource = this.determineFinalSource(req, source);
+
+      // الحصول على الدولة باستخدام await
+      let country = 'unknown';
+      try {
+        country = await this.getCountryFromIP(ipAddress);
+      } catch (error) {
+        this.logger.error(`فشل الحصول على الدولة لـ IP ${ipAddress}: ${error}`);
+      }
+
+      // حفظ الزيارة باستخدام await
+      await this.saveVisit(employee, finalSource, os, browser, deviceType, ipAddress, country);
+
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل تسجيل الزيارة: ${errMsg}`);
+    }
+  }
+
   private async saveVisit(
     employee: Employee, 
     source: string, 
@@ -267,29 +282,29 @@ export class VisitService {
   }
 
   async getCountryStats(employeeId: number): Promise<{ country: string; count: number }[]> {
-  try {
-    const stats: Array<{ country: string; count: number }> = await this.visitRepo.query(
-      `
-      SELECT "country", COUNT(*) as count
-      FROM visits
-      WHERE "employeeId" = $1 AND "country" != 'unknown' AND "country" != 'localhost'
-      GROUP BY "country"
-      ORDER BY count DESC
-    `,
-      [employeeId],
-    );
+    try {
+      const stats: Array<{ country: string; count: number }> = await this.visitRepo.query(
+        `
+        SELECT "country", COUNT(*) as count
+        FROM visits
+        WHERE "employeeId" = $1 AND "country" != 'unknown' AND "country" != 'localhost'
+        GROUP BY "country"
+        ORDER BY count DESC
+      `,
+        [employeeId],
+      );
 
-    return stats.filter((stat) => 
-      stat.country && 
-      stat.country !== 'Undefined' && 
-      stat.country !== 'undefined' &&
-      stat.country.trim() !== ''
-    );
-  } catch (error) {
-    this.logger.error(`فشل جلب إحصائيات الدول: ${error}`);
-    return [];
+      return stats.filter((stat) => 
+        stat.country && 
+        stat.country !== 'Undefined' && 
+        stat.country !== 'undefined' &&
+        stat.country.trim() !== ''
+      );
+    } catch (error) {
+      this.logger.error(`فشل جلب إحصائيات الدول: ${error}`);
+      return [];
+    }
   }
-}
 
   async getVisitCount(employeeId: number): Promise<number> {
     try {
@@ -303,106 +318,106 @@ export class VisitService {
     }
   }
 
- async getDailyVisits(employeeId: number): Promise<DailyVisit[]> {
-  try {
-    const result: DailyVisit[] = await this.visitRepo.query(
-      `
-      SELECT DATE("visitedAt") as day, COUNT(*) as count
-      FROM visits
-      WHERE "employeeId" = $1
-      GROUP BY day
-      ORDER BY day DESC
-      LIMIT 30
-    `,
-      [employeeId],
-    );
-    
-    return result;
-  } catch (error) {
-    this.logger.error(`فشل جلب الزيارات اليومية: ${error}`);
-    return [];
+  async getDailyVisits(employeeId: number): Promise<DailyVisit[]> {
+    try {
+      const result: DailyVisit[] = await this.visitRepo.query(
+        `
+        SELECT DATE("visitedAt") as day, COUNT(*) as count
+        FROM visits
+        WHERE "employeeId" = $1
+        GROUP BY day
+        ORDER BY day DESC
+        LIMIT 30
+      `,
+        [employeeId],
+      );
+      
+      return result;
+    } catch (error) {
+      this.logger.error(`فشل جلب الزيارات اليومية: ${error}`);
+      return [];
+    }
   }
-}
 
   async getDeviceStats(employeeId: number): Promise<DeviceStat[]> {
-  try {
-    const result: DeviceStat[] = await this.visitRepo.query(
-      `
-      SELECT "deviceType", COUNT(*) as count
-      FROM visits
-      WHERE "employeeId" = $1
-      GROUP BY "deviceType"
-      ORDER BY count DESC
-    `,
-      [employeeId],
-    );
-    
-    return result;
-  } catch (error) {
-    this.logger.error(`فشل جلب إحصائيات الأجهزة: ${error}`);
-    return [];
+    try {
+      const result: DeviceStat[] = await this.visitRepo.query(
+        `
+        SELECT "deviceType", COUNT(*) as count
+        FROM visits
+        WHERE "employeeId" = $1
+        GROUP BY "deviceType"
+        ORDER BY count DESC
+      `,
+        [employeeId],
+      );
+      
+      return result;
+    } catch (error) {
+      this.logger.error(`فشل جلب إحصائيات الأجهزة: ${error}`);
+      return [];
+    }
   }
-}
 
- async getBrowserStats(employeeId: number): Promise<{ browser: string; count: number }[]> {
-  try {
-    const result: Array<{ browser: string; count: number }> = await this.visitRepo.query(
-      `
-      SELECT "browser", COUNT(*) as count
-      FROM visits
-      WHERE "employeeId" = $1
-      GROUP BY "browser"
-      ORDER BY count DESC
-    `,
-      [employeeId],
-    );
-    
-    return result;
-  } catch (error) {
-    this.logger.error(`فشل جلب إحصائيات المتصفحات: ${error}`);
-    return [];
+  async getBrowserStats(employeeId: number): Promise<{ browser: string; count: number }[]> {
+    try {
+      const result: Array<{ browser: string; count: number }> = await this.visitRepo.query(
+        `
+        SELECT "browser", COUNT(*) as count
+        FROM visits
+        WHERE "employeeId" = $1
+        GROUP BY "browser"
+        ORDER BY count DESC
+      `,
+        [employeeId],
+      );
+      
+      return result;
+    } catch (error) {
+      this.logger.error(`فشل جلب إحصائيات المتصفحات: ${error}`);
+      return [];
+    }
   }
-}
 
   async getOSStats(employeeId: number): Promise<{ os: string; count: number }[]> {
-  try {
-    const result: Array<{ os: string; count: number }> = await this.visitRepo.query(
-      `
-      SELECT "os", COUNT(*) as count
-      FROM visits
-      WHERE "employeeId" = $1
-      GROUP BY "os"
-      ORDER BY count DESC
-    `,
-      [employeeId],
-    );
-    
-    return result;
-  } catch (error) {
-    this.logger.error(`فشل جلب إحصائيات أنظمة التشغيل: ${error}`);
-    return [];
+    try {
+      const result: Array<{ os: string; count: number }> = await this.visitRepo.query(
+        `
+        SELECT "os", COUNT(*) as count
+        FROM visits
+        WHERE "employeeId" = $1
+        GROUP BY "os"
+        ORDER BY count DESC
+      `,
+        [employeeId],
+      );
+      
+      return result;
+    } catch (error) {
+      this.logger.error(`فشل جلب إحصائيات أنظمة التشغيل: ${error}`);
+      return [];
+    }
   }
-}
 
   async getSourceStats(employeeId: number): Promise<{ source: string; count: number }[]> {
-  try {
-    const result: Array<{ source: string; count: number }> = await this.visitRepo.query(
-      `
-      SELECT "source", COUNT(*) as count
-      FROM visits
-      WHERE "employeeId" = $1
-      GROUP BY "source"
-      ORDER BY count DESC
-    `,
-      [employeeId],
-    );
-    
-    return result;
-  } catch (error) {
-    this.logger.error(`فشل جلب إحصائيات المصادر: ${error}`);
-    return [];
+    try {
+      const result: Array<{ source: string; count: number }> = await this.visitRepo.query(
+        `
+        SELECT "source", COUNT(*) as count
+        FROM visits
+        WHERE "employeeId" = $1
+        GROUP BY "source"
+        ORDER BY count DESC
+      `,
+        [employeeId],
+      );
+      
+      return result;
+    } catch (error) {
+      this.logger.error(`فشل جلب إحصائيات المصادر: ${error}`);
+      return [];
+    }
   }
-}
 
   async getAllForCompany(companyId: string): Promise<Visit[]> {
     try {

@@ -400,17 +400,6 @@ export class EmployeeService {
     saved.qrCode = cardResult.qrCode;
     
     saved = await this.employeeRepo.save(saved);
-    this.logger.log(` تم إنشاء البطاقة: ${saved.cardUrl}`);
-    
-    this.logger.log(' ملخص عملية الإنشاء:');
-    this.logger.log(`   ✅ الموظف: ${saved.name} (ID: ${saved.id})`);
-    this.logger.log(`    البريد الإلكتروني: ${saved.email || 'لم يتم تعيينه'}`);
-    this.logger.log(`   📞 الهاتف: ${saved.phone || 'لم يتم تعيينه'}`);
-    this.logger.log(`    الصورة الشخصية: ${saved.profileImageUrl ? 'تم رفعها' : 'افتراضية'}`);
-    this.logger.log(`    تصميم البطاقة: ${saved.designId || 'افتراضي'}`);
-    this.logger.log(`    رابط البطاقة: ${saved.cardUrl ? 'تم إنشاؤه' : 'NULL'}`);
-    this.logger.log(`    عدد الملفات المرفوعة: ${uploadedImagesCount}`);
-    this.logger.log(`   🎯 QR Code: ${saved.qrCode ? 'تم إنشاؤه' : 'NULL'}`);
 
     return {
       statusCode: HttpStatus.CREATED,
@@ -1226,100 +1215,258 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
     return { secondaryImageUrl };
   }
   
-  async exportToExcel(companyId: string): Promise<Buffer> {
-    try {
-      const employees = await this.employeeRepo.find({
-        where: { company: { id: companyId } },
-      });
+async exportToExcel(companyId: string): Promise<Buffer> {
+  try {
+    const employees = await this.employeeRepo.find({
+      where: { company: { id: companyId } },
+      relations: ['cards'],
+    });
 
-      const workbook = new ExcelJS.Workbook();
-      const sheet = workbook.addWorksheet('Employees');
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Employees');
 
-      const columns: Array<keyof Employee> = [
-        'name', 'email', 'conemail', 'emailTitle', 'jobTitle', 'phone', 'conphone', 'phoneTitle',
-        'whatsapp', 'wechat', 'telephone', 'cardUrl', 'qrCode', 'designId', 'location', 'locationTitle',
-        'conStreet', 'conAdressLine', 'conCity', 'conState', 'conCountry', 'conZipcode', 'conDirection',
-        'conGoogleMapUrl', 'smsNumber', 'faxNumber', 'aboutTitle', 'about', 'socialTitle', 'socialDescription',
-        'profileImageUrl', 'secondaryImageUrl', 'logoUrl', 'facebook', 'facebookTitle','facebookSubtitle','facebookImageUrl',
-        'instagram', 'instgramTitle' , 'instgramSubtitle','instagramImageUrl','tiktok', 'tiktokTitle' , 'tiktokSubtitle' , 'tiktokImageUrl',
-        'snapchat', 'snapchatTitle' , 'snapchatSubtitle', 'snapchatImageUrl', 'x' , 'xTitle' , 'xSubtitle' , 'xImageUrl',
-        'linkedin' , 'linkedinTitle' , 'linkedinSubtitle' , 'linkedinImageUrl' , 'customImageUrl', 'customImageTitle',
-        'customImageDescription', 'testimonialImageUrl', 'testimonialTitle', 'testimonialDescription',
-        'testimonialText', 'testimonialName', 'testimonialDesignation', 'workingHoursTitle', 'isOpen24Hours',
-        'workingHoursImageUrl', 'workingHours', 'pdfGalleryTitle', 'pdfGalleryDescription', 'pdfFileUrl',
-        'pdfThumbnailUrl', 'pdfTitle', 'pdfSubtitle', 'videoTitle', 'videoDescription', 'buttonBlockTitle',
-        'buttonBlockDescription', 'buttonLabel', 'buttonLink', 'videoType', 'videoUrl', 'contactFormName',
-        'contactFormDisplayType', 'preventMultipleFormViews', 'contactFormHeaderImageUrl', 'contactFormTitle',
-        'contactFormDescription', 'contactFieldLabel', 'contactFieldType', 'contactFieldRequired',
-        'contactFieldErrorMessage', 'feedbackTitle', 'feedbackDescription', 'feedbackMaxRating',
-        'feedbackIconType', 'showRatingLabels', 'lowestRatingLabel', 'highestRatingLabel',
-        'collectFeedbackOnLowRating', 'highRatingHeading', 'highRatingDescription', 'highRatingCTA',
-        'highRatingRedirectUrl', 'autoRedirectAfterSeconds', 'enableAutoRedirect', 'linksTitle','linksDescription',
-        'workLink', 'workLinkTitle','workLinkSubtitle','workLinkImageUrl','workLinkk','workLinkkTitle',
-        'workLinkkSubtitle','workLinkkImageUrl','workLinkkk','workLinkkkTitle','workLinkkkSubtitle',
-        'workLinkkkImageUrl','workLinkkkk','workLinkkkkTitle','workLinkkkkSubtitle','workLinkkkkImageUrl',
-        'workLinkkkkk','workLinkkkkkTitle','workLinkkkkkSubtitle','workLinkkkkkImageUrl','qrStyle'
-      ];
+    const allPossibleColumns: Array<keyof Employee | keyof EmployeeCard> = [
+      'name', 'email', 'conemail', 'emailTitle', 'jobTitle', 'phone', 'conphone', 'phoneTitle',
+      'whatsapp', 'wechat', 'telephone', 'cardUrl', 'qrCode', 'designId', 'location', 'locationTitle',
+      'conStreet', 'conAdressLine', 'conCity', 'conState', 'conCountry', 'conZipcode', 'conDirection',
+      'conGoogleMapUrl', 'smsNumber', 'faxNumber', 'aboutTitle', 'about', 'socialTitle', 'socialDescription',
+      'profileImageUrl', 'secondaryImageUrl', 'logoUrl', 'facebook', 'facebookTitle','facebookSubtitle','facebookImageUrl',
+      'instagram', 'instgramTitle' , 'instgramSubtitle','instagramImageUrl','tiktok', 'tiktokTitle' , 'tiktokSubtitle' , 'tiktokImageUrl',
+      'snapchat', 'snapchatTitle' , 'snapchatSubtitle', 'snapchatImageUrl', 'x' , 'xTitle' , 'xSubtitle' , 'xImageUrl',
+      'linkedin' , 'linkedinTitle' , 'linkedinSubtitle' , 'linkedinImageUrl' , 'customImageUrl', 'customImageTitle',
+      'customImageDescription', 'testimonialImageUrl', 'testimonialTitle', 'testimonialDescription',
+      'testimonialText', 'testimonialName', 'testimonialDesignation', 'workingHoursTitle', 'isOpen24Hours',
+      'workingHoursImageUrl', 'workingHours', 'pdfGalleryTitle', 'pdfGalleryDescription', 'pdfFileUrl',
+      'pdfThumbnailUrl', 'pdfTitle', 'pdfSubtitle', 'videoTitle', 'videoDescription', 'buttonBlockTitle',
+      'buttonBlockDescription', 'buttonLabel', 'buttonLink', 'videoType', 'videoUrl', 'contactFormName',
+      'contactFormDisplayType', 'preventMultipleFormViews', 'contactFormHeaderImageUrl', 'contactFormTitle',
+      'contactFormDescription', 'contactFieldLabel', 'contactFieldType', 'contactFieldRequired',
+      'contactFieldErrorMessage', 'feedbackTitle', 'feedbackDescription', 'feedbackMaxRating',
+      'feedbackIconType', 'showRatingLabels', 'lowestRatingLabel', 'highestRatingLabel',
+      'collectFeedbackOnLowRating', 'highRatingHeading', 'highRatingDescription', 'highRatingCTA',
+      'highRatingRedirectUrl', 'autoRedirectAfterSeconds', 'enableAutoRedirect', 'linksTitle','linksDescription',
+      'workLink', 'workLinkTitle','workLinkSubtitle','workLinkImageUrl','workLinkk','workLinkkTitle',
+      'workLinkkSubtitle','workLinkkImageUrl','workLinkkk','workLinkkkTitle','workLinkkkSubtitle',
+      'workLinkkkImageUrl','workLinkkkk','workLinkkkkTitle','workLinkkkkSubtitle','workLinkkkkImageUrl',
+      'workLinkkkkk','workLinkkkkkTitle','workLinkkkkkSubtitle','workLinkkkkkImageUrl','qrStyle',
+      
+      'fontColorHead', 'fontColorHead2', 'fontColorParagraph', 'fontColorExtra',
+      'sectionBackground', 'Background', 'sectionBackground2', 'dropShadow',
+      'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread', 'cardRadius', 'cardStyleSection',
+      'backgroundImage'
+    ];
 
-      sheet.columns = columns.map(col => ({
-        header: col,
-        key: col,
-        width: 30,
-      }));
+    const columnsWithData = this.getColumnsWithData(employees, allPossibleColumns);
 
-      const safeStringify = (value: unknown): string => {
-        if (value === null || value === undefined) return '';
+    sheet.columns = columnsWithData.map(col => ({
+      header: this.getColumnHeader(col),
+      key: col,
+      width: 25,
+    }));
 
-        if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
+    const safeStringify = (value: unknown): string => {
+      if (value === null || value === undefined) return '';
+      if (value === '') return '';
 
-        if (typeof value === 'object') {
-          try {
-            return JSON.stringify(value);
-          } catch {
-            return '[Unserializable Object]';
-          }
+      if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
+
+      if (typeof value === 'object') {
+        try {
+          const str = JSON.stringify(value);
+          return str === '{}' || str === '[]' ? '' : str;
+        } catch {
+          return '';
         }
+      }
 
-        if (typeof value === 'number' || typeof value === 'string') {
-          return String(value);
-        }
+      if (typeof value === 'number' || typeof value === 'string') {
+        const str = String(value).trim();
+        return str === '' ? '' : str;
+      }
 
-        return '';
-      };
+      return '';
+    };
 
-      employees.forEach(emp => {
-        const row: Record<string, string> = {};
+    employees.forEach(emp => {
+      const row: Record<string, string> = {};
+      const card = emp.cards?.[0];
 
-        columns.forEach(col => {
+      columnsWithData.forEach(col => {
+        let value: any;
+
+        if (this.isCardColumn(col)) {
+          // ✅ استخدام any لتجنب type assertion
+          value = card ? (card as any)[col] : '';
+        } else {
           if (col === 'workingHours') {
-            row[col] = emp.isOpen24Hours ? '' : safeStringify(emp[col]);
-          } else if (typeof emp[col] === 'boolean') {
-            row[col] = emp[col] ? 'TRUE' : 'FALSE';
+            value = emp.isOpen24Hours ? '' : (emp as any)[col];
           } else {
-            row[col] = safeStringify(emp[col]);
+            value = (emp as any)[col];
           }
-        });
+        }
 
-        sheet.addRow(row);
+        const stringValue = safeStringify(value);
+        if (stringValue !== '') {
+          row[col] = stringValue;
+        }
       });
 
-      const arrayBuffer = await workbook.xlsx.writeBuffer();
-      return Buffer.from(arrayBuffer);
+      if (Object.keys(row).length > 0) {
+        sheet.addRow(row);
+      }
+    });
 
-    } catch (err: unknown) {
-      const errorMessage = err && typeof err === 'object' && 'message' in err
+    if (sheet.rowCount > 0) {
+      const headerRow = sheet.getRow(1);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFF' } };
+      headerRow.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: '2E86AB' }
+      };
+    }
+
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(arrayBuffer);
+
+  } catch (err: unknown) {
+    const errorMessage = err && typeof err === 'object' && 'message' in err
       ? String((err as { message?: unknown }).message)      
       : 'Unknown error';
-      throw new Error(` فشل إنشاء ملف Excel: ${errorMessage}`);
+    throw new Error(` فشل إنشاء ملف Excel: ${errorMessage}`);
+  }
+}
+
+private getColumnsWithData(
+  employees: Employee[], 
+  allColumns: Array<keyof Employee | keyof EmployeeCard>
+): string[] {
+  const columnsWithData: string[] = [];
+
+  allColumns.forEach(column => {
+    const hasData = employees.some(emp => {
+      let value: any;
+
+      if (this.isCardColumn(column)) {
+        const card = emp.cards?.[0];
+        // ✅ استخدام any لتجنب type assertion
+        value = card ? (card as any)[column] : null;
+      } else {
+        if (column === 'workingHours') {
+          value = emp.isOpen24Hours ? null : (emp as any)[column];
+        } else {
+          value = (emp as any)[column];
+        }
+      }
+
+      return this.hasValue(value);
+    });
+
+    if (hasData) {
+      columnsWithData.push(column);
+    }
+  });
+
+  return columnsWithData;
+}
+
+private isCardColumn(column: string): boolean {
+  const cardColumns = [
+    'fontColorHead', 'fontColorHead2', 'fontColorParagraph', 'fontColorExtra',
+    'sectionBackground', 'Background', 'sectionBackground2', 'dropShadow',
+    'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread', 'cardRadius', 
+    'cardStyleSection', 'backgroundImage', 'uniqueUrl', 'qrStyle'
+  ];
+  return cardColumns.includes(column);
+}
+
+private hasValue(value: any): boolean {
+  if (value === null || value === undefined) return false;
+  if (value === '') return false;
+  
+  if (typeof value === 'boolean') return true;
+  
+  if (typeof value === 'object') {
+    try {
+      const str = JSON.stringify(value);
+      return !(str === '{}' || str === '[]');
+    } catch {
+      return false;
     }
   }
+  
+  if (typeof value === 'number') return true;
+  if (typeof value === 'string') return value.trim() !== '';
+  
+  return false;
+}
 
-  async importFromExcel(
-    filePath: string,
-    companyId: string
-  ): Promise<{ 
-    count: number; 
-    imported: Employee[]; 
+private getColumnHeader(column: string): string {
+  const headerMap: { [key: string]: string } = {
+    'name': 'الاسم',
+    'email': 'البريد الإلكتروني',
+    'jobTitle': 'المسمى الوظيفي',
+    'phone': 'رقم الهاتف',
+    'cardUrl': 'رابط البطاقة',
+    'qrCode': 'كود QR',
+    'designId': 'معرف التصميم',
+    'fontColorHead': 'لون عنوان رئيسي',
+    'fontColorHead2': 'لون عنوان ثانوي',
+    'fontColorParagraph': 'لون الفقرات',
+    'fontColorExtra': 'لون النص الإضافي',
+    'sectionBackground': 'خلفية القسم الرئيسي',
+    'Background': 'خلفية البطاقة',
+    'sectionBackground2': 'خلفية القسم الثانوي',
+    'dropShadow': 'لون الظل',
+    'shadowX': 'إزاحة الظل (X)',
+    'shadowY': 'إزاحة الظل (Y)',
+    'shadowBlur': 'تعتيم الظل (Blur)',
+    'shadowSpread': 'انتشار الظل (Spread)',
+    'cardRadius': 'زوايا البطاقة',
+    'cardStyleSection': 'نمط قسم البطاقة',
+    'backgroundImage': 'صورة الخلفية',
+    'uniqueUrl': 'الرابط الفريد',
+    'qrStyle': 'نمط QR',
+    'location': 'الموقع',
+    'whatsapp': 'واتساب',
+    'about': 'نبذة',
+    'workingHours': 'ساعات العمل',
+    'facebook': 'فيسبوك',
+    'instagram': 'انستجرام',
+    'tiktok': 'تيك توك',
+    'snapchat': 'سناب شات',
+    'x': 'تويتر',
+    'linkedin': 'لينكد إن',
+    'conemail': 'البريد الإلكتروني للاتصال',
+    'conphone': 'هاتف الاتصال',
+    'locationTitle': 'عنوان الموقع',
+    'aboutTitle': 'عنوان النبذة',
+    'socialTitle': 'عنوان وسائل التواصل',
+    'socialDescription': 'وصف وسائل التواصل',
+    'workingHoursTitle': 'عنوان ساعات العمل',
+    'pdfGalleryTitle': 'عنوان معرض PDF',
+    'pdfGalleryDescription': 'وصف معرض PDF',
+    'videoTitle': 'عنوان الفيديو',
+    'videoDescription': 'وصف الفيديو',
+    'buttonBlockTitle': 'عنوان زر الإجراء',
+    'buttonBlockDescription': 'وصف زر الإجراء',
+    'contactFormTitle': 'عنوان نموذج الاتصال',
+    'contactFormDescription': 'وصف نموذج الاتصال',
+    'feedbackTitle': 'عنوان التقييم',
+    'feedbackDescription': 'وصف التقييم',
+    'linksTitle': 'عنوان الروابط',
+    'linksDescription': 'وصف الروابط'
+  };
+
+  return headerMap[column] || column;
+}
+
+async importFromExcel(
+  filePath: string,
+  companyId: string
+): Promise<{ 
+  count: number; 
+  imported: Employee[]; 
   skipped: string[]; 
   limitReached: boolean;
   summary: {
@@ -1399,6 +1546,23 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
     'imageurl': 'imageUrl',
     'profile image': 'profileImageUrl',
     'profileimageurl': 'profileImageUrl',
+    
+    'لون عنوان رئيسي': 'fontColorHead',
+    'لون عنوان ثانوي': 'fontColorHead2', 
+    'لون الفقرات': 'fontColorParagraph',
+    'لون النص الإضافي': 'fontColorExtra',
+    'خلفية القسم الرئيسي': 'sectionBackground',
+    'خلفية البطاقة': 'Background',
+    'خلفية القسم الثانوي': 'sectionBackground2',
+    'لون الظل': 'dropShadow',
+    'إزاحة الظل (x)': 'shadowX',
+    'إزاحة الظل (y)': 'shadowY',
+    'تعتيم الظل (blur)': 'shadowBlur',
+    'انتشار الظل (spread)': 'shadowSpread',
+    'زوايا البطاقة': 'cardRadius',
+    'نمط قسم البطاقة': 'cardStyleSection',
+    'صورة الخلفية': 'backgroundImage',
+    'نمط qr': 'qrStyle'
   };
 
   for (let i = 2; i <= sheet.rowCount; i++) {
@@ -1481,12 +1645,62 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
       const employee = this.employeeRepo.create(finalData);
       const saved = await this.employeeRepo.save(employee);
 
-      const { cardUrl, qrCode, designId } = await this.cardService.generateCard(saved);
+      // ✅ استخراج بيانات البطاقة من الـ rowData مع type safety
+      const cardData: Partial<EmployeeCard> = {};
+      const cardFields = [
+        'fontColorHead', 'fontColorHead2', 'fontColorParagraph', 'fontColorExtra',
+        'sectionBackground', 'Background', 'sectionBackground2', 'dropShadow',
+        'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread', 'cardRadius', 
+        'cardStyleSection', 'backgroundImage', 'qrStyle'
+      ];
+
+      cardFields.forEach(field => {
+        if (rowData[field] !== null && rowData[field] !== undefined && rowData[field] !== '') {
+          const value = rowData[field];
+          
+          // ✅ معالجة الأنواع المختلفة بشكل آمن
+          if (field === 'shadowX' || field === 'shadowY' || field === 'shadowBlur' || 
+              field === 'shadowSpread' || field === 'cardRadius') {
+            // حقول رقمية
+            (cardData as any)[field] = Number(value);
+          } else if (field === 'cardStyleSection') {
+            // حقول boolean
+            (cardData as any)[field] = value === 'true' || value === 'TRUE' || value === '1';
+          } else if (field === 'qrStyle') {
+            // حقل qrStyle رقمي
+            (cardData as any)[field] = Number(value);
+          } else {
+            // حقول نصية
+            (cardData as any)[field] = String(value);
+          }
+        }
+      });
+
+      // ✅ معالجة designId و qrStyle بشكل آمن
+      const designId = finalData['designId'] && String(finalData['designId']).trim() !== '' 
+        ? String(finalData['designId']) 
+        : undefined;
+
+      const qrStyle = finalData['qrStyle'] && String(finalData['qrStyle']).trim() !== ''
+        ? Number(finalData['qrStyle'])
+        : undefined;
+
+      // ✅ إنشاء البطاقة مع البيانات الإضافية
+      const { cardUrl, qrCode, designId: generatedDesignId } = await this.cardService.generateCard(
+        saved, 
+        designId,
+        qrStyle,
+        cardData
+      );
+
       saved.cardUrl = cardUrl;
       saved.qrCode = qrCode;
-      if (!saved.designId) saved.designId = designId;
+      if (!saved.designId) saved.designId = generatedDesignId;
 
       await this.employeeRepo.save(saved);
+
+      await this.updateEmployeeCard(saved.id, cardData);
+
       imported.push(saved);
 
     } catch (err: unknown) {
@@ -1527,4 +1741,26 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
     summary
   };
 }
+
+private async updateEmployeeCard(employeeId: number, cardData: Partial<EmployeeCard>): Promise<void> {
+  try {
+    let card = await this.cardRepo.findOne({ where: { employeeId } });
+    
+    if (card) {
+      Object.assign(card, cardData);
+      await this.cardRepo.save(card);
+    } else {
+      card = this.cardRepo.create({
+        employeeId,
+        ...cardData,
+        title: `بطاقة الموظف ${employeeId}`,
+        uniqueUrl: randomUUID(),
+      });
+      await this.cardRepo.save(card);
+    }
+  } catch (error) {
+    this.logger.error(`فشل تحديث بطاقة الموظف ${employeeId}: ${error}`);
+  }
+}
+
 }

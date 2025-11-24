@@ -11,6 +11,8 @@ import {
 import { Company } from '../../company/entities/company.entity';
 import { Plan } from '../../plan/entities/plan.entity';
 import { PaymentTransaction } from '../../payment/entities/payment-transaction.entity';
+import { Manager } from '../../admin/entities/manager.entity';
+import { Admin } from '../../admin/entities/admin.entity';
 
 export enum SubscriptionStatus {
   ACTIVE = 'active',
@@ -71,4 +73,17 @@ export class CompanySubscription {
   @Column({ type: 'int', nullable: true })
   customMaxEmployees?: number;
 
+  @Column({ nullable: true, comment: 'معرف البائع الذي فعل الاشتراك' })
+  activatedBySellerId?: string;
+
+  @Column({ nullable: true, comment: 'معرف الأدمن الذي فعل الاشتراك' })
+  activatedByAdminId?: string;
+
+  @ManyToOne(() => Manager, { nullable: true })
+  @JoinColumn({ name: 'activatedBySellerId' })
+  activatedBySeller?: Manager;
+
+  @ManyToOne(() => Admin, { nullable: true })
+  @JoinColumn({ name: 'activatedByAdminId' })
+  activatedByAdmin?: Admin;
 }

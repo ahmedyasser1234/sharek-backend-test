@@ -5,12 +5,16 @@ import {
   BeforeInsert,
   BeforeUpdate,
   OneToMany,
+  CreateDateColumn,
+  UpdateDateColumn,
+  DeleteDateColumn,
 } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import { AdminToken } from '../auth/entities/admin-token.entity';
 import { Manager } from './manager.entity';
+import { CompanySubscription } from '../../subscription/entities/company-subscription.entity';
 
-@Entity()
+@Entity('admins')
 export class Admin {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -27,11 +31,23 @@ export class Admin {
   @Column({ default: 'admin' })
   role: string;
 
+  @CreateDateColumn()
+  createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
+
+  @DeleteDateColumn()
+  deletedAt: Date;
+
   @OneToMany(() => AdminToken, (token) => token.admin)
   tokens: AdminToken[];
 
   @OneToMany(() => Manager, (manager) => manager.createdBy)
   createdManagers: Manager[];
+
+  @OneToMany(() => CompanySubscription, subscription => subscription.activatedByAdmin)
+  activatedSubscriptions: CompanySubscription[];
 
   @BeforeInsert()
   @BeforeUpdate()

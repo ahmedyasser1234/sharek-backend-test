@@ -2,9 +2,9 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { AdminService } from './admin.service';
-import { ManagerService } from './manager.service';
 import { AdminController } from './admin.controller';
-import { ManagerController } from './manager.controller';
+import { SellerController } from './manager.controller';
+import { SellerService } from './manager.service';
 import { Admin } from './entities/admin.entity';
 import { Manager } from './entities/manager.entity';
 import { Company } from '../company/entities/company.entity';
@@ -18,6 +18,9 @@ import { ManagerJwtService } from './auth/manager-jwt.service';
 import { AdminJwtGuard } from './auth/admin-jwt.guard';
 import { ManagerJwtGuard } from './auth/manager-jwt.guard';
 import { Reflector } from '@nestjs/core';
+import { SubscriptionModule } from '../subscription/subscription.module';
+import { PaymentModule } from '../payment/payment.module';
+import { PaymentProof } from '../payment/entities/payment-proof.entity'
 
 @Module({
   imports: [
@@ -30,22 +33,25 @@ import { Reflector } from '@nestjs/core';
       Plan,
       AdminToken,
       ManagerToken,
+      PaymentProof, 
     ]),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'super-secret-key',
       signOptions: { expiresIn: '30m' },
     }),
+    SubscriptionModule, 
+    PaymentModule, 
   ],
-  controllers: [AdminController, ManagerController],
+  controllers: [AdminController, SellerController],
   providers: [
     AdminService,
-    ManagerService,
+    SellerService,
     AdminJwtService,
     ManagerJwtService,
     AdminJwtGuard,
     ManagerJwtGuard,
     Reflector,
   ],
-  exports: [AdminService, ManagerService],
+  exports: [AdminService, SellerService],
 })
 export class AdminModule {}

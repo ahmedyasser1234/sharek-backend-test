@@ -44,8 +44,7 @@ export class CardService {
       this.logger.log(`إنشاء uniqueUrl جديد: ${uniqueUrl}`);
     }
 
-    const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}`;
-    
+    const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}?source=link`;
     const qrCode = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}?source=qr`;
 
     this.logger.log(`رابط البطاقة العادي: ${cardUrl}`);
@@ -118,68 +117,68 @@ export class CardService {
     };
   }
 
- async updateCard(
-  employee: Employee,
-  designId?: string,
-  qrStyle?: number,
-  extra?: Partial<EmployeeCard>
-): Promise<{ 
-  cardUrl: string; 
-  qrCode: string;
-  designId: string; 
-  qrStyle: number 
-}> {
-  const existingCard = await this.cardRepo.findOne({
-    where: { employeeId: employee.id }
-  });
+  async updateCard(
+    employee: Employee,
+    designId?: string,
+    qrStyle?: number,
+    extra?: Partial<EmployeeCard>
+  ): Promise<{ 
+    cardUrl: string; 
+    qrCode: string;
+    designId: string; 
+    qrStyle: number 
+  }> {
+    const existingCard = await this.cardRepo.findOne({
+      where: { employeeId: employee.id }
+    });
 
-  if (existingCard) {
-    const currentUniqueUrl = existingCard.uniqueUrl;
-    
-    const finalDesignId = designId || existingCard.designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
-    const finalQrStyle = qrStyle ?? existingCard.qrStyle ?? 1;
+    if (existingCard) {
+      const currentUniqueUrl = existingCard.uniqueUrl;
+      
+      const finalDesignId = designId || existingCard.designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
+      const finalQrStyle = qrStyle ?? existingCard.qrStyle ?? 1;
 
-    const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${currentUniqueUrl}`;
-    const qrCode = `https://sharke1.netlify.app/${finalDesignId}/${currentUniqueUrl}?source=qr`;
+      const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${currentUniqueUrl}?source=link`;
+      const qrCode = `https://sharke1.netlify.app/${finalDesignId}/${currentUniqueUrl}?source=qr`;
 
-    this.logger.log(`رابط البطاقة العادي (تحديث): ${cardUrl}`);
-    this.logger.log(`رابط QR Code المميز (تحديث): ${qrCode}`);
+      this.logger.log(`رابط البطاقة العادي (تحديث): ${cardUrl}`);
+      this.logger.log(`رابط QR Code المميز (تحديث): ${qrCode}`);
 
-    const updateData: Partial<EmployeeCard> = {
-      uniqueUrl: currentUniqueUrl,
-      qrCode: qrCode,
-      designId: finalDesignId,
-      qrStyle: finalQrStyle,
-      fontColorHead: extra?.fontColorHead !== undefined ? extra.fontColorHead : existingCard.fontColorHead,
-      fontColorHead2: extra?.fontColorHead2 !== undefined ? extra.fontColorHead2 : existingCard.fontColorHead2,
-      fontColorParagraph: extra?.fontColorParagraph !== undefined ? extra.fontColorParagraph : existingCard.fontColorParagraph,
-      fontColorExtra: extra?.fontColorExtra !== undefined ? extra.fontColorExtra : existingCard.fontColorExtra,
-      sectionBackground: extra?.sectionBackground !== undefined ? extra.sectionBackground : existingCard.sectionBackground,
-      Background: extra?.Background !== undefined ? extra.Background : existingCard.Background,
-      sectionBackground2: extra?.sectionBackground2 !== undefined ? extra.sectionBackground2 : existingCard.sectionBackground2,
-      dropShadow: extra?.dropShadow !== undefined ? extra.dropShadow : existingCard.dropShadow,
-      shadowX: extra?.shadowX !== undefined ? extra.shadowX : existingCard.shadowX,
-      shadowY: extra?.shadowY !== undefined ? extra.shadowY : existingCard.shadowY,
-      shadowBlur: extra?.shadowBlur !== undefined ? extra.shadowBlur : existingCard.shadowBlur,
-      shadowSpread: extra?.shadowSpread !== undefined ? extra.shadowSpread : existingCard.shadowSpread,
-      cardRadius: extra?.cardRadius !== undefined ? extra.cardRadius : existingCard.cardRadius,
-      cardStyleSection: extra?.cardStyleSection !== undefined ? extra.cardStyleSection : existingCard.cardStyleSection,
-      backgroundImage: extra?.backgroundImage !== undefined ? extra.backgroundImage : existingCard.backgroundImage,
-    };
+      const updateData: Partial<EmployeeCard> = {
+        uniqueUrl: currentUniqueUrl,
+        qrCode: qrCode,
+        designId: finalDesignId,
+        qrStyle: finalQrStyle,
+        fontColorHead: extra?.fontColorHead !== undefined ? extra.fontColorHead : existingCard.fontColorHead,
+        fontColorHead2: extra?.fontColorHead2 !== undefined ? extra.fontColorHead2 : existingCard.fontColorHead2,
+        fontColorParagraph: extra?.fontColorParagraph !== undefined ? extra.fontColorParagraph : existingCard.fontColorParagraph,
+        fontColorExtra: extra?.fontColorExtra !== undefined ? extra.fontColorExtra : existingCard.fontColorExtra,
+        sectionBackground: extra?.sectionBackground !== undefined ? extra.sectionBackground : existingCard.sectionBackground,
+        Background: extra?.Background !== undefined ? extra.Background : existingCard.Background,
+        sectionBackground2: extra?.sectionBackground2 !== undefined ? extra.sectionBackground2 : existingCard.sectionBackground2,
+        dropShadow: extra?.dropShadow !== undefined ? extra.dropShadow : existingCard.dropShadow,
+        shadowX: extra?.shadowX !== undefined ? extra.shadowX : existingCard.shadowX,
+        shadowY: extra?.shadowY !== undefined ? extra.shadowY : existingCard.shadowY,
+        shadowBlur: extra?.shadowBlur !== undefined ? extra.shadowBlur : existingCard.shadowBlur,
+        shadowSpread: extra?.shadowSpread !== undefined ? extra.shadowSpread : existingCard.shadowSpread,
+        cardRadius: extra?.cardRadius !== undefined ? extra.cardRadius : existingCard.cardRadius,
+        cardStyleSection: extra?.cardStyleSection !== undefined ? extra.cardStyleSection : existingCard.cardStyleSection,
+        backgroundImage: extra?.backgroundImage !== undefined ? extra.backgroundImage : existingCard.backgroundImage,
+      };
 
-    this.logger.log(`تم تحديث بطاقة الموظف ${employee.id} مع الحفاظ على الـ uniqueUrl: ${currentUniqueUrl}`);
+      this.logger.log(`تم تحديث بطاقة الموظف ${employee.id} مع الحفاظ على الـ uniqueUrl: ${currentUniqueUrl}`);
 
-    Object.assign(existingCard, updateData);
-    await this.cardRepo.save(existingCard);
+      Object.assign(existingCard, updateData);
+      await this.cardRepo.save(existingCard);
 
-    return {
-      cardUrl,
-      qrCode, 
-      designId: finalDesignId,
-      qrStyle: finalQrStyle,
-    };
-  } else {
-    return this.generateCard(employee, designId, qrStyle, extra);
+      return {
+        cardUrl,
+        qrCode, 
+        designId: finalDesignId,
+        qrStyle: finalQrStyle,
+      };
+    } else {
+      return this.generateCard(employee, designId, qrStyle, extra);
+    }
   }
-}
 }
