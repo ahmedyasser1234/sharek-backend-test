@@ -162,12 +162,15 @@ export class VisitController {
       
       const detailedSourceStats = await this.visitService.getDetailedSourceStats(id);
       
+      const qrVsLinkStats = await this.visitService.getQRvsLinkStats(id);
+      
       return {
         statusCode: HttpStatus.OK,
         message: 'تم جلب إحصائيات المصادر بنجاح',
         data: {
           summary: sourceStats,
           detailed: detailedSourceStats,
+          qrVsLink: qrVsLinkStats,
         },
       };
     } catch (error) {
@@ -239,6 +242,7 @@ export class VisitController {
         osStats,
         sourceStats,
         countryStats,
+        qrVsLinkStats,
       ] = await Promise.all([
         this.visitService.getVisitCount(id),
         this.visitService.getDailyVisits(id),
@@ -247,6 +251,7 @@ export class VisitController {
         this.visitService.getOSStats(id),
         this.visitService.getSourceStats(id),
         this.visitService.getCountryStats(id),
+        this.visitService.getQRvsLinkStats(id),
       ]);
 
       return {
@@ -260,11 +265,28 @@ export class VisitController {
           osStats,
           sourceStats,
           countryStats,
+          qrVsLinkStats,
         },
       };
     } catch (error) {
       this.logger.error(`فشل جلب النظرة العامة: ${error}`);
       throw new HttpException('فشل جلب النظرة العامة عن الزيارات', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @UseGuards(CompanyJwtGuard)
+  @Get('qr-vs-link/:employeeId')
+  async getQRvsLink(@Param('employeeId') id: number) {
+    try {
+      const qrVsLinkStats = await this.visitService.getQRvsLinkStats(id);
+      return {
+        statusCode: HttpStatus.OK,
+        message: 'تم جلب إحصائيات QR مقابل الرابط بنجاح',
+        data: qrVsLinkStats,
+      };
+    } catch (error) {
+      this.logger.error(`فشل جلب إحصائيات QR مقابل الرابط: ${error}`);
+      throw new HttpException('فشل جلب إحصائيات QR مقابل الرابط', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

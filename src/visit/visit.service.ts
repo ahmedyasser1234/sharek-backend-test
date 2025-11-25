@@ -39,17 +39,14 @@ export class VisitService {
 
   private async getCountryFromIP(ip: string): Promise<string> {
     try {
-      // تحسين التعامل مع IP المحلي
       if (ip === 'unknown' || ip === '127.0.0.1' || ip === '::1' || 
           ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.') ||
           ip === '::ffff:127.0.0.1') {
         return 'localhost';
       }
 
-      // تنظيف IP
       const cleanIP = ip.replace(/^::ffff:/, '');
 
-      // محاولة مع خدمة ipapi.co أولاً
       try {
         const response = await axios.get<string>(`http://ipapi.co/${cleanIP}/country_name/`, {
           timeout: 5000,
@@ -68,7 +65,6 @@ export class VisitService {
         this.logger.warn(`فشل في ipapi.co لـ IP ${cleanIP}: ${ipapiError}`);
       }
 
-      // محاولة بديلة مع ip-api.com
       try {
         const response = await axios.get<IpApiResponse>(`http://ip-api.com/json/${cleanIP}`, {
           timeout: 5000
@@ -81,7 +77,6 @@ export class VisitService {
         this.logger.warn(`فشل في ip-api.com لـ IP ${cleanIP}: ${ipApiError}`);
       }
 
-      // محاولة ثالثة مع ipinfo.io
       try {
         const response = await axios.get<string>(`https://ipinfo.io/${cleanIP}/country`, {
           timeout: 5000,
@@ -112,7 +107,6 @@ export class VisitService {
       let ip = 'unknown';
       
       if (req) {
-        // التحقق من x-forwarded-for أولاً (للمواقع خلف proxy)
         const xForwardedFor = req.headers['x-forwarded-for'];
         if (xForwardedFor) {
           if (Array.isArray(xForwardedFor)) {
@@ -122,26 +116,21 @@ export class VisitService {
           }
         }
         
-        // إذا لم يتم العثور على IP في x-forwarded-for، جرب req.ip
         if (!ip || ip === 'unknown') {
           ip = req.ip || 'unknown';
         }
         
-        // إذا لم ينجح ذلك، جرب connection.remoteAddress
         if (!ip || ip === 'unknown') {
           ip = req.connection?.remoteAddress || 'unknown';
         }
         
-        // إذا لم ينجح ذلك، جرب socket.remoteAddress
         if (!ip || ip === 'unknown') {
           ip = req.socket?.remoteAddress || 'unknown';
         }
       }
       
-      // تنظيف IP النهائي
       if (ip && ip !== 'unknown') {
         ip = ip.replace(/^::ffff:/, '');
-        // إزالة البورت إذا كان موجوداً
         ip = ip.split(':')[0] || 'unknown';
       }
       
@@ -156,12 +145,22 @@ export class VisitService {
     if (!req) return defaultSource;
 
     try {
-      // الطريقة البسيطة: إذا كان فيه source في query نأخذه، إذا لا نعتبره link
       if (req.query?.source) {
-        return req.query.source as string;
+        const source = (req.query.source as string).toLowerCase();
+        
+        if (source === 'qr' || source === 'qrcode' || source === 'qr_code' || source === 'qr-code') {
+          return 'qr';
+        }
+        
+        return source;
       }
 
-      // إذا مفيش source محدد في query، نعتبرها زيارة عادية من رابط
+      const userAgent = req.headers['user-agent'] || '';
+      
+      if (userAgent.includes('QR') || userAgent.includes('Scanner')) {
+        return 'qr';
+      }
+
       return 'link';
 
     } catch (error) {
@@ -182,10 +181,8 @@ export class VisitService {
 
       const ipAddress = this.extractIPFromRequest(req);
 
-      // ✅ استخدام الدالة المحسنة لتحديد المصدر
       const finalSource = this.determineFinalSource(req, source);
 
-      // الحصول على الدولة باستخدام await
       let country = 'unknown';
       try {
         country = await this.getCountryFromIP(ipAddress);
@@ -193,7 +190,6 @@ export class VisitService {
         this.logger.error(`فشل الحصول على الدولة لـ IP ${ipAddress}: ${error}`);
       }
 
-      // حفظ الزيارة باستخدام await
       await this.saveVisit(employee, finalSource, os, browser, deviceType, ipAddress, country);
 
     } catch (error: unknown) {
@@ -212,7 +208,6 @@ export class VisitService {
     country: string
   ): Promise<void> {
     try {
-      // التحقق من الزيارة المتكررة
       const recentVisit = await this.visitRepo.findOne({
         where: {
           employee: { id: employee.id },
@@ -271,7 +266,6 @@ export class VisitService {
       const deviceType = body.deviceType || 'desktop';
       const ipAddress = body.ipAddress || 'unknown';
       
-      // الحصول على الدولة
       const country = await this.getCountryFromIP(ipAddress);
 
       await this.saveVisit(employee, source, os, browser, deviceType, ipAddress, country);
@@ -461,6 +455,39 @@ export class VisitService {
     } catch (error) {
       this.logger.error(`فشل جلب الإحصائيات المفصلة للمصادر: ${error}`);
       return [];
+    }
+  }
+
+  async getQRvsLinkStats(employeeId: number): Promise<{
+    qrCount: number;
+    linkCount: number;
+    qrPercentage: number;
+    linkPercentage: number;
+    total: number;
+  }> {
+    try {
+      const sourceStats = await this.getSourceStats(employeeId);
+      const totalVisits = await this.getVisitCount(employeeId);
+      
+      const qrCount = sourceStats.find(stat => stat.source === 'qr')?.count || 0;
+      const linkCount = sourceStats.find(stat => stat.source === 'link')?.count || 0;
+      
+      return {
+        qrCount,
+        linkCount,
+        qrPercentage: totalVisits > 0 ? Math.round((qrCount / totalVisits) * 100) : 0,
+        linkPercentage: totalVisits > 0 ? Math.round((linkCount / totalVisits) * 100) : 0,
+        total: totalVisits
+      };
+    } catch (error) {
+      this.logger.error(`فشل جلب إحصائيات QR vs Link: ${error}`);
+      return {
+        qrCount: 0,
+        linkCount: 0,
+        qrPercentage: 0,
+        linkPercentage: 0,
+        total: 0
+      };
     }
   }
 }
