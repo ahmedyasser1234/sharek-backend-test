@@ -238,7 +238,7 @@ export class VisitService {
 
       if (recentVisit) {
         const diff = Date.now() - new Date(recentVisit.visitedAt).getTime();
-        if (diff < 5 * 60 * 1000) {
+        if (diff < 1 * 60 * 1000) {
           this.logger.log(`تم تجاهل زيارة متكررة للموظف ${employee.id} من المصدر ${source}`);
           return;
         }
