@@ -145,18 +145,28 @@ export class VisitService {
     if (!req) return defaultSource;
 
     try {
+      if (req.query) {
+        this.logger.debug(`جميع query parameters: ${JSON.stringify(req.query)}`);
+      }
+
       if (req.query?.source) {
         const sourceParam = req.query.source;
+        this.logger.debug(`تم العثور على source parameter: ${JSON.stringify(sourceParam)}`);
         
         let source: string;
         if (Array.isArray(sourceParam)) {
           const firstElement = sourceParam[0];
           source = typeof firstElement === 'string' ? firstElement : 'link';
+          this.logger.debug(`تم معالجة source كمصفوفة: ${source}`);
         } else {
           source = typeof sourceParam === 'string' ? sourceParam : 'link';
+          this.logger.debug(`تم معالجة source كـ string: ${source}`);
         }
         
+        this.logger.debug(`المصدر النهائي المستخرج: ${source}`);
         return source;
+      } else {
+        this.logger.debug(`لم يتم العثور على source parameter في query`);
       }
 
       return 'link';
@@ -180,7 +190,13 @@ export class VisitService {
 
       const ipAddress = this.extractIPFromRequest(req);
 
+      if (req) {
+        this.logger.debug(`URL المستخدم: ${req.url}`);
+        this.logger.debug(`الـ source الافتراضي الممرر: ${source}`);
+      }
+
       const finalSource = this.determineFinalSource(req, source);
+      this.logger.debug(`المصدر النهائي للزيارة: ${finalSource}`);
 
       let country = 'unknown';
       try {
