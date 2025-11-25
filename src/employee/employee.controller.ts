@@ -97,25 +97,20 @@ export class EmployeeController {
   @Get('by-url')
   async getByUniqueUrl(
     @Query('url') encodedUrl: string,
-    @Query('source') source: string | undefined,
+    @Query('source') source: string = 'link', 
     @Req() req: Request
   ) {
     try {
       this.logger.debug(`getByUniqueUrl called with URL: ${encodedUrl}`);
-      
+    
       if (!encodedUrl) {
         throw new BadRequestException('URL parameter is required');
       }
 
       const uniqueUrl = decodeURIComponent(encodedUrl);
-      
-      let finalSource = 'link';
-      if (source) {
-        finalSource = source;
-      } else if (req.query && req.query.source) {
-        finalSource = req.query.source as string;
-      }
-
+    
+      const finalSource = source;
+    
       this.logger.log(`جلب بيانات الموظف من الرابط: ${uniqueUrl} بمصدر: ${finalSource}`);
 
       const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
@@ -129,13 +124,13 @@ export class EmployeeController {
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
-      
+    
       if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
+      throw error;
     }
+    throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
   }
+}
 
   @Public()
   @Get('card/:uniqueUrl')
