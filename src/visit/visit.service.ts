@@ -146,25 +146,24 @@ export class VisitService {
 
     try {
       if (req.query?.source) {
-        const source = (req.query.source as string).toLowerCase();
+        const sourceParam = req.query.source;
         
-        if (source === 'qr' || source === 'qrcode' || source === 'qr_code' || source === 'qr-code') {
-          return 'qr';
+        let source: string;
+        if (Array.isArray(sourceParam)) {
+          const firstElement = sourceParam[0];
+          source = typeof firstElement === 'string' ? firstElement : 'link';
+        } else {
+          source = typeof sourceParam === 'string' ? sourceParam : 'link';
         }
         
         return source;
       }
 
-      const userAgent = req.headers['user-agent'] || '';
-      
-      if (userAgent.includes('QR') || userAgent.includes('Scanner')) {
-        return 'qr';
-      }
-
       return 'link';
 
     } catch (error) {
-      this.logger.error(`فشل تحديد المصدر: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل تحديد المصدر: ${errorMessage}`);
       return defaultSource;
     }
   }
@@ -187,7 +186,8 @@ export class VisitService {
       try {
         country = await this.getCountryFromIP(ipAddress);
       } catch (error) {
-        this.logger.error(`فشل الحصول على الدولة لـ IP ${ipAddress}: ${error}`);
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(`فشل الحصول على الدولة لـ IP ${ipAddress}: ${errorMessage}`);
       }
 
       await this.saveVisit(employee, finalSource, os, browser, deviceType, ipAddress, country);
@@ -241,7 +241,8 @@ export class VisitService {
       await this.visitRepo.save(visit);
       this.logger.log(`تم تسجيل زيارة جديدة للموظف ${employee.id} من ${country} - المصدر: ${source}`);
     } catch (error) {
-      this.logger.error(`فشل حفظ الزيارة: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل حفظ الزيارة: ${errorMessage}`);
     }
   }
 
@@ -271,7 +272,8 @@ export class VisitService {
       await this.saveVisit(employee, source, os, browser, deviceType, ipAddress, country);
       
     } catch (err) {
-      this.logger.error(`فشل تسجيل الزيارة: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`فشل تسجيل الزيارة: ${errorMessage}`);
     }
   }
 
@@ -295,7 +297,8 @@ export class VisitService {
         stat.country.trim() !== ''
       );
     } catch (error) {
-      this.logger.error(`فشل جلب إحصائيات الدول: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب إحصائيات الدول: ${errorMessage}`);
       return [];
     }
   }
@@ -307,7 +310,8 @@ export class VisitService {
         .where('"employeeId" = :employeeId', { employeeId })
         .getCount();
     } catch (error) {
-      this.logger.error(`فشل جلب عدد الزيارات: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب عدد الزيارات: ${errorMessage}`);
       return 0;
     }
   }
@@ -328,7 +332,8 @@ export class VisitService {
       
       return result;
     } catch (error) {
-      this.logger.error(`فشل جلب الزيارات اليومية: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب الزيارات اليومية: ${errorMessage}`);
       return [];
     }
   }
@@ -348,7 +353,8 @@ export class VisitService {
       
       return result;
     } catch (error) {
-      this.logger.error(`فشل جلب إحصائيات الأجهزة: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب إحصائيات الأجهزة: ${errorMessage}`);
       return [];
     }
   }
@@ -368,7 +374,8 @@ export class VisitService {
       
       return result;
     } catch (error) {
-      this.logger.error(`فشل جلب إحصائيات المتصفحات: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب إحصائيات المتصفحات: ${errorMessage}`);
       return [];
     }
   }
@@ -388,7 +395,8 @@ export class VisitService {
       
       return result;
     } catch (error) {
-      this.logger.error(`فشل جلب إحصائيات أنظمة التشغيل: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب إحصائيات أنظمة التشغيل: ${errorMessage}`);
       return [];
     }
   }
@@ -408,7 +416,8 @@ export class VisitService {
       
       return result;
     } catch (error) {
-      this.logger.error(`فشل جلب إحصائيات المصادر: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب إحصائيات المصادر: ${errorMessage}`);
       return [];
     }
   }
@@ -421,7 +430,8 @@ export class VisitService {
         order: { visitedAt: 'DESC' },
       });
     } catch (error) {
-      this.logger.error(`فشل جلب زيارات الشركة: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب زيارات الشركة: ${errorMessage}`);
       return [];
     }
   }
@@ -432,7 +442,8 @@ export class VisitService {
       if (!employee) throw new NotFoundException('الموظف غير موجود');
       return employee;
     } catch (error) {
-      this.logger.error(`فشل جلب بيانات الموظف: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب بيانات الموظف: ${errorMessage}`);
       throw new NotFoundException('الموظف غير موجود');
     }
   }
@@ -453,7 +464,8 @@ export class VisitService {
         lastVisit: new Date().toISOString() 
       }));
     } catch (error) {
-      this.logger.error(`فشل جلب الإحصائيات المفصلة للمصادر: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب الإحصائيات المفصلة للمصادر: ${errorMessage}`);
       return [];
     }
   }
@@ -480,7 +492,8 @@ export class VisitService {
         total: totalVisits
       };
     } catch (error) {
-      this.logger.error(`فشل جلب إحصائيات QR vs Link: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب إحصائيات QR vs Link: ${errorMessage}`);
       return {
         qrCount: 0,
         linkCount: 0,
