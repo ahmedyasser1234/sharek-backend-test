@@ -179,6 +179,21 @@ export class PaymentService {
     dto: { companyId: string; planId: string },
     file: Express.Multer.File
   ): Promise<{ message: string }> {
+    const existingPendingProof = await this.paymentProofRepo.findOne({
+      where: { 
+        company: { id: dto.companyId },
+        status: PaymentProofStatus.PENDING 
+      },
+      relations: ['company', 'plan'],
+    });
+
+    if (existingPendingProof) {
+      throw new HttpException(
+        'لا يمكن ارسال الوصل لان هناك وصل اخر قيد المراجعه من قبل الاداره',
+        HttpStatus.BAD_REQUEST
+      );
+    }
+
     const [company, plan] = await Promise.all([
       this.companyRepo.findOne({
         where: { id: dto.companyId },
@@ -195,9 +210,9 @@ export class PaymentService {
 
     try {
       const compressedBuffer = await sharp(file.buffer)
-        .resize({ width: 1000 }) 
-        .jpeg({ quality: 70 })  
-        .toBuffer();
+      .resize({ width: 1000 }) 
+      .jpeg({ quality: 70 })  
+      .toBuffer();
 
       const result = await this.cloudinaryService.uploadImage(
         { ...file, buffer: compressedBuffer },
@@ -220,7 +235,6 @@ export class PaymentService {
     });
 
     await this.paymentProofRepo.save(proof);
-
     await this.notificationService.notifyNewSubscriptionRequest({
       id: proof.id,
       company: {
@@ -242,6 +256,17 @@ export class PaymentService {
     }
 
     return { message: 'تم إرسال وصل التحويل، سيتم مراجعته من قبل الإدارة' };
+  }
+
+  async hasPendingSubscription(companyId: string): Promise<boolean> {
+    const pendingProof = await this.paymentProofRepo.findOne({
+      where: { 
+        company: { id: companyId },
+        status: PaymentProofStatus.PENDING 
+      },
+    });
+  
+    return !!pendingProof;
   }
 
   async approveProof(proofId: string): Promise<{ message: string }> {

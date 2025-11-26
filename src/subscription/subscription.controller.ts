@@ -137,12 +137,20 @@ export class SubscriptionController {
     @UploadedFile() file: Express.Multer.File
   ): Promise<{ message: string }> {
     try {
+      const hasPending = await this.paymentService.hasPendingSubscription(companyId);
+      if (hasPending) {
+        throw new HttpException(
+          'لا يمكن ارسال الوصل لان هناك وصل اخر قيد المراجعه من قبل الاداره',
+          HttpStatus.BAD_REQUEST
+        );
+      }
+
       const plans = await this.subscriptionService.getPlans();
       const plan = plans.find(p => p.id === planId);
       if (!plan) throw new NotFoundException('الخطة غير موجودة');
 
       const isManualPaymentAllowed =
-        plan.paymentProvider?.toString() === PaymentProvider.MANUAL_TRANSFER;
+      plan.paymentProvider?.toString() === PaymentProvider.MANUAL_TRANSFER;
 
       if (!isManualPaymentAllowed) {
         throw new HttpException('الخطة لا تدعم الدفع اليدوي', HttpStatus.BAD_REQUEST);
@@ -155,12 +163,16 @@ export class SubscriptionController {
       await this.paymentService.handleManualTransferProof({ companyId, planId }, file);
 
       return { message: 'تم إرسال وصل التحويل، سيتم مراجعته من قبل الإدارة' };
-    } catch (error: unknown) {
-      const msg = error instanceof Error && typeof error.message === 'string'
-        ? error.message
-        : 'Unknown error';
-      this.logger.error(`فشل الاشتراك اليدوي: ${msg}`);
-      throw new HttpException(`فشل الاشتراك اليدوي: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    } catch (error) {
+      let errorMessage = 'Unknown error';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+    
+      this.logger.error(`فشل الاشتراك اليدوي: ${errorMessage}`);
+      throw new HttpException(`فشل الاشتراك اليدوي: ${errorMessage}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
