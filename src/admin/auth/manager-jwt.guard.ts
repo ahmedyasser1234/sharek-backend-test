@@ -19,6 +19,11 @@ interface AuthenticatedRequest extends Request {
     iat?: number;
     exp?: number;
   };
+  user?: {
+    managerId: string;
+    role: string;
+    permissions: Record<string, boolean>;
+  };
 }
 
 @Injectable()
@@ -52,8 +57,14 @@ export class ManagerJwtGuard implements CanActivate {
       throw new UnauthorizedException('Manager not found or inactive');
     }
 
+    // إعداد البيانات في الطلب للاستخدام في الـ controllers
     request.manager = manager;
     request.managerPayload = payload;
+    request.user = {
+      managerId: payload.managerId,
+      role: payload.role,
+      permissions: payload.permissions,
+    };
     
     return true;
   }

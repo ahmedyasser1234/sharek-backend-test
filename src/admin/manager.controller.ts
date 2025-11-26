@@ -15,9 +15,11 @@ import {
   NotFoundException,
   BadRequestException,
   Req,
+  UseInterceptors,
 } from '@nestjs/common';
 import { SellerService } from './manager.service';
 import { ManagerJwtGuard } from './auth/manager-jwt.guard';
+import { TokenRefreshInterceptor } from '../common/interceptors/token-refresh.interceptor';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiResponse } from '@nestjs/swagger';
 import { Company } from '../company/entities/company.entity';
 import { CompanySubscription } from '../subscription/entities/company-subscription.entity';
@@ -25,10 +27,12 @@ import { CompanyWithEmployeeCountDto } from './dto/company-response.dto';
 
 interface ManagerRequest extends Request {
   user?: { managerId: string; role: string };
+  managerPayload?: { managerId: string; role: string };
 }
 
 @ApiTags('Seller')
 @Controller('seller')
+@UseInterceptors(TokenRefreshInterceptor)
 export class SellerController {
   private readonly logger = new Logger(SellerController.name);
 
@@ -36,8 +40,18 @@ export class SellerController {
 
   @Post('refresh')
   @ApiOperation({ summary: 'تجديد توكن البائع' })
-  refresh(@Body() body: { refreshToken: string }) {
-    return this.service.refresh(body.refreshToken);
+  async refresh(@Body() body: { refreshToken: string }) {
+    try {
+      this.logger.log('محاولة تجديد توكن البائع');
+      const result = await this.service.refresh(body.refreshToken);
+      this.logger.log('تم تجديد التوكن بنجاح');
+      return result;
+    } catch (error: unknown) {
+      // التصحيح: تحقق من نوع error أولاً
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      this.logger.error(`فشل تجديد التوكن: ${errorMessage}`);
+      throw error;
+    }
   }
 
   @Post('login')
@@ -88,9 +102,24 @@ export class SellerController {
     description: 'تم جلب شركات البائع بنجاح',
     type: [CompanyWithEmployeeCountDto] 
   })
-  getMyCompanies(@Req() req: ManagerRequest): Promise<CompanyWithEmployeeCountDto[]> {
+  async getMyCompanies(@Req() req: ManagerRequest): Promise<CompanyWithEmployeeCountDto[]> {
     const sellerId = req.user?.managerId;
-    if (!sellerId) throw new UnauthorizedException('غير مصرح');
+    
+    if (!sellerId) {
+      this.logger.warn('لم يتم العثور على sellerId في الطلب رغم وجود الـ Guard');
+      
+      // التصحيح: استخدام type assertion آمن
+      const requestWithPayload = req as unknown as { managerPayload?: { managerId: string } };
+      const payload = requestWithPayload.managerPayload;
+      
+      if (payload?.managerId) {
+        this.logger.log(`استخدام managerPayload للبائع: ${payload.managerId}`);
+        return this.service.getSellerCompanies(payload.managerId);
+      }
+      throw new UnauthorizedException('غير مصرح - يرجى تسجيل الدخول مرة أخرى');
+    }
+    
+    this.logger.log(`جلب شركات البائع: ${sellerId}`);
     return this.service.getSellerCompanies(sellerId);
   }
 
@@ -183,7 +212,9 @@ export class SellerController {
       this.logger.log(`تم الاشتراك بنجاح: الشركة ${companyId} في الخطة ${planId} بواسطة البائع ${sellerId}`);
       return result;
     } catch (error: unknown) {
-      this.logger.error(`فشل اشتراك الشركة ${companyId} في الخطة ${planId}`, String(error));
+      // التصحيح: استخدام String() بدلاً من error.message مباشرة
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل اشتراك الشركة ${companyId} في الخطة ${planId}`, errorMessage);
       
       if (error instanceof NotFoundException) {
         throw new NotFoundException(error.message);
@@ -211,7 +242,8 @@ export class SellerController {
       this.logger.log(`تم معالجة طلب إلغاء الاشتراك بنجاح للشركة: ${companyId}`);
       return result;
     } catch (error: unknown) {
-      this.logger.error(`فشل معالجة طلب إلغاء الاشتراك للشركة: ${companyId}`, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل معالجة طلب إلغاء الاشتراك للشركة: ${companyId}`, errorMessage);
       
       if (error instanceof NotFoundException) {
         throw new NotFoundException(`الشركة ${companyId} ليس لديها اشتراكات نشطة`);
@@ -231,7 +263,8 @@ export class SellerController {
     try {
       return await this.service.extendSubscription(companyId);
     } catch (error: unknown) {
-      this.logger.error(`فشل تمديد الاشتراك للشركة ${companyId}`, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل تمديد الاشتراك للشركة ${companyId}`, errorMessage);
       throw error;
     }
   }
@@ -250,7 +283,8 @@ export class SellerController {
     try {
       return await this.service.changeSubscriptionPlanSeller(companyId, newPlanId);
     } catch (error: unknown) {
-      this.logger.error(`فشل تغيير الخطة للشركة ${companyId}`, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل تغيير الخطة للشركة ${companyId}`, errorMessage);
       throw error;
     }
   }
@@ -273,7 +307,8 @@ export class SellerController {
     try {
       return await this.service.activateSubscriptionManually(companyId, planId, sellerId);
     } catch (error: unknown) {
-      this.logger.error(`فشل تفعيل الاشتراك يدويًا للشركة ${companyId}`, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل تفعيل الاشتراك يدويًا للشركة ${companyId}`, errorMessage);
       throw new InternalServerErrorException('فشل تفعيل الاشتراك');
     }
   }
@@ -288,7 +323,8 @@ export class SellerController {
     try {
       return await this.service.getSubscriptionHistory(companyId);
     } catch (error: unknown) {
-      this.logger.error(`فشل جلب سجل الاشتراكات للشركة ${companyId}`, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل جلب سجل الاشتراكات للشركة ${companyId}`, errorMessage);
       throw new InternalServerErrorException('فشل جلب سجل الاشتراكات');
     }
   }
@@ -307,7 +343,8 @@ export class SellerController {
     try {
       return await this.service.validatePlanChange(companyId, newPlanId);
     } catch (error: unknown) {
-      this.logger.error(`فشل التحقق من تغيير الخطة للشركة ${companyId}`, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل التحقق من تغيير الخطة للشركة ${companyId}`, errorMessage);
       throw error;
     }
   }
@@ -324,7 +361,8 @@ export class SellerController {
       const threshold = parseInt(days);
       return await this.service.getExpiringSubscriptions(threshold, sellerId);
     } catch (error: unknown) {
-      this.logger.error(`فشل جلب الاشتراكات القريبة من الانتهاء`, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل جلب الاشتراكات القريبة من الانتهاء`, errorMessage);
       throw new InternalServerErrorException('فشل جلب الاشتراكات');
     }
   }
@@ -338,7 +376,8 @@ export class SellerController {
     try {
       return await this.service.getManualTransferProofs();
     } catch (error: unknown) {
-      this.logger.error(`فشل تحميل طلبات التحويل`, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل تحميل طلبات التحويل`, errorMessage);
       throw new InternalServerErrorException('فشل تحميل الطلبات');
     }
   }
@@ -353,7 +392,8 @@ export class SellerController {
     try {
       return await this.service.getManualProofDetails(proofId);
     } catch (error: unknown) {
-      this.logger.error(`فشل تحميل تفاصيل الطلب ${proofId}`, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل تحميل تفاصيل الطلب ${proofId}`, errorMessage);
       throw new InternalServerErrorException('فشل تحميل تفاصيل الطلب');
     }
   }
@@ -368,7 +408,8 @@ export class SellerController {
     try {
       return await this.service.approveProof(proofId);
     } catch (error: unknown) {
-      this.logger.error(`فشل قبول الطلب ${proofId}`, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل قبول الطلب ${proofId}`, errorMessage);
       throw new InternalServerErrorException('فشل قبول الطلب');
     }
   }
@@ -386,7 +427,8 @@ export class SellerController {
     try {
       return await this.service.rejectProof(proofId, body.reason);
     } catch (error: unknown) {
-      this.logger.error(`فشل رفض الطلب ${proofId}`, String(error));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل رفض الطلب ${proofId}`, errorMessage);
       throw new InternalServerErrorException('فشل رفض الطلب');
     }
   }

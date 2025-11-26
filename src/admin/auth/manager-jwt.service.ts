@@ -14,16 +14,16 @@ export class ManagerJwtService {
   constructor(private readonly jwtService: JwtService) {}
 
   signAccess(payload: ManagerPayload): string {
-    return this.jwtService.sign(payload as object, {
+    return this.jwtService.sign(payload, {
       secret: process.env.MANAGER_JWT_SECRET || 'manager-secret-key',
-      expiresIn: '1h',
+      expiresIn: process.env.MANAGER_JWT_EXPIRES_IN || '1h',
     });
   }
 
   signRefresh(payload: ManagerPayload): string {
-    return this.jwtService.sign(payload as object, {
+    return this.jwtService.sign(payload, {
       secret: process.env.MANAGER_JWT_REFRESH_SECRET || 'manager-refresh-secret-key',
-      expiresIn: '7d',
+      expiresIn: process.env.MANAGER_JWT_REFRESH_EXPIRES_IN || '7d',
     });
   }
 

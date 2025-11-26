@@ -285,15 +285,53 @@ export class PaymentService {
     proof.rejected = false;
     await this.paymentProofRepo.save(proof);
 
-    const subscription = this.subRepo.create({
-      company: proof.company,
-      plan: proof.plan,
-      startDate: new Date(),
-      endDate: new Date(Date.now() + proof.plan.durationInDays * 24 * 60 * 60 * 1000),
-      price: proof.plan.price,
-      currency: proof.plan.currency || 'SAR',
-      status: SubscriptionStatus.ACTIVE,
+    const currentSubscription = await this.subRepo.findOne({
+      where: { 
+        company: { id: proof.company.id },
+        status: SubscriptionStatus.ACTIVE
+      },
+      order: { endDate: 'DESC' },
     });
+
+    let subscription: CompanySubscription;
+    const now = new Date();
+    let message = 'تم قبول الطلب وتفعيل الاشتراك بنجاح';
+
+    if (currentSubscription && currentSubscription.endDate > now) {
+      const remainingTime = currentSubscription.endDate.getTime() - now.getTime();
+      const remainingDays = Math.ceil(remainingTime / (1000 * 60 * 60 * 24));
+    
+      const newEndDate = new Date();
+      newEndDate.setDate(newEndDate.getDate() + proof.plan.durationInDays + remainingDays);
+
+      subscription = this.subRepo.create({
+        company: proof.company,
+        plan: proof.plan,
+        startDate: now,
+        endDate: newEndDate,
+        price: proof.plan.price,
+        currency: proof.plan.currency || 'SAR',
+        status: SubscriptionStatus.ACTIVE,
+      });
+
+      message = `تم تجديد الاشتراك بنجاح مع إضافة ${remainingDays} يوم متبقي من الاشتراك السابق`;
+      this.logger.log(` تم تجديد الاشتراك للشركة ${proof.company.name} مع إضافة ${remainingDays} يوم متبقي`);
+    } else {
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + proof.plan.durationInDays);
+
+      subscription = this.subRepo.create({
+        company: proof.company,
+        plan: proof.plan,
+        startDate: now,
+        endDate: endDate,
+        price: proof.plan.price,
+        currency: proof.plan.currency || 'SAR',
+        status: SubscriptionStatus.ACTIVE,
+      });
+
+      this.logger.log(` تم بدء اشتراك جديد للشركة ${proof.company.name}`);
+    }
 
     await this.subRepo.save(subscription);
 
@@ -331,8 +369,7 @@ export class PaymentService {
         this.logger.error(`فشل إرسال إشعار القبول: ${String(err)}`);
       }
     }
-
-    return { message: 'تم قبول الطلب وتفعيل الاشتراك بنجاح' };
+    return { message };
   }
 
   async rejectProof(proofId: string, reason: string): Promise<{ message: string }> {

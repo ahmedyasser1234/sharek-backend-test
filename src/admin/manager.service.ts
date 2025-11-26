@@ -145,21 +145,56 @@ export class SellerService {
   }
 
   async refresh(refreshToken: string): Promise<{ accessToken: string }> {
-    const token = await this.tokenRepo.findOne({
-      where: { refreshToken },
-      relations: ['manager'],
-    });
+  const token = await this.tokenRepo.findOne({
+    where: { refreshToken },
+    relations: ['manager'],
+  });
 
-    if (!token) throw new UnauthorizedException('توكن غير صالح');
+  if (!token) {
+    this.logger.error(`Refresh token not found in database: ${refreshToken}`);
+    throw new UnauthorizedException('توكن غير صالح');
+  }
 
+  if (!token.manager.isActive) {
+    this.logger.error(`Manager is inactive: ${token.manager.id}`);
+    throw new UnauthorizedException('البائع غير نشط');
+  }
+
+  try {
     const payload = this.sellerJwt.verifyRefresh(refreshToken);
-    if (!payload || payload.managerId !== token.manager.id) {
+    
+    if (!payload) {
+      this.logger.error(`Invalid refresh token signature: ${refreshToken}`);
+      throw new UnauthorizedException('توكن غير صالح');
+    }
+
+    if (payload.managerId !== token.manager.id) {
+      this.logger.error(`Token mismatch: payload=${payload.managerId}, db=${token.manager.id}`);
       throw new UnauthorizedException('توكن غير مطابق');
     }
 
-    const accessToken = this.sellerJwt.signAccess(payload);
+    const newPayload = { 
+      managerId: token.manager.id, 
+      role: token.manager.role,
+      permissions: this.getPermissions(token.manager.role)
+    };
+    
+    const accessToken = this.sellerJwt.signAccess(newPayload);
+    
+    this.logger.log(`تم تجديد التوكن بنجاح للبائع: ${token.manager.email}`);
+    
     return { accessToken };
+    
+  } catch (error: unknown) {
+    // أصلح هذا السطر - تحقق من نوع error أولاً
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    this.logger.error(`فشل تجديد التوكن: ${errorMessage}`);
+    
+    await this.tokenRepo.delete({ refreshToken });
+    
+    throw new UnauthorizedException('توكن منتهي الصلاحية أو غير صالح');
   }
+}
 
   async logout(refreshToken: string): Promise<{ success: boolean }> {
     await this.tokenRepo.delete({ refreshToken });
@@ -175,7 +210,6 @@ export class SellerService {
     let activeSubs = 0;
 
     if (sellerId) {
-      // إحصائيات البائع
       const sellerSubscriptions = await this.subRepo.find({
         where: { activatedBySellerId: sellerId },
         relations: ['company']
@@ -184,7 +218,6 @@ export class SellerService {
       companies = sellerSubscriptions.length;
       activeSubs = sellerSubscriptions.filter(sub => sub.status === SubscriptionStatus.ACTIVE).length;
     } else {
-      // إحصائيات الأدمن
       companies = await this.companyRepo.count();
       activeSubs = await this.subRepo.count({
         where: { status: SubscriptionStatus.ACTIVE },
@@ -200,13 +233,11 @@ export class SellerService {
     let subscriptions: CompanySubscription[] = [];
 
     if (sellerId) {
-      // جلب شركات البائع فقط
       subscriptions = await this.subRepo.find({
         where: { activatedBySellerId: sellerId },
         relations: ['company', 'plan', 'activatedBySeller'],
       });
     } else {
-      // جلب كل الشركات للأدمن
       subscriptions = await this.subRepo.find({
         relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'],
       });
@@ -240,7 +271,6 @@ export class SellerService {
     return result;
   }
 
-  // دالة جديدة لجلب شركات البائع الخاص
   async getSellerCompanies(sellerId: string): Promise<CompanyWithEmployeeCount[]> {
     const subscriptions = await this.subRepo.find({
       where: { activatedBySellerId: sellerId },
@@ -271,7 +301,6 @@ export class SellerService {
     );
   }
 
-  // دالة جديدة لجلب كل الشركات مع معلومات المفعّل للأدمن
   async getAllCompaniesWithActivator(): Promise<(CompanyWithEmployeeCount & { activatedById?: string })[]> {
     const subscriptions = await this.subRepo.find({
       relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'],
@@ -375,7 +404,6 @@ export class SellerService {
       
       this.logger.log(`تم الاشتراك بنجاح للشركة ${companyId} في الخطة ${planId} بواسطة البائع ${sellerId}`);
       
-      // التحقق من النوع قبل الإرجاع
       if (result && typeof result === 'object' && 'message' in result) {
         return {
           message: result.message,
@@ -399,7 +427,6 @@ export class SellerService {
       
       const result = await this.subscriptionService.cancelSubscription(companyId);
       
-      // التحقق من النوع
       if (this.isCancelSubscriptionResult(result)) {
         this.logger.log(`تم إلغاء اشتراك الشركة ${companyId} بنجاح`);
         return result;
@@ -419,7 +446,6 @@ export class SellerService {
       
       const result = await this.subscriptionService.extendSubscription(companyId);
       
-      // التحقق من النوع
       if (this.isExtendSubscriptionResult(result)) {
         this.logger.log(`تم تمديد اشتراك الشركة ${companyId} بنجاح`);
         return result;
@@ -433,7 +459,6 @@ export class SellerService {
     }
   }
 
-  // Type guards للتحقق من الأنواع
   private isCancelSubscriptionResult(obj: unknown): obj is CancelSubscriptionResult {
     return (
       typeof obj === 'object' &&
@@ -488,7 +513,6 @@ export class SellerService {
       
       const result = await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId) as SubscriptionResult;
       
-      // التحقق من أن النتيجة تطابق الشكل المتوقع
       if (result && typeof result.message === 'string') {
         this.logger.log(`تم تغيير خطة الشركة ${companyId} بنجاح`);
         return result;
@@ -516,7 +540,6 @@ export class SellerService {
       
       this.logger.log(`تم التفعيل اليدوي للشركة ${companyId} بنجاح بواسطة البائع ${sellerId}`);
       
-      // التحقق من النوع قبل الإرجاع
       if (result && typeof result === 'object' && 'message' in result) {
         return {
           message: result.message,
@@ -554,7 +577,6 @@ export class SellerService {
       
       const result = await this.subscriptionService.validatePlanChange(companyId, newPlanId);
       
-      // التحقق من النوع
       if (this.isPlanChangeValidation(result)) {
         return result;
       }
@@ -573,7 +595,6 @@ export class SellerService {
       
       const result = await this.subscriptionService.getExpiringSubscriptions(days);
       
-      // إذا كان بائع، فلتر النتائج لشركاته فقط
       if (sellerId) {
         return result.filter(sub => sub.activatedBySellerId === sellerId);
       }

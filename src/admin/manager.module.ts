@@ -5,6 +5,7 @@ import { SellerController } from './manager.controller';
 import { SellerService } from './manager.service';
 import { ManagerJwtService } from './auth/manager-jwt.service';
 import { ManagerJwtGuard } from './auth/manager-jwt.guard';
+import { TokenRefreshInterceptor } from '../common/interceptors/token-refresh.interceptor'; 
 import { Manager } from './entities/manager.entity';
 import { ManagerToken } from './entities/manager-token.entity';
 import { Company } from '../company/entities/company.entity';
@@ -15,7 +16,6 @@ import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { PaymentModule } from '../payment/payment.module';
 import { Admin } from './entities/admin.entity'; 
-
 
 @Module({
   imports: [
@@ -41,7 +41,12 @@ import { Admin } from './entities/admin.entity';
     SellerService,
     ManagerJwtService,
     ManagerJwtGuard,
+    TokenRefreshInterceptor, 
   ],
-  exports: [SellerService, ManagerJwtGuard],
+  exports: [
+    SellerService, 
+    ManagerJwtGuard,
+    TokenRefreshInterceptor,
+  ],
 })
 export class ManagerModule {}
