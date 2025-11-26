@@ -3,88 +3,92 @@ import {
   NestInterceptor,
   ExecutionContext,
   CallHandler,
-  HttpStatus,
+  UnauthorizedException,
   Logger,
+  HttpException,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
-import { Response } from 'express';
+import { Observable, throwError } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { SellerService } from '../../admin/manager.service';
 
-interface ApiResponse<T> {
-  statusCode: number;
-  success: boolean;
-  message: string | null;
-  data: T | null;
+interface RefreshTokenRequest {
+  body?: {
+    refreshToken?: string;
+  };
+  query?: {
+    refreshToken?: string;
+  };
+  headers?: Record<string, string | undefined>;
 }
 
 @Injectable()
-export class ResponseInterceptor<T>
-  implements NestInterceptor<T, ApiResponse<T>>
-{
-  private readonly logger = new Logger(ResponseInterceptor.name);
+export class TokenRefreshInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(TokenRefreshInterceptor.name);
 
-  intercept(
-    context: ExecutionContext,
-    next: CallHandler<T>,
-  ): Observable<ApiResponse<T>> {
-    const ctx = context.switchToHttp();
-    const res = ctx.getResponse<Response>();
+  constructor(private readonly sellerService: SellerService) {}
 
-    const defaultStatus: HttpStatus =
-      (res?.statusCode as HttpStatus) ?? HttpStatus.OK;
-
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     return next.handle().pipe(
-      map((controllerResult: T): ApiResponse<T> => {
-        if (
-          controllerResult &&
-          typeof controllerResult === 'object' &&
-          ('statusCode' in controllerResult || 'success' in controllerResult)
-        ) {
-          this.logger.debug(`تم إرسال رد مخصص من الكنترولر`);
-          return controllerResult as unknown as ApiResponse<T>;
+      catchError((error: unknown) => {
+        if (this.isHttpException(error) && error.getStatus() === 401) {
+          this.logger.log('تم اكتشاف خطأ 401 - محاولة تجديد التوكن');
+          
+          const request = context.switchToHttp().getRequest<RefreshTokenRequest>();
+          const refreshToken = this.extractRefreshToken(request);
+
+          if (refreshToken) {
+            return this.handleTokenRefresh(context, refreshToken, request);
+          } else {
+            this.logger.warn('لا يوجد refresh token متاح للتجديد');
+          }
         }
-
-        let message: string | null = null;
-        if (
-          controllerResult &&
-          typeof controllerResult === 'object' &&
-          'message' in controllerResult &&
-          typeof (controllerResult as { message?: unknown }).message === 'string'
-        ) {
-          message = (controllerResult as { message: string }).message;
-        }
-
-        let payload: T | null;
-        if (
-          controllerResult &&
-          typeof controllerResult === 'object' &&
-          'data' in controllerResult
-        ) {
-          payload = (controllerResult as { data: T }).data;
-        } else {
-          payload = controllerResult ?? null;
-        }
-
-        const finalResponse: ApiResponse<T> = {
-          statusCode: defaultStatus,
-          success: true,
-          message:
-            message ??
-            (defaultStatus === HttpStatus.CREATED
-              ? 'Created successfully'
-              : 'Request successful'),
-          data: payload,
-        };
-
-        this.logger.log(
-          ` رد موحد تم إنشاؤه: ${JSON.stringify({
-            statusCode: finalResponse.statusCode,
-            message: finalResponse.message,
-          })}`,
-        );
-
-        return finalResponse;
-      }),
+        return throwError(() => error);
+      })
     );
+  }
+
+  private extractRefreshToken(request: RefreshTokenRequest): string | null {
+    try {
+      const fromBody = request.body?.refreshToken;
+      const fromQuery = request.query?.refreshToken;
+      const fromHeaders = request.headers?.['x-refresh-token'];
+
+      return fromBody || fromQuery || fromHeaders || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async handleTokenRefresh(
+    context: ExecutionContext, 
+    refreshToken: string, 
+    originalRequest: RefreshTokenRequest
+  ): Promise<Observable<unknown>> {
+    try {
+      this.logger.log('محاولة تجديد التوكن باستخدام refresh token');
+      
+      const { accessToken } = await this.sellerService.refresh(refreshToken);
+      
+      this.logger.log('تم تجديد التوكن بنجاح');
+      
+      if (originalRequest.headers) {
+        originalRequest.headers['authorization'] = `Bearer ${accessToken}`;
+      }
+      
+      return throwError(() => new UnauthorizedException({
+        message: 'تم تجديد التوكن، يرجى إعادة الطلب بالتوكن الجديد',
+        newAccessToken: accessToken,
+        shouldRetry: true
+      }));
+      
+    } catch (refreshError: unknown) {
+      const errorMessage = refreshError instanceof Error ? refreshError.message : 'Unknown error occurred';
+      this.logger.error(`فشل تجديد التوكن: ${errorMessage}`);
+      return throwError(() => new UnauthorizedException('فشل تجديد التوكن، يرجى تسجيل الدخول مرة أخرى'));
+    }
+  }
+
+  private isHttpException(error: unknown): error is HttpException {
+    return error instanceof HttpException;
   }
 }

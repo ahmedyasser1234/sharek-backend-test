@@ -47,7 +47,6 @@ export class SellerController {
       this.logger.log('تم تجديد التوكن بنجاح');
       return result;
     } catch (error: unknown) {
-      // التصحيح: تحقق من نوع error أولاً
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       this.logger.error(`فشل تجديد التوكن: ${errorMessage}`);
       throw error;
@@ -108,7 +107,6 @@ export class SellerController {
     if (!sellerId) {
       this.logger.warn('لم يتم العثور على sellerId في الطلب رغم وجود الـ Guard');
       
-      // التصحيح: استخدام type assertion آمن
       const requestWithPayload = req as unknown as { managerPayload?: { managerId: string } };
       const payload = requestWithPayload.managerPayload;
       
@@ -212,7 +210,6 @@ export class SellerController {
       this.logger.log(`تم الاشتراك بنجاح: الشركة ${companyId} في الخطة ${planId} بواسطة البائع ${sellerId}`);
       return result;
     } catch (error: unknown) {
-      // التصحيح: استخدام String() بدلاً من error.message مباشرة
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`فشل اشتراك الشركة ${companyId} في الخطة ${planId}`, errorMessage);
       
@@ -404,9 +401,15 @@ export class SellerController {
   @ApiOperation({ summary: 'قبول طلب التحويل البنكي' })
   @ApiParam({ name: 'proofId', description: 'معرف الطلب' })
   @ApiResponse({ status: 200, description: 'تم قبول الطلب بنجاح' })
-  async approveProof(@Param('proofId') proofId: string): Promise<any> {
+  async approveProof(
+    @Param('proofId') proofId: string,
+    @Req() req: ManagerRequest
+  ): Promise<any> {
+    const sellerId = req.user?.managerId;
+    if (!sellerId) throw new UnauthorizedException('غير مصرح');
+
     try {
-      return await this.service.approveProof(proofId);
+      return await this.service.approveProof(proofId, sellerId);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`فشل قبول الطلب ${proofId}`, errorMessage);

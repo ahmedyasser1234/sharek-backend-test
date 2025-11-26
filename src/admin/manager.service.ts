@@ -145,56 +145,55 @@ export class SellerService {
   }
 
   async refresh(refreshToken: string): Promise<{ accessToken: string }> {
-  const token = await this.tokenRepo.findOne({
-    where: { refreshToken },
-    relations: ['manager'],
-  });
+    const token = await this.tokenRepo.findOne({
+      where: { refreshToken },
+      relations: ['manager'],
+    });
 
-  if (!token) {
-    this.logger.error(`Refresh token not found in database: ${refreshToken}`);
-    throw new UnauthorizedException('توكن غير صالح');
-  }
-
-  if (!token.manager.isActive) {
-    this.logger.error(`Manager is inactive: ${token.manager.id}`);
-    throw new UnauthorizedException('البائع غير نشط');
-  }
-
-  try {
-    const payload = this.sellerJwt.verifyRefresh(refreshToken);
-    
-    if (!payload) {
-      this.logger.error(`Invalid refresh token signature: ${refreshToken}`);
+    if (!token) {
+      this.logger.error(`Refresh token not found in database: ${refreshToken}`);
       throw new UnauthorizedException('توكن غير صالح');
     }
 
-    if (payload.managerId !== token.manager.id) {
-      this.logger.error(`Token mismatch: payload=${payload.managerId}, db=${token.manager.id}`);
-      throw new UnauthorizedException('توكن غير مطابق');
+    if (!token.manager.isActive) {
+      this.logger.error(`Manager is inactive: ${token.manager.id}`);
+      throw new UnauthorizedException('البائع غير نشط');
     }
 
-    const newPayload = { 
-      managerId: token.manager.id, 
-      role: token.manager.role,
-      permissions: this.getPermissions(token.manager.role)
-    };
-    
-    const accessToken = this.sellerJwt.signAccess(newPayload);
-    
-    this.logger.log(`تم تجديد التوكن بنجاح للبائع: ${token.manager.email}`);
-    
-    return { accessToken };
-    
-  } catch (error: unknown) {
-    // أصلح هذا السطر - تحقق من نوع error أولاً
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    this.logger.error(`فشل تجديد التوكن: ${errorMessage}`);
-    
-    await this.tokenRepo.delete({ refreshToken });
-    
-    throw new UnauthorizedException('توكن منتهي الصلاحية أو غير صالح');
+    try {
+      const payload = this.sellerJwt.verifyRefresh(refreshToken);
+      
+      if (!payload) {
+        this.logger.error(`Invalid refresh token signature: ${refreshToken}`);
+        throw new UnauthorizedException('توكن غير صالح');
+      }
+
+      if (payload.managerId !== token.manager.id) {
+        this.logger.error(`Token mismatch: payload=${payload.managerId}, db=${token.manager.id}`);
+        throw new UnauthorizedException('توكن غير مطابق');
+      }
+
+      const newPayload = { 
+        managerId: token.manager.id, 
+        role: token.manager.role,
+        permissions: this.getPermissions(token.manager.role)
+      };
+      
+      const accessToken = this.sellerJwt.signAccess(newPayload);
+      
+      this.logger.log(`تم تجديد التوكن بنجاح للبائع: ${token.manager.email}`);
+      
+      return { accessToken };
+      
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      this.logger.error(`فشل تجديد التوكن: ${errorMessage}`);
+      
+      await this.tokenRepo.delete({ refreshToken });
+      
+      throw new UnauthorizedException('توكن منتهي الصلاحية أو غير صالح');
+    }
   }
-}
 
   async logout(refreshToken: string): Promise<{ success: boolean }> {
     await this.tokenRepo.delete({ refreshToken });
@@ -292,8 +291,10 @@ export class SellerService {
           isVerified: sub.company.isVerified,
           subscriptionStatus: sub.company.subscriptionStatus,
           employeesCount,
-          activatedBy: `${sub.activatedBySeller?.email || 'غير معروف'} (بائع)`,
-          activatorType: 'بائع',
+          activatedBy: sub.activatedBySeller ? 
+            `${sub.activatedBySeller.email} (بائع)` : 
+            (sub.activatedByAdmin ? `${sub.activatedByAdmin.email} (أدمن)` : 'غير معروف'),
+          activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
           subscriptionDate: sub.startDate,
           planName: sub.plan.name,
         };
@@ -669,13 +670,13 @@ export class SellerService {
     }
   }
 
-  async approveProof(proofId: string): Promise<ApproveRejectResult> {
+  async approveProof(proofId: string, sellerId?: string): Promise<ApproveRejectResult> {
     try {
-      this.logger.log(`البائع يوافق على طلب التحويل ${proofId}`);
+      this.logger.log(`البائع ${sellerId} يوافق على طلب التحويل ${proofId}`);
       
-      const result = await this.paymentService.approveProof(proofId);
+      const result = await this.paymentService.approveProof(proofId, sellerId);
       
-      this.logger.log(`تم قبول الطلب ${proofId} بنجاح`);
+      this.logger.log(`تم قبول الطلب ${proofId} بنجاح بواسطة البائع ${sellerId}`);
       
       if (result && typeof result === 'object' && 'message' in result && typeof result.message === 'string') {
         return {

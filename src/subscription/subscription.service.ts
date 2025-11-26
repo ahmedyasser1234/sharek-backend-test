@@ -178,13 +178,14 @@ export class SubscriptionService {
         status: SubscriptionStatus.ACTIVE,
       };
 
-      // إضافة حقول التتبع فقط إذا كانت موجودة
       if (activatedBySellerId) {
         subscriptionData.activatedBySellerId = activatedBySellerId;
+        this.logger.log(`تم تسجيل البائع ${activatedBySellerId} كمفعل للاشتراك`);
       }
       
       if (activatedByAdminId) {
         subscriptionData.activatedByAdminId = activatedByAdminId;
+        this.logger.log(`تم تسجيل الأدمن ${activatedByAdminId} كمفعل للاشتراك`);
       }
 
       if (planPrice === 0 || isAdminOverride) {

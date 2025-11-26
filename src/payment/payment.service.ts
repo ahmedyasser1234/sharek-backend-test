@@ -27,6 +27,7 @@ import * as nodemailer from 'nodemailer';
 import sharp from 'sharp';
 import { PaymentProofStatus } from './entities/payment-proof-status.enum';
 import { NotificationService } from '../notification/notification.service';
+import { SubscriptionService } from '../subscription/subscription.service';
 
 @Injectable()
 export class PaymentService {
@@ -50,7 +51,8 @@ export class PaymentService {
     @InjectRepository(PaymentProof)
     private readonly paymentProofRepo: Repository<PaymentProof>,
     private readonly cloudinaryService: CloudinaryService,
-    private readonly notificationService: NotificationService,  
+    private readonly notificationService: NotificationService,
+    private readonly subscriptionService: SubscriptionService,
   ) {}
 
   async generateCheckoutUrl(
@@ -269,7 +271,7 @@ export class PaymentService {
     return !!pendingProof;
   }
 
-  async approveProof(proofId: string): Promise<{ message: string }> {
+  async approveProof(proofId: string, approvedById?: string): Promise<{ message: string }> {
     const proof = await this.paymentProofRepo.findOne({
       where: { id: proofId },
       relations: ['company', 'plan'],
@@ -280,66 +282,24 @@ export class PaymentService {
       throw new NotFoundException('الطلب غير موجود');
     }
 
+    const result = await this.subscriptionService.subscribe(
+      proof.company.id,
+      proof.plan.id,
+      true, 
+      approvedById, 
+      undefined 
+    );
+
     proof.status = PaymentProofStatus.APPROVED;
     proof.reviewed = true;
     proof.rejected = false;
-    await this.paymentProofRepo.save(proof);
-
-    const currentSubscription = await this.subRepo.findOne({
-      where: { 
-        company: { id: proof.company.id },
-        status: SubscriptionStatus.ACTIVE
-      },
-      order: { endDate: 'DESC' },
-    });
-
-    let subscription: CompanySubscription;
-    const now = new Date();
-    let message = 'تم قبول الطلب وتفعيل الاشتراك بنجاح';
-
-    if (currentSubscription && currentSubscription.endDate > now) {
-      const remainingTime = currentSubscription.endDate.getTime() - now.getTime();
-      const remainingDays = Math.ceil(remainingTime / (1000 * 60 * 60 * 24));
+    proof.decisionNote = 'تم القبول بواسطة البائع';
     
-      const newEndDate = new Date();
-      newEndDate.setDate(newEndDate.getDate() + proof.plan.durationInDays + remainingDays);
-
-      subscription = this.subRepo.create({
-        company: proof.company,
-        plan: proof.plan,
-        startDate: now,
-        endDate: newEndDate,
-        price: proof.plan.price,
-        currency: proof.plan.currency || 'SAR',
-        status: SubscriptionStatus.ACTIVE,
-      });
-
-      message = `تم تجديد الاشتراك بنجاح مع إضافة ${remainingDays} يوم متبقي من الاشتراك السابق`;
-      this.logger.log(` تم تجديد الاشتراك للشركة ${proof.company.name} مع إضافة ${remainingDays} يوم متبقي`);
-    } else {
-      const endDate = new Date();
-      endDate.setDate(endDate.getDate() + proof.plan.durationInDays);
-
-      subscription = this.subRepo.create({
-        company: proof.company,
-        plan: proof.plan,
-        startDate: now,
-        endDate: endDate,
-        price: proof.plan.price,
-        currency: proof.plan.currency || 'SAR',
-        status: SubscriptionStatus.ACTIVE,
-      });
-
-      this.logger.log(` تم بدء اشتراك جديد للشركة ${proof.company.name}`);
+    if (approvedById) {
+      proof.approvedById = approvedById;
     }
-
-    await this.subRepo.save(subscription);
-
-    proof.company.subscriptionStatus = 'active';
-    proof.company.planId = proof.plan.id;
-    proof.company.paymentProvider = 'manual_transfer';
-    proof.company.subscribedAt = new Date();
-    await this.companyRepo.save(proof.company);
+    
+    await this.paymentProofRepo.save(proof);
 
     this.logger.log(` تم قبول طلب التحويل: ${proofId} - الشركة: ${proof.company.name}`);
 
@@ -369,7 +329,10 @@ export class PaymentService {
         this.logger.error(`فشل إرسال إشعار القبول: ${String(err)}`);
       }
     }
-    return { message };
+
+    return { 
+      message: result.message || 'تم قبول الطلب وتفعيل الاشتراك بنجاح' 
+    };
   }
 
   async rejectProof(proofId: string, reason: string): Promise<{ message: string }> {

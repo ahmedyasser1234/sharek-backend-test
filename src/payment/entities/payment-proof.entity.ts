@@ -4,6 +4,7 @@ import {
   Column,
   CreateDateColumn,
   ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { Company } from '../../company/entities/company.entity';
 import { Plan } from '../../plan/entities/plan.entity';
@@ -21,9 +22,11 @@ export class PaymentProof {
     eager: true,
     onDelete: 'CASCADE'
   })
+  @JoinColumn({ name: 'company_id' })
   company: Company;
 
   @ManyToOne(() => Plan, { eager: true })
+  @JoinColumn({ name: 'plan_id' })
   plan: Plan;
 
   @Column()
@@ -47,4 +50,7 @@ export class PaymentProof {
     default: PaymentProofStatus.PENDING
   })
   status: PaymentProofStatus;
+
+  @Column({ type: 'uuid', nullable: true, name: 'approved_by_id' })
+  approvedById: string;
 }
