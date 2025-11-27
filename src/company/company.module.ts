@@ -35,7 +35,7 @@ import { ActivityInterceptor } from './interceptors/activity.interceptor';
       useFactory: () => ({
         secret: process.env.JWT_SECRET || 'your-secret-key',
         signOptions: { 
-          expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+          expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '3600'),
           issuer: 'sharik-app'
         },
       }),

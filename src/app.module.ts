@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 // import { APP_GUARD } from '@nestjs/core'; 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -21,14 +22,24 @@ import { RevokedToken } from './company/entities/revoked-token.entity';
 import { NotificationModule } from './notification/notification.module';
 import { BackupModule } from './backup/backup.module';
 
-
-
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(typeOrmConfig),
     TypeOrmModule.forFeature([RevokedToken]),
     ScheduleModule.forRoot(), 
+    
+    JwtModule.registerAsync({
+      global: true, 
+      useFactory: () => ({
+        secret: process.env.JWT_SECRET || 'fallback-secret-key-change-in-production',
+        signOptions: {
+          expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '3600'), 
+          issuer: 'sharik-app',
+        },
+      }),
+    }),
+    
     AdminModule,
     CompanyModule,
     EmployeeModule,

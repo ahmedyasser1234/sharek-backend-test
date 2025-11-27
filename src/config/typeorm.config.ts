@@ -13,3 +13,5 @@ export const typeOrmConfig: TypeOrmModuleOptions = {
   synchronize: true,
   ssl: false, 
 };
+
+

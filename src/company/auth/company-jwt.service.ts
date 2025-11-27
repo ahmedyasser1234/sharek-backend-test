@@ -5,7 +5,7 @@ export interface CompanyPayload {
   companyId: string;
   role?: string;
   token?: string;
-  [key: string]: unknown; // إضافة index signature
+  [key: string]: unknown;
 }
 
 interface JwtError extends Error {
@@ -29,7 +29,7 @@ export class CompanyJwtService {
 
   signAccess(payload: CompanyPayload): string {
     const token = this.jwt.sign(payload, { 
-      expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+      expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '3600'),
       issuer: 'sharik-app'
     });
     this.logger.debug(` تم إنشاء توكن وصول جديد للشركة: ${payload.companyId}`);
@@ -38,7 +38,7 @@ export class CompanyJwtService {
 
   signRefresh(payload: CompanyPayload): string {
     const token = this.jwt.sign(payload, { 
-      expiresIn: '7d',
+      expiresIn: parseInt(process.env.JWT_REFRESH_EXPIRES_IN || '604800'),
       issuer: 'sharik-app'
     });
     this.logger.debug(` تم إنشاء توكن تحديث جديد للشركة: ${payload.companyId}`);

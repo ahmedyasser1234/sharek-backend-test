@@ -7,7 +7,7 @@ interface ManagerPayload {
   permissions: Record<string, boolean>;
   iat?: number;
   exp?: number;
-  [key: string]: unknown; // إضافة index signature
+  [key: string]: unknown;
 }
 
 @Injectable()
@@ -17,14 +17,14 @@ export class ManagerJwtService {
   signAccess(payload: ManagerPayload): string {
     return this.jwtService.sign(payload, {
       secret: process.env.MANAGER_JWT_SECRET || 'manager-secret-key',
-      expiresIn: process.env.MANAGER_JWT_EXPIRES_IN || '1h',
+      expiresIn: parseInt(process.env.MANAGER_JWT_EXPIRES_IN || '3600')
     });
   }
 
   signRefresh(payload: ManagerPayload): string {
     return this.jwtService.sign(payload, {
       secret: process.env.MANAGER_JWT_REFRESH_SECRET || 'manager-refresh-secret-key',
-      expiresIn: process.env.MANAGER_JWT_REFRESH_EXPIRES_IN || '7d',
+      expiresIn: parseInt(process.env.MANAGER_JWT_REFRESH_EXPIRES_IN || '604800')
     });
   }
 
