@@ -14,8 +14,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { AdminJwtGuard } from '../admin/auth/admin-jwt.guard'; 
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { Employee } from '../employee/entities/employee.entity'; 
-import { Manager } from '../admin/entities/manager.entity'; // إضافة Manager entity
-import { Admin } from '../admin/entities/admin.entity'; // إضافة Admin entity
+import { Manager } from '../admin/entities/manager.entity'; 
+import { Admin } from '../admin/entities/admin.entity'; 
 
 @Module({
   imports: [
@@ -26,11 +26,11 @@ import { Admin } from '../admin/entities/admin.entity'; // إضافة Admin enti
       PaymentTransaction,
       PaymentProof,
       Employee,
-      Manager, // إضافة Manager entity
-      Admin, // إضافة Admin entity
+      Manager, 
+      Admin, 
     ]),
     forwardRef(() => CompanyModule),
-    PaymentModule,
+    forwardRef(() => PaymentModule), 
     JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '1d' },
@@ -48,6 +48,7 @@ import { Admin } from '../admin/entities/admin.entity'; // إضافة Admin enti
   exports: [
     SubscriptionService,
     SubscriptionGuard,
+    TypeOrmModule, 
   ],
 })
 export class SubscriptionModule {}

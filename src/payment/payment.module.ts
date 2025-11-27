@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PaymentService } from './payment.service';
 import { StripeGateway } from './gateways/stripe.gateway';
@@ -16,6 +16,8 @@ import { PlanModule } from '../plan/plan.module';
 import { PaymentProof } from './entities/payment-proof.entity';
 import { CloudinaryModule } from '../common/services/cloudinary.module';
 import { NotificationModule } from '../notification/notification.module';
+import { SubscriptionModule } from '../subscription/subscription.module';
+import { Plan } from '../plan/entities/plan.entity';
 
 @Module({
   imports: [
@@ -24,10 +26,12 @@ import { NotificationModule } from '../notification/notification.module';
       Company,
       CompanySubscription, 
       PaymentProof,
+      Plan, 
     ]),
     CloudinaryModule,
     PlanModule,
     NotificationModule,
+    forwardRef(() => SubscriptionModule), 
   ],
   providers: [
     PaymentService,
@@ -37,7 +41,6 @@ import { NotificationModule } from '../notification/notification.module';
     TapGateway,
     STCPayGateway,
     GeideaGateway,
-    
   ],
   exports: [PaymentService],
   controllers: [WebhookController, PaymentController],

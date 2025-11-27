@@ -4,6 +4,8 @@ import {
   HttpStatus,
   Logger,
   NotFoundException,
+  Inject,
+  forwardRef, 
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -52,6 +54,7 @@ export class PaymentService {
     private readonly paymentProofRepo: Repository<PaymentProof>,
     private readonly cloudinaryService: CloudinaryService,
     private readonly notificationService: NotificationService,
+    @Inject(forwardRef(() => SubscriptionService)) // إضافة Inject مع forwardRef
     private readonly subscriptionService: SubscriptionService,
   ) {}
 
@@ -181,7 +184,6 @@ export class PaymentService {
     dto: { companyId: string; planId: string },
     file: Express.Multer.File
   ): Promise<{ message: string }> {
-    // التحقق من وجود طلب معلق - هذا التعديل الجديد
     const existingPendingProof = await this.paymentProofRepo.findOne({
       where: { 
         company: { id: dto.companyId },
@@ -262,7 +264,6 @@ export class PaymentService {
     return { message: 'تم إرسال وصل التحويل، سيتم مراجعته من قبل الإدارة' };
   }
 
-  // هذه الدالة مضافة جديدة
   async hasPendingSubscription(companyId: string): Promise<boolean> {
     const pendingProof = await this.paymentProofRepo.findOne({
       where: { 
@@ -285,13 +286,12 @@ export class PaymentService {
       throw new NotFoundException('الطلب غير موجود');
     }
 
-    // استخدام الاشتراك مع تمرير approvedById - هذا التعديل الجديد
     const result = await this.subscriptionService.subscribe(
       proof.company.id,
       proof.plan.id,
-      true, // isAdminOverride
-      approvedById, // activatedBySellerId
-      undefined // activatedByAdminId
+      true, 
+      approvedById, 
+      undefined 
     );
 
     proof.status = PaymentProofStatus.APPROVED;
@@ -299,7 +299,6 @@ export class PaymentService {
     proof.rejected = false;
     proof.decisionNote = 'تم القبول بواسطة البائع';
     
-    // إضافة approvedById - هذا التعديل الجديد
     if (approvedById) {
       proof.approvedById = approvedById;
     }
