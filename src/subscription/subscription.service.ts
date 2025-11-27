@@ -124,7 +124,7 @@ export class SubscriptionService {
     try {
       return await this.planRepo.find();
     } catch (error: unknown) {
-      this.logger.error('فشل جلب الخطط', error as any);
+      this.logger.error('فشل جلب الخطط', error);
       throw new InternalServerErrorException('فشل جلب الخطط');
     }
   }
@@ -330,7 +330,7 @@ export class SubscriptionService {
       };
 
     } catch (error: unknown) {
-      this.logger.error(`فشل تغيير الخطة للشركة ${companyId}`, error as any);
+      this.logger.error(`فشل تغيير الخطة للشركة ${companyId}`, error);
       throw error;
     }
   }
@@ -385,7 +385,7 @@ export class SubscriptionService {
       };
 
     } catch (error: unknown) {
-      this.logger.error(`فشل طلب تغيير الخطة للشركة ${companyId}`, error as any);
+      this.logger.error(`فشل طلب تغيير الخطة للشركة ${companyId}`, error);
       throw error;
     }
   }
@@ -416,7 +416,7 @@ export class SubscriptionService {
     }
   }
 
-  private async validateCompanySubscription(companyId: string): Promise<{company: Company, activeSubscription: CompanySubscription | null}> {
+  private async validateCompanySubscription(companyId: string): Promise<{activeSubscription: CompanySubscription | null}> {
     const company = await this.companyRepo.findOne({ 
       where: { id: companyId },
       relations: ['subscriptions', 'subscriptions.plan']
@@ -430,7 +430,7 @@ export class SubscriptionService {
       sub => sub.status === SubscriptionStatus.ACTIVE && new Date(sub.endDate) > new Date()
     ) || null;
 
-    return { company, activeSubscription };
+    return { activeSubscription };
   }
 
   async updateCompanyEmployeeLimit(companyId: string, newLimit: number): Promise<any> {
@@ -451,21 +451,48 @@ export class SubscriptionService {
       throw new InternalServerErrorException('فشل تعديل الحد للموظفين');
     }
   }
-
+  
   async getCompanySubscription(companyId: string): Promise<CompanySubscription | null> {
     try {
-      return await this.subscriptionRepo
+      // ✅ البحث عن الاشتراك النشط فقط
+      const subscription = await this.subscriptionRepo
         .createQueryBuilder('sub')
         .leftJoinAndSelect('sub.plan', 'plan')
         .leftJoinAndSelect('sub.activatedBySeller', 'activatedBySeller')
         .leftJoinAndSelect('sub.activatedByAdmin', 'activatedByAdmin')
         .leftJoin('sub.company', 'company')
         .where('company.id = :companyId', { companyId })
+        .andWhere('sub.status = :status', { status: SubscriptionStatus.ACTIVE })
+        .andWhere('sub.endDate > :now', { now: new Date() })
         .orderBy('sub.startDate', 'DESC')
         .getOne();
+
+      if (!subscription) {
+        this.logger.debug(`No active subscription found for company: ${companyId}`);
+        
+        // ✅ محاولة مزامنة الحالة
+        await this.syncCompanySubscriptionStatus(companyId);
+        
+        // ✅ البحث مرة أخرى بعد المزامنة
+        return await this.subscriptionRepo
+          .createQueryBuilder('sub')
+          .leftJoinAndSelect('sub.plan', 'plan')
+          .leftJoinAndSelect('sub.activatedBySeller', 'activatedBySeller')
+          .leftJoinAndSelect('sub.activatedByAdmin', 'activatedByAdmin')
+          .leftJoin('sub.company', 'company')
+          .where('company.id = :companyId', { companyId })
+          .andWhere('sub.status = :status', { status: SubscriptionStatus.ACTIVE })
+          .andWhere('sub.endDate > :now', { now: new Date() })
+          .orderBy('sub.startDate', 'DESC')
+          .getOne();
+      }
+
+      this.logger.debug(`Found active subscription for company: ${companyId}, plan: ${subscription.plan?.name}`);
+      return subscription;
+
     } catch (error: unknown) {
-      this.logger.error(`فشل جلب الاشتراك للشركة ${companyId}`, error as any);
-      throw new InternalServerErrorException('فشل جلب الاشتراك');
+      this.logger.error(`Failed to get subscription for company ${companyId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new InternalServerErrorException('Failed to get subscription');
     }
   }
 
@@ -562,7 +589,7 @@ export class SubscriptionService {
         isExpired,
       };
     } catch (error: unknown) {
-      this.logger.error(`فشل حساب استخدام الشركة ${companyId}`, error as any);
+      this.logger.error(`فشل حساب استخدام الشركة ${companyId}`, error);
       throw new InternalServerErrorException('فشل حساب الاستخدام');
     }
   }
@@ -593,9 +620,20 @@ export class SubscriptionService {
         company.subscriptionStatus = 'inactive';
         company.planId = null;
         company.paymentProvider = '';
-        company.subscribedAt = null as unknown as Date;
         
-        await this.companyRepo.save(company);
+        // استخدام QueryBuilder لتجنب مشاكل TypeScript مع subscribedAt
+        await this.companyRepo
+          .createQueryBuilder()
+          .update(Company)
+          .set({
+            subscriptionStatus: 'inactive',
+            planId: null,
+            paymentProvider: '',
+            subscribedAt: () => 'NULL' // استخدام SQL NULL بدلاً من JavaScript null
+          })
+          .where('id = :id', { id: companyId })
+          .execute();
+          
         this.logger.debug(`تم تحديث حالة الشركة إلى inactive`);
       }
 
@@ -612,7 +650,7 @@ export class SubscriptionService {
       return result;
 
     } catch (error: unknown) {
-      this.logger.error(`فشل إلغاء الاشتراكات للشركة ${companyId}`, error as any);
+      this.logger.error(`فشل إلغاء الاشتراكات للشركة ${companyId}`, error);
       
       if (error instanceof NotFoundException) {
         this.logger.warn(`الشركة ${companyId} ليس لديها اشتراكات نشطة لإلغائها`);
@@ -625,7 +663,7 @@ export class SubscriptionService {
 
   async extendSubscription(companyId: string, options?: { forceExtend?: boolean }): Promise<ExtendSubscriptionResult> {
     try {
-      const { company, activeSubscription } = await this.validateCompanySubscription(companyId);
+      const { activeSubscription } = await this.validateCompanySubscription(companyId);
       
       if (!activeSubscription) {
         throw new NotFoundException('لا يوجد اشتراك نشط للتمديد');
@@ -803,7 +841,7 @@ export class SubscriptionService {
         order: { startDate: 'DESC' },
       });
     } catch (error: unknown) {
-      this.logger.error(`فشل جلب سجل الاشتراكات للشركة ${companyId}`, error as any);
+      this.logger.error(`فشل جلب سجل الاشتراكات للشركة ${companyId}`, error);
       throw new InternalServerErrorException('فشل جلب سجل الاشتراكات');
     }
   }
@@ -903,7 +941,7 @@ export class SubscriptionService {
         }
       }
     } catch (error: unknown) {
-      this.logger.error('فشل فحص الاشتراكات القريبة من الانتهاء', error as any);
+      this.logger.error('فشل فحص الاشتراكات القريبة من الانتهاء', error);
     }
   }
 
@@ -912,5 +950,80 @@ export class SubscriptionService {
     newEndDate.setDate(newEndDate.getDate() + durationInDays);
     const formattedDate = newEndDate.toISOString().split('T')[0];
     return `http://localhost:3000/renew-subscription?companyId=${companyId}&planId=${planId}&newEndDate=${formattedDate}`;
+  }
+
+  async getCurrentEmployeeCount(companyId: string): Promise<number> {
+    try {
+      return await this.employeeRepo.count({
+        where: { company: { id: companyId } }
+      });
+    } catch (error: unknown) {
+      this.logger.error(`Failed to get employee count for company ${companyId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return 0;
+    }
+  }
+
+  async syncCompanySubscriptionStatus(companyId: string): Promise<void> {
+    try {
+      this.logger.log(`Syncing subscription status for company: ${companyId}`);
+      
+      const company = await this.companyRepo.findOne({ 
+        where: { id: companyId },
+        relations: ['subscriptions'] 
+      });
+
+      if (!company) {
+        this.logger.warn(`Company not found: ${companyId}`);
+        return;
+      }
+
+      const activeSubscription = company.subscriptions?.find(
+        sub => sub.status === SubscriptionStatus.ACTIVE && new Date(sub.endDate) > new Date()
+      );
+
+      if (activeSubscription) {
+        if (company.subscriptionStatus !== 'active') {
+          // استخدام QueryBuilder مع SQL expression لتجنب مشاكل TypeScript
+          await this.companyRepo
+            .createQueryBuilder()
+            .update(Company)
+            .set({
+              subscriptionStatus: 'active',
+              planId: activeSubscription.plan.id,
+              subscribedAt: () => 'CURRENT_TIMESTAMP' // استخدام SQL function بدلاً من JavaScript Date
+            })
+            .where('id = :id', { id: companyId })
+            .execute();
+          this.logger.log(` Synced company ${companyId} status to ACTIVE`);
+        }
+      } else {
+        if (company.subscriptionStatus === 'active') {
+          // استخدام QueryBuilder مع SQL NULL
+          await this.companyRepo
+            .createQueryBuilder()
+            .update(Company)
+            .set({
+              subscriptionStatus: 'inactive',
+              planId: () => 'NULL', // استخدام SQL NULL
+              subscribedAt: () => 'NULL' // استخدام SQL NULL بدلاً من JavaScript null
+            })
+            .where('id = :id', { id: companyId })
+            .execute();
+          this.logger.log(`  Synced company ${companyId} status to INACTIVE`);
+        }
+      }
+    } catch (error: unknown) {
+      this.logger.error(`Failed to sync subscription status for company ${companyId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async hasActiveSubscription(companyId: string): Promise<boolean> {
+    try {
+      const subscription = await this.getCompanySubscription(companyId);
+      return !!subscription;
+    } catch (error: unknown) {
+      this.logger.error(`Failed to check active subscription for company ${companyId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return false;
+    }
   }
 }
