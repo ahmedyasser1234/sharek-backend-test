@@ -41,9 +41,11 @@ import { CompanyActivity } from '../company/entities/company-activity.entity';
       CompanyLoginLog,
       CompanyActivity,
     ]),
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'super-secret-key',
-      signOptions: { expiresIn: '30m' },
+    JwtModule.registerAsync({
+      useFactory: () => ({
+        secret: process.env.JWT_SECRET || 'super-secret-key',
+        signOptions: { expiresIn: '30m' },
+      }),
     }),
     SubscriptionModule, 
     PaymentModule, 
@@ -58,6 +60,6 @@ import { CompanyActivity } from '../company/entities/company-activity.entity';
     ManagerJwtGuard,
     Reflector,
   ],
-  exports: [AdminService, SellerService],
+  exports: [AdminService, SellerService, ManagerJwtService, ManagerJwtGuard],
 })
 export class AdminModule {}

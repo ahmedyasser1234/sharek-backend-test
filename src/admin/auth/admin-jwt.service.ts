@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 export interface AdminPayload {
   adminId: string;
   role?: string;
+  [key: string]: unknown; // إضافة index signature
 }
 
 @Injectable()

@@ -31,12 +31,14 @@ import { ActivityInterceptor } from './interceptors/activity.interceptor';
     ]),
     forwardRef(() => SubscriptionModule),
     CloudinaryModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'your-secret-key',
-      signOptions: { 
-        expiresIn: process.env.JWT_EXPIRES_IN || '1h',
-        issuer: 'sharik-app'
-      },
+    JwtModule.registerAsync({
+      useFactory: () => ({
+        secret: process.env.JWT_SECRET || 'your-secret-key',
+        signOptions: { 
+          expiresIn: process.env.JWT_EXPIRES_IN || '1h',
+          issuer: 'sharik-app'
+        },
+      }),
     }),
   ],
   controllers: [CompanyController],
@@ -55,7 +57,7 @@ import { ActivityInterceptor } from './interceptors/activity.interceptor';
     CompanyJwtService,
     CompanyJwtGuard,
     ActivityTrackerService,
-    JwtModule, 
+    TypeOrmModule,
   ],
 })
 export class CompanyModule {}

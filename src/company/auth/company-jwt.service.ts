@@ -5,6 +5,7 @@ export interface CompanyPayload {
   companyId: string;
   role?: string;
   token?: string;
+  [key: string]: unknown; // إضافة index signature
 }
 
 interface JwtError extends Error {

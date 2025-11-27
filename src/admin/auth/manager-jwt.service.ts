@@ -7,6 +7,7 @@ interface ManagerPayload {
   permissions: Record<string, boolean>;
   iat?: number;
   exp?: number;
+  [key: string]: unknown; // إضافة index signature
 }
 
 @Injectable()

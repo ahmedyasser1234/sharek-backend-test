@@ -29,9 +29,11 @@ import { Admin } from './entities/admin.entity';
       PaymentProof,
       Admin, 
     ]),
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'manager-secret-key',
-      signOptions: { expiresIn: '30m' },
+    JwtModule.registerAsync({
+      useFactory: () => ({
+        secret: process.env.JWT_SECRET || 'manager-secret-key',
+        signOptions: { expiresIn: '30m' },
+      }),
     }),
     SubscriptionModule, 
     PaymentModule,      
@@ -43,6 +45,6 @@ import { Admin } from './entities/admin.entity';
     ManagerJwtGuard,
     TokenRefreshInterceptor,
   ],
-  exports: [SellerService, ManagerJwtGuard],
+  exports: [SellerService, ManagerJwtGuard, ManagerJwtService],
 })
 export class ManagerModule {}
