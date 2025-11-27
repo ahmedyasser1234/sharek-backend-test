@@ -25,6 +25,7 @@ import { PaymentService } from '../payment/payment.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
+import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
 
 @ApiTags('Admin Subscription')
 @ApiBearerAuth()
@@ -219,24 +220,28 @@ export class AdminSubscriptionController {
   async getManualTransferProofs() {
     try {
       const proofs = await this.proofRepo.find({
+        where: { status: PaymentProofStatus.PENDING },
         relations: ['company', 'plan'],
         order: { createdAt: 'DESC' },
       });
 
-      return proofs.map((proof) => ({
-        id: proof.id,
-        companyId: proof.company.id,
-        companyName: proof.company.name,
-        companyEmail: proof.company.email,
-        planId: proof.plan.id,
-        planName: proof.plan.name,
-        imageUrl: proof.imageUrl,
-        createdAt: proof.createdAt,
-        status: proof.status, 
-        reviewed: proof.reviewed,
-        rejected: proof.rejected,
-        decisionNote: proof.decisionNote,
+      const safeProofs = proofs.map((proof) => ({
+        id: proof?.id,
+        companyId: proof?.company?.id || 'غير معروف',
+        companyName: proof?.company?.name || 'شركة غير معروفة',
+        companyEmail: proof?.company?.email || 'بريد غير معروف',
+        planId: proof?.plan?.id || 'غير معروف',
+        planName: proof?.plan?.name || 'خطة غير معروفة',
+        imageUrl: proof?.imageUrl,
+        createdAt: proof?.createdAt,
+        status: proof?.status, 
+        reviewed: proof?.reviewed || false,
+        rejected: proof?.rejected || false,
+        decisionNote: proof?.decisionNote || '',
       }));
+
+      this.logger.log(`تم جلب ${safeProofs.length} طلب تحويل بنكي`);
+      return safeProofs;
     } catch (err) {
       this.logger.error(`فشل تحميل الطلبات: ${String(err)}`);
       throw new InternalServerErrorException('فشل تحميل الطلبات');
@@ -254,24 +259,33 @@ export class AdminSubscriptionController {
         relations: ['company', 'plan'],
       });
 
-      if (!proof) throw new NotFoundException('الطلب غير موجود');
+      if (!proof) {
+        throw new NotFoundException('الطلب غير موجود');
+      }
 
-      return {
-        id: proof.id,
-        companyId: proof.company.id,
-        companyName: proof.company.name,
-        companyEmail: proof.company.email,
-        planId: proof.plan.id,
-        planName: proof.plan.name,
-        imageUrl: proof.imageUrl,
-        createdAt: proof.createdAt,
-        status: proof.status, 
-        reviewed: proof.reviewed,
-        rejected: proof.rejected,
-        decisionNote: proof.decisionNote,
+      const safeProof = {
+        id: proof?.id,
+        companyId: proof?.company?.id || 'غير معروف',
+        companyName: proof?.company?.name || 'شركة غير معروفة',
+        companyEmail: proof?.company?.email || 'بريد غير معروف',
+        planId: proof?.plan?.id || 'غير معروف',
+        planName: proof?.plan?.name || 'خطة غير معروفة',
+        imageUrl: proof?.imageUrl,
+        createdAt: proof?.createdAt,
+        status: proof?.status, 
+        reviewed: proof?.reviewed || false,
+        rejected: proof?.rejected || false,
+        decisionNote: proof?.decisionNote || '',
       };
+
+      return safeProof;
     } catch (err) {
       this.logger.error(`فشل تحميل تفاصيل الطلب ${proofId}: ${String(err)}`);
+      
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+      
       throw new InternalServerErrorException('فشل تحميل تفاصيل الطلب');
     }
   }
@@ -284,9 +298,27 @@ export class AdminSubscriptionController {
     @Param('proofId') proofId: string,
   ): Promise<{ message: string }> {
     try {
+      const proof = await this.proofRepo.findOne({
+        where: { id: proofId },
+        relations: ['company', 'plan'],
+      });
+
+      if (!proof) {
+        throw new NotFoundException('الطلب غير موجود');
+      }
+
+      if (!proof.company || !proof.plan) {
+        throw new BadRequestException('بيانات الطلب غير مكتملة');
+      }
+
       return await this.paymentService.approveProof(proofId);
     } catch (error: unknown) {
       this.logger.error(`فشل قبول الطلب ${proofId}`, error as any);
+      
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      
       throw new InternalServerErrorException('فشل قبول الطلب');
     }
   }
@@ -300,9 +332,23 @@ export class AdminSubscriptionController {
     @Body() body: { reason: string }
   ): Promise<{ message: string }> {
     try {
+      const proof = await this.proofRepo.findOne({
+        where: { id: proofId },
+        relations: ['company', 'plan'],
+      });
+
+      if (!proof) {
+        throw new NotFoundException('الطلب غير موجود');
+      }
+
       return await this.paymentService.rejectProof(proofId, body.reason);
     } catch (error: unknown) {
       this.logger.error(`فشل رفض الطلب ${proofId}`, error as any);
+      
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      
       throw new InternalServerErrorException('فشل رفض الطلب');
     }
   }
@@ -313,5 +359,21 @@ export class AdminSubscriptionController {
   async getExpiring(@Param('days') days: string) {
     const threshold = parseInt(days);
     return await this.subscriptionService.getExpiringSubscriptions(threshold);
+  }
+
+  @Get('pending-proofs/count')
+  @ApiOperation({ summary: 'جلب عدد طلبات التحويل البنكي المعلقة' })
+  @ApiResponse({ status: 200, description: 'تم جلب العدد بنجاح' })
+  async getPendingProofsCount(): Promise<{ count: number }> {
+    try {
+      const count = await this.proofRepo.count({
+        where: { status: PaymentProofStatus.PENDING }
+      });
+      
+      return { count };
+    } catch (err) {
+      this.logger.error(`فشل جلب عدد الطلبات المعلقة: ${String(err)}`);
+      throw new InternalServerErrorException('فشل جلب عدد الطلبات المعلقة');
+    }
   }
 }

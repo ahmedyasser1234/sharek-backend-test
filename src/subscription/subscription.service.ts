@@ -124,7 +124,7 @@ export class SubscriptionService {
     try {
       return await this.planRepo.find();
     } catch (error: unknown) {
-      this.logger.error(' فشل جلب الخطط', error as any);
+      this.logger.error('فشل جلب الخطط', error as any);
       throw new InternalServerErrorException('فشل جلب الخطط');
     }
   }
@@ -137,13 +137,16 @@ export class SubscriptionService {
     activatedByAdminId?: string
   ): Promise<SubscriptionResponse> {
     try {
-      this.logger.log(` بدء الاشتراك: الشركة ${companyId} في الخطة ${planId}`);
+      this.logger.log(`بدء الاشتراك: الشركة ${companyId} في الخطة ${planId}`);
 
-      const company = await this.companyRepo.findOne({ where: { id: companyId } });
-      if (!company) throw new NotFoundException('Company not found');
+      const company = await this.companyRepo.findOne({ 
+        where: { id: companyId },
+        relations: ['subscriptions'] 
+      });
+      if (!company) throw new NotFoundException('الشركة غير موجودة');
 
       const newPlan = await this.planRepo.findOne({ where: { id: planId } });
-      if (!newPlan) throw new NotFoundException('Plan not found');
+      if (!newPlan) throw new NotFoundException('الخطة غير موجودة');
 
       const planPrice = parseFloat(String(newPlan.price));
       if (isNaN(planPrice)) throw new BadRequestException('السعر غير صالح للخطة');
@@ -154,9 +157,11 @@ export class SubscriptionService {
             company: { id: companyId },
             plan: { isTrial: true },
           },
-          relations: ['plan', 'company'],
+          relations: ['plan'],
         });
-        if (previousTrial) throw new BadRequestException('لا يمكن استخدام الخطة التجريبية أكثر من مرة');
+        if (previousTrial) {
+          throw new BadRequestException('لا يمكن استخدام الخطة التجريبية أكثر من مرة');
+        }
       }
 
       const startDate = new Date();
@@ -164,7 +169,10 @@ export class SubscriptionService {
       endDate.setDate(startDate.getDate() + newPlan.durationInDays);
 
       const existingSub = await this.subscriptionRepo.findOne({
-        where: { company: { id: companyId } },
+        where: { 
+          company: { id: companyId },
+          status: SubscriptionStatus.ACTIVE
+        },
         order: { startDate: 'DESC' },
         relations: ['plan'],
       });
@@ -176,6 +184,7 @@ export class SubscriptionService {
         endDate,
         price: planPrice,
         status: SubscriptionStatus.ACTIVE,
+        customMaxEmployees: newPlan.maxEmployees,
       };
 
       if (activatedBySellerId) {
@@ -189,11 +198,16 @@ export class SubscriptionService {
       }
 
       if (planPrice === 0 || isAdminOverride) {
-        const subscription = existingSub
-          ? Object.assign(existingSub, subscriptionData)
-          : this.subscriptionRepo.create(subscriptionData);
+        let subscription: CompanySubscription;
 
-        const saved = await this.subscriptionRepo.save(subscription);
+        if (existingSub) {
+          Object.assign(existingSub, subscriptionData);
+          subscription = existingSub;
+        } else {
+          subscription = this.subscriptionRepo.create(subscriptionData);
+        }
+
+        const savedSubscription = await this.subscriptionRepo.save(subscription);
 
         company.subscriptionStatus = 'active';
         company.subscribedAt = new Date();
@@ -205,18 +219,22 @@ export class SubscriptionService {
           await this.updateRelatedPaymentProof(companyId, planId);
         }
 
+        this.logger.log(`تم تفعيل الاشتراك بنجاح للشركة ${companyId} في الخطة ${newPlan.name}`);
+
         return {
           message: isAdminOverride
-            ? ' تم تفعيل الاشتراك يدويًا بواسطة الأدمن'
-            : ' تم الاشتراك في الخطة المجانية بنجاح',
+            ? 'تم تفعيل الاشتراك يدويًا بواسطة الأدمن'
+            : 'تم الاشتراك في الخطة المجانية بنجاح',
           redirectToDashboard: true,
-          subscription: saved,
+          subscription: savedSubscription,
         };
       }
 
       if (planPrice > 0) {
         const provider = newPlan.paymentProvider;
-        if (!provider) throw new BadRequestException('مزود الدفع مطلوب للخطط المدفوعة');
+        if (!provider) {
+          throw new BadRequestException('مزود الدفع مطلوب للخطط المدفوعة');
+        }
 
         const checkoutUrl = await this.paymentService.generateCheckoutUrl(
           provider,
@@ -224,18 +242,26 @@ export class SubscriptionService {
           companyId,
         );
 
+        this.logger.log(`تم إنشاء رابط دفع للشركة ${companyId}: ${checkoutUrl}`);
+
         return {
-          message: ' يتطلب دفع',
+          message: 'يتطلب إتمام عملية الدفع',
           redirectToPayment: true,
           checkoutUrl,
         };
       }
 
-      throw new BadRequestException('لم يتم الاشتراك');
+      throw new BadRequestException('لم يتم الاشتراك - حالة غير متوقعة');
+
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل الاشتراك: ${msg}`);
-      throw error;
+      const errorMessage = error instanceof Error ? error.message : 'خطأ غير معروف';
+      this.logger.error(`فشل الاشتراك للشركة ${companyId}: ${errorMessage}`);
+      
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException('فشل في عملية الاشتراك');
     }
   }
 
@@ -381,13 +407,30 @@ export class SubscriptionService {
         latestProof.reviewed = true;
         latestProof.rejected = false;
         await this.paymentProofRepo.save(latestProof);
-      
+        this.logger.log(`تم تحديث حالة إثبات الدفع للشركة ${companyId}`);
       } else {
-        this.logger.warn(` لم يتم العثور على proof pending للشركة ${companyId} والخطة ${planId}`);
+        this.logger.warn(`لم يتم العثور على إثبات دفع معلق للشركة ${companyId} والخطة ${planId}`);
       }
     } catch (error) {
-      this.logger.error(` فشل تحديث حالة الـ Proof: ${String(error)}`);
+      this.logger.error(`فشل تحديث حالة إثبات الدفع: ${String(error)}`);
     }
+  }
+
+  private async validateCompanySubscription(companyId: string): Promise<{company: Company, activeSubscription: CompanySubscription | null}> {
+    const company = await this.companyRepo.findOne({ 
+      where: { id: companyId },
+      relations: ['subscriptions', 'subscriptions.plan']
+    });
+    
+    if (!company) {
+      throw new NotFoundException('الشركة غير موجودة');
+    }
+
+    const activeSubscription = company.subscriptions?.find(
+      sub => sub.status === SubscriptionStatus.ACTIVE && new Date(sub.endDate) > new Date()
+    ) || null;
+
+    return { company, activeSubscription };
   }
 
   async updateCompanyEmployeeLimit(companyId: string, newLimit: number): Promise<any> {
@@ -404,7 +447,7 @@ export class SubscriptionService {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل تعديل الحد للموظفين للشركة ${companyId}: ${msg}`);
+      this.logger.error(`فشل تعديل الحد للموظفين للشركة ${companyId}: ${msg}`);
       throw new InternalServerErrorException('فشل تعديل الحد للموظفين');
     }
   }
@@ -421,14 +464,14 @@ export class SubscriptionService {
         .orderBy('sub.startDate', 'DESC')
         .getOne();
     } catch (error: unknown) {
-      this.logger.error(` فشل جلب الاشتراك للشركة ${companyId}`, error as any);
+      this.logger.error(`فشل جلب الاشتراك للشركة ${companyId}`, error as any);
       throw new InternalServerErrorException('فشل جلب الاشتراك');
     }
   }
 
   async getAllowedEmployees(companyId: string): Promise<{ maxAllowed: number; remaining: number; current: number }> {
     try {
-      this.logger.debug(` التحقق من الحد المسموح للموظفين للشركة: ${companyId}`);
+      this.logger.debug(`التحقق من الحد المسموح للموظفين للشركة: ${companyId}`);
       
       const activeSubscription = await this.subscriptionRepo.findOne({
         where: { 
@@ -439,7 +482,7 @@ export class SubscriptionService {
       });
 
       if (!activeSubscription) {
-        this.logger.warn(` الشركة ${companyId} ليس لديها اشتراك نشط`);
+        this.logger.warn(`الشركة ${companyId} ليس لديها اشتراك نشط`);
         return { maxAllowed: 0, remaining: 0, current: 0 };
       }
 
@@ -458,14 +501,14 @@ export class SubscriptionService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل حساب الحد المسموح للموظفين للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل حساب الحد المسموح للموظفين للشركة ${companyId}: ${errorMessage}`);
       throw new InternalServerErrorException('فشل حساب الحد المسموح للموظفين');
     }
   }
 
   async canAddEmployee(companyId: string): Promise<{ canAdd: boolean; allowed: number; current: number; maxAllowed: number }> {
     try {
-      this.logger.debug(` التحقق من إمكانية إضافة موظف للشركة: ${companyId}`);
+      this.logger.debug(`التحقق من إمكانية إضافة موظف للشركة: ${companyId}`);
       
       const activeSubscription = await this.subscriptionRepo.findOne({
         where: { 
@@ -476,7 +519,7 @@ export class SubscriptionService {
       });
 
       if (!activeSubscription) {
-        this.logger.warn(` الشركة ${companyId} ليس لديها اشتراك نشط`);
+        this.logger.warn(`الشركة ${companyId} ليس لديها اشتراك نشط`);
         return { canAdd: false, allowed: 0, current: 0, maxAllowed: 0 };
       }
 
@@ -497,7 +540,7 @@ export class SubscriptionService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل التحقق من إمكانية إضافة موظف: ${errorMessage}`);
+      this.logger.error(`فشل التحقق من إمكانية إضافة موظف: ${errorMessage}`);
       throw new InternalServerErrorException('فشل التحقق من إمكانية إضافة موظف');
     }
   }
@@ -519,7 +562,7 @@ export class SubscriptionService {
         isExpired,
       };
     } catch (error: unknown) {
-      this.logger.error(` فشل حساب استخدام الشركة ${companyId}`, error as any);
+      this.logger.error(`فشل حساب استخدام الشركة ${companyId}`, error as any);
       throw new InternalServerErrorException('فشل حساب الاستخدام');
     }
   }
@@ -535,7 +578,7 @@ export class SubscriptionService {
       });
 
       if (subscriptions.length === 0) {
-        this.logger.warn(` لا يوجد اشتراكات نشطة للشركة: ${companyId}`);
+        this.logger.warn(`لا يوجد اشتراكات نشطة للشركة: ${companyId}`);
         throw new NotFoundException('لا يوجد اشتراكات نشطة للشركة');
       }
 
@@ -543,7 +586,7 @@ export class SubscriptionService {
         company: { id: companyId }
       });
 
-      this.logger.log(` تم حذف جميع الاشتراكات القديمة للشركة: ${companyId}`);
+      this.logger.log(`تم حذف جميع الاشتراكات القديمة للشركة: ${companyId}`);
 
       const company = await this.companyRepo.findOne({ where: { id: companyId } });
       if (company) {
@@ -553,13 +596,13 @@ export class SubscriptionService {
         company.subscribedAt = null as unknown as Date;
         
         await this.companyRepo.save(company);
-        this.logger.debug(` تم تحديث حالة الشركة إلى inactive`);
+        this.logger.debug(`تم تحديث حالة الشركة إلى inactive`);
       }
 
       const planNames = [...new Set(subscriptions.map(sub => sub.plan?.name).filter(Boolean))];
 
       const result: CancelSubscriptionResult = { 
-        message: ' تم إلغاء وحذف جميع اشتراكات الشركة بنجاح', 
+        message: 'تم إلغاء وحذف جميع اشتراكات الشركة بنجاح', 
         deletedSubscriptions: subscriptions.length,
         disconnectedPlans: planNames,
         companyStatus: 'inactive - غير قادرة على إضافة موظفين',
@@ -569,10 +612,10 @@ export class SubscriptionService {
       return result;
 
     } catch (error: unknown) {
-      this.logger.error(` فشل إلغاء الاشتراكات للشركة ${companyId}`, error as any);
+      this.logger.error(`فشل إلغاء الاشتراكات للشركة ${companyId}`, error as any);
       
       if (error instanceof NotFoundException) {
-        this.logger.warn(` الشركة ${companyId} ليس لديها اشتراكات نشطة لإلغائها`);
+        this.logger.warn(`الشركة ${companyId} ليس لديها اشتراكات نشطة لإلغائها`);
         throw error;
       }
       
@@ -582,16 +625,17 @@ export class SubscriptionService {
 
   async extendSubscription(companyId: string, options?: { forceExtend?: boolean }): Promise<ExtendSubscriptionResult> {
     try {
-      const sub = await this.getCompanySubscription(companyId);
-      if (!sub || !sub.plan) {
-        throw new NotFoundException('لا يوجد اشتراك صالح للتمديد');
+      const { company, activeSubscription } = await this.validateCompanySubscription(companyId);
+      
+      if (!activeSubscription) {
+        throw new NotFoundException('لا يوجد اشتراك نشط للتمديد');
       }
 
       const allowedEmployees = await this.getAllowedEmployees(companyId);
       const currentEmployeeCount = allowedEmployees.current;
       const maxAllowed = allowedEmployees.maxAllowed;
 
-      const currentPlanMax = sub.plan.maxEmployees;
+      const currentPlanMax = activeSubscription.plan.maxEmployees;
       if (maxAllowed < currentPlanMax) {
         throw new BadRequestException(
           `لا يمكن تمديد الاشتراك - الخطة الحالية تدعم ${maxAllowed} موظف بينما الخطة الأصلية كانت ${currentPlanMax} موظف.\n\n` +
@@ -600,29 +644,29 @@ export class SubscriptionService {
       }
 
       if (options?.forceExtend) {
-        this.logger.warn(` تم تمديد الاشتراك إجبارياً للشركة ${companyId}`);
-        sub.endDate = new Date(sub.endDate.getTime() + sub.plan.durationInDays * 86400000);
-        await this.subscriptionRepo.save(sub);
+        this.logger.warn(`تم تمديد الاشتراك إجبارياً للشركة ${companyId}`);
+        activeSubscription.endDate = new Date(activeSubscription.endDate.getTime() + activeSubscription.plan.durationInDays * 86400000);
+        await this.subscriptionRepo.save(activeSubscription);
         
         const result: ExtendSubscriptionResult = { 
           message: 'تم تمديد الاشتراك بنجاح (وضع إجباري)', 
-          subscription: sub,
+          subscription: activeSubscription,
           warning: 'تم تمديد الاشتراك رغم تجاوز الحد الأقصى للموظفين',
           details: {
             currentEmployees: currentEmployeeCount,
             maxAllowed: maxAllowed,
             exceededBy: currentEmployeeCount - maxAllowed,
-            newEndDate: sub.endDate,
+            newEndDate: activeSubscription.endDate,
             planStatus: 'تم التمديد رغم تجاوز الحد',
-            planName: sub.plan.name,
-            durationAdded: `${sub.plan.durationInDays} يوم`
+            planName: activeSubscription.plan.name,
+            durationAdded: `${activeSubscription.plan.durationInDays} يوم`
           }
         };
         return result;
       }
 
       if (maxAllowed < currentEmployeeCount) {
-        this.logger.error(` رفض التمديد - الخطة غير كافية:
+        this.logger.error(`رفض التمديد - الخطة غير كافية:
           - الخطة الحالية: ${maxAllowed} موظف
           - الموظفين الحاليين: ${currentEmployeeCount}
           - العجز: ${currentEmployeeCount - maxAllowed} موظف`);
@@ -638,26 +682,26 @@ export class SubscriptionService {
       }
 
       if (maxAllowed >= currentEmployeeCount) {
-        const oldEndDate = sub.endDate;
-        sub.endDate = new Date(sub.endDate.getTime() + sub.plan.durationInDays * 86400000);
-        await this.subscriptionRepo.save(sub);
+        const oldEndDate = activeSubscription.endDate;
+        activeSubscription.endDate = new Date(activeSubscription.endDate.getTime() + activeSubscription.plan.durationInDays * 86400000);
+        await this.subscriptionRepo.save(activeSubscription);
         
-        this.logger.log(` تم تمديد الاشتراك للشركة ${companyId}
+        this.logger.log(`تم تمديد الاشتراك للشركة ${companyId}
           - من: ${oldEndDate.toISOString().split('T')[0]}
-          - إلى: ${sub.endDate.toISOString().split('T')[0]}
-          - المدة المضافة: ${sub.plan.durationInDays} يوم`);
+          - إلى: ${activeSubscription.endDate.toISOString().split('T')[0]}
+          - المدة المضافة: ${activeSubscription.plan.durationInDays} يوم`);
 
         const result: ExtendSubscriptionResult = { 
           message: 'تم تمديد الاشتراك بنجاح', 
-          subscription: sub,
+          subscription: activeSubscription,
           details: {
             currentEmployees: currentEmployeeCount,
             maxAllowed: maxAllowed,
             remainingSlots: maxAllowed - currentEmployeeCount,
-            newEndDate: sub.endDate,
+            newEndDate: activeSubscription.endDate,
             planStatus: `الخطة الحالية (${maxAllowed} موظف) ${maxAllowed === currentEmployeeCount ? 'مساوية' : 'أعلى'} من عدد الموظفين الحاليين`,
-            planName: sub.plan.name,
-            durationAdded: `${sub.plan.durationInDays} يوم`
+            planName: activeSubscription.plan.name,
+            durationAdded: `${activeSubscription.plan.durationInDays} يوم`
           }
         };
         return result;
@@ -666,7 +710,7 @@ export class SubscriptionService {
       throw new BadRequestException('لا يمكن تمديد الاشتراك - حالة غير متوقعة');
 
     } catch (error: unknown) {
-      this.logger.error(` فشل تمديد الاشتراك للشركة ${companyId}`, error as any);
+      this.logger.error(`فشل تمديد الاشتراك للشركة ${companyId}: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -743,10 +787,10 @@ export class SubscriptionService {
         .orderBy('sub.endDate', 'ASC')
         .getMany();
 
-      this.logger.log(` تم جلب ${subscriptions.length} اشتراكًا ينتهي خلال ${daysThreshold} يوم`);
+      this.logger.log(`تم جلب ${subscriptions.length} اشتراكًا ينتهي خلال ${daysThreshold} يوم`);
       return subscriptions;
     } catch (error: unknown) {
-      this.logger.error(` فشل جلب الاشتراكات القريبة من الانتهاء: ${String(error)}`);
+      this.logger.error(`فشل جلب الاشتراكات القريبة من الانتهاء: ${String(error)}`);
       throw new InternalServerErrorException('فشل جلب الاشتراكات القريبة من الانتهاء');
     }
   }
@@ -759,13 +803,13 @@ export class SubscriptionService {
         order: { startDate: 'DESC' },
       });
     } catch (error: unknown) {
-      this.logger.error(` فشل جلب سجل الاشتراكات للشركة ${companyId}`, error as any);
+      this.logger.error(`فشل جلب سجل الاشتراكات للشركة ${companyId}`, error as any);
       throw new InternalServerErrorException('فشل جلب سجل الاشتراكات');
     }
   }
 
   async overrideEmployeeLimit(companyId: string, newMaxEmployees: number): Promise<void> {
-    this.logger.log(` محاولة تجاوز حدود الموظفين للشركة: ${companyId} إلى ${newMaxEmployees}`);
+    this.logger.log(`محاولة تجاوز حدود الموظفين للشركة: ${companyId} إلى ${newMaxEmployees}`);
     
     const activeSubscriptions = await this.subscriptionRepo.find({
       where: {
@@ -784,11 +828,11 @@ export class SubscriptionService {
     subscription.customMaxEmployees = newMaxEmployees;
     
     await this.subscriptionRepo.save(subscription);
-    this.logger.log(` تم تحديث الحد الأقصى للموظفين إلى: ${newMaxEmployees}`);
+    this.logger.log(`تم تحديث الحد الأقصى للموظفين إلى: ${newMaxEmployees}`);
   }
 
   async autoUpgradeEmployeeLimit(companyId: string, upgradePercentage: number = 50): Promise<void> {
-    this.logger.log(` محاولة الترقية التلقائية لحدود الموظفين للشركة: ${companyId}`);
+    this.logger.log(`محاولة الترقية التلقائية لحدود الموظفين للشركة: ${companyId}`);
     
     const activeSubscriptions = await this.subscriptionRepo.find({
       where: {
@@ -813,7 +857,7 @@ export class SubscriptionService {
     subscription.customMaxEmployees = newMax;
     await this.subscriptionRepo.save(subscription);
     
-    this.logger.log(` تمت الترقية التلقائية من ${currentMax} إلى ${newMax} موظف`);
+    this.logger.log(`تمت الترقية التلقائية من ${currentMax} إلى ${newMax} موظف`);
   }
 
   @Cron('0 9 * * *')
@@ -855,11 +899,11 @@ export class SubscriptionService {
           await transporter.sendMail({ from: process.env.EMAIL_USER, to: companyEmail, subject, text: message });
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-          this.logger.error(` فشل إرسال التنبيه إلى ${companyEmail}: ${errorMessage}`);
+          this.logger.error(`فشل إرسال التنبيه إلى ${companyEmail}: ${errorMessage}`);
         }
       }
     } catch (error: unknown) {
-      this.logger.error(' فشل فحص الاشتراكات القريبة من الانتهاء', error as any);
+      this.logger.error('فشل فحص الاشتراكات القريبة من الانتهاء', error as any);
     }
   }
 

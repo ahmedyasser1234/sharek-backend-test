@@ -14,7 +14,7 @@ export class AdminJwtService {
 
   signAccess(payload: AdminPayload): string {
     this.logger.log(` إصدار Access Token للأدمن: ${payload.adminId}`);
-    return this.jwt.sign(payload, { expiresIn: '15m' });
+    return this.jwt.sign(payload, { expiresIn: '1d' });
   }
 
   signRefresh(payload: AdminPayload): string {

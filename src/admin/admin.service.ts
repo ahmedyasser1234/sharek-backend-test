@@ -227,7 +227,6 @@ export class AdminService {
       dto.password = await bcrypt.hash(dto.password, 10);
     }
 
-    // منع تغيير الدور إلى أي شيء آخر غير SELLER
     if (dto.role && dto.role !== ManagerRole.SELLER) {
       throw new BadRequestException('الدور المسموح به هو البائع فقط');
     }
