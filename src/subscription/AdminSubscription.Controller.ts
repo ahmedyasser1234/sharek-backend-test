@@ -219,8 +219,8 @@ export class AdminSubscriptionController {
   @ApiResponse({ status: 200, description: 'تم جلب الطلبات بنجاح' })
   async getManualTransferProofs() {
     try {
+      // إزالة شرط الحالة PENDING لجلب جميع الطلبات
       const proofs = await this.proofRepo.find({
-        where: { status: PaymentProofStatus.PENDING },
         relations: ['company', 'plan'],
         order: { createdAt: 'DESC' },
       });
@@ -244,6 +244,94 @@ export class AdminSubscriptionController {
       return safeProofs;
     } catch (err) {
       this.logger.error(`فشل تحميل الطلبات: ${String(err)}`);
+      throw new InternalServerErrorException('فشل تحميل الطلبات');
+    }
+  }
+
+  @Get('manual-proofs/pending')
+  @ApiOperation({ summary: 'عرض طلبات التحويل البنكي المعلقة فقط' })
+  @ApiResponse({ status: 200, description: 'تم جلب الطلبات المعلقة بنجاح' })
+  async getPendingManualTransferProofs() {
+    try {
+      const proofs = await this.proofRepo.find({
+        where: { status: PaymentProofStatus.PENDING },
+        relations: ['company', 'plan'],
+        order: { createdAt: 'DESC' },
+      });
+
+      const safeProofs = proofs.map((proof) => ({
+        id: proof?.id,
+        companyId: proof?.company?.id || 'غير معروف',
+        companyName: proof?.company?.name || 'شركة غير معروفة',
+        companyEmail: proof?.company?.email || 'بريد غير معروف',
+        planId: proof?.plan?.id || 'غير معروف',
+        planName: proof?.plan?.name || 'خطة غير معروفة',
+        imageUrl: proof?.imageUrl,
+        createdAt: proof?.createdAt,
+        status: proof?.status, 
+        reviewed: proof?.reviewed || false,
+        rejected: proof?.rejected || false,
+        decisionNote: proof?.decisionNote || '',
+      }));
+
+      this.logger.log(`تم جلب ${safeProofs.length} طلب تحويل بنكي معلق`);
+      return safeProofs;
+    } catch (err) {
+      this.logger.error(`فشل تحميل الطلبات المعلقة: ${String(err)}`);
+      throw new InternalServerErrorException('فشل تحميل الطلبات المعلقة');
+    }
+  }
+
+  @Get('manual-proofs/status/:status')
+  @ApiOperation({ summary: 'عرض طلبات التحويل البنكي حسب الحالة' })
+  @ApiParam({ name: 'status', description: 'حالة الطلب (PENDING, APPROVED, REJECTED)' })
+  @ApiResponse({ status: 200, description: 'تم جلب الطلبات بنجاح' })
+  async getManualTransferProofsByStatus(@Param('status') status: string) {
+    try {
+      let statusEnum: PaymentProofStatus;
+      
+      switch (status.toUpperCase()) {
+        case 'PENDING':
+          statusEnum = PaymentProofStatus.PENDING;
+          break;
+        case 'APPROVED':
+          statusEnum = PaymentProofStatus.APPROVED;
+          break;
+        case 'REJECTED':
+          statusEnum = PaymentProofStatus.REJECTED;
+          break;
+        default:
+          throw new BadRequestException('حالة غير صالحة. استخدم: PENDING, APPROVED, REJECTED');
+      }
+
+      const proofs = await this.proofRepo.find({
+        where: { status: statusEnum },
+        relations: ['company', 'plan'],
+        order: { createdAt: 'DESC' },
+      });
+
+      const safeProofs = proofs.map((proof) => ({
+        id: proof?.id,
+        companyId: proof?.company?.id || 'غير معروف',
+        companyName: proof?.company?.name || 'شركة غير معروفة',
+        companyEmail: proof?.company?.email || 'بريد غير معروف',
+        planId: proof?.plan?.id || 'غير معروف',
+        planName: proof?.plan?.name || 'خطة غير معروفة',
+        imageUrl: proof?.imageUrl,
+        createdAt: proof?.createdAt,
+        status: proof?.status, 
+        reviewed: proof?.reviewed || false,
+        rejected: proof?.rejected || false,
+        decisionNote: proof?.decisionNote || '',
+      }));
+
+      this.logger.log(`تم جلب ${safeProofs.length} طلب تحويل بنكي بحالة ${status}`);
+      return safeProofs;
+    } catch (err) {
+      if (err instanceof BadRequestException) {
+        throw err;
+      }
+      this.logger.error(`فشل تحميل الطلبات بحالة ${status}: ${String(err)}`);
       throw new InternalServerErrorException('فشل تحميل الطلبات');
     }
   }

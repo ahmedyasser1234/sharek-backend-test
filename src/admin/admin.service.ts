@@ -6,7 +6,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, Not, IsNull } from 'typeorm';
 import { Admin } from './entities/admin.entity';
 import { Manager, ManagerRole } from './entities/manager.entity';
 import { Company } from '../company/entities/company.entity';
@@ -95,7 +95,7 @@ export class AdminService {
     @InjectRepository(CompanyLoginLog) private readonly companyLoginLogRepo: Repository<CompanyLoginLog>,
     private readonly adminJwt: AdminJwtService,
     private readonly subscriptionService: SubscriptionService,
-    private readonly dataSource: DataSource, // ✅ أضف DataSource
+    private readonly dataSource: DataSource,
   ) {}
 
   async ensureDefaultAdmin(): Promise<void> {
@@ -329,35 +329,54 @@ export class AdminService {
   }
 
   async getAllCompaniesWithActivator(): Promise<CompanyWithActivator[]> {
-    const subscriptions = await this.subRepo.find({
-      relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'],
-    });
+    try {
+      const subscriptions = await this.subRepo.find({
+        relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'],
+        where: {
+          company: { id: Not(IsNull()) }
+        }
+      });
 
-    return await Promise.all(
-      subscriptions.map(async (sub) => {
-        const employeesCount = await this.employeeRepo.count({
-          where: { company: { id: sub.company.id } }
-        });
+      const results = await Promise.all(
+        subscriptions.map(async (sub) => {
+          try {
+            if (!sub.company || !sub.company.id) {
+              return null;
+            }
 
-        return {
-          id: sub.company.id,
-          name: sub.company.name,
-          email: sub.company.email,
-          phone: sub.company.phone,
-          isActive: sub.company.isActive,
-          isVerified: sub.company.isVerified,
-          subscriptionStatus: sub.company.subscriptionStatus,
-          employeesCount,
-          activatedBy: sub.activatedBySeller ? 
-            `${sub.activatedBySeller.email} (بائع)` : 
-            (sub.activatedByAdmin ? `${sub.activatedByAdmin.email} (أدمن)` : 'غير معروف'),
-          activatedById: sub.activatedBySeller?.id || sub.activatedByAdmin?.id,
-          activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
-          subscriptionDate: sub.startDate,
-          planName: sub.plan.name,
-        };
-      })
-    );
+            const employeesCount = await this.employeeRepo.count({
+              where: { company: { id: sub.company.id } }
+            });
+
+            return {
+              id: sub.company.id,
+              name: sub.company.name || 'غير معروف',
+              email: sub.company.email || 'غير معروف',
+              phone: sub.company.phone || 'غير معروف',
+              isActive: sub.company.isActive ?? false,
+              isVerified: sub.company.isVerified ?? false,
+              subscriptionStatus: sub.company.subscriptionStatus || 'غير معروف',
+              employeesCount,
+              activatedBy: sub.activatedBySeller ? 
+              `${sub.activatedBySeller.email} (بائع)` : 
+              (sub.activatedByAdmin ? `${sub.activatedByAdmin.email} (أدمن)` : 'غير معروف'),
+              activatedById: sub.activatedBySeller?.id || sub.activatedByAdmin?.id,
+              activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
+              subscriptionDate: sub.startDate,
+              planName: sub.plan?.name || 'غير معروف',
+            } as CompanyWithActivator;
+          } catch (error) {
+            console.error(`Error processing subscription ${sub.id}:`, error);
+            return null;
+          }
+        })
+      );
+
+      return results.filter((item): item is CompanyWithActivator => item !== null);
+    } catch (error) {
+      console.error('Error in getAllCompaniesWithActivator:', error);
+      return [];
+    }
   }
 
   async toggleCompany(id: string, isActive: boolean): Promise<Company | null> {
