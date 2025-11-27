@@ -244,6 +244,12 @@ export class SellerService {
 
     const result = await Promise.all(
       subscriptions.map(async (subscription) => {
+        // ✅ التحقق من وجود company قبل الوصول إلى id
+        if (!subscription.company) {
+          this.logger.warn(`Subscription ${subscription.id} has no company relation`);
+          return null;
+        }
+
         const count = await this.employeeRepo.count({ 
           where: { company: { id: subscription.company.id } } 
         });
@@ -262,12 +268,13 @@ export class SellerService {
             (subscription.activatedByAdmin ? `${subscription.activatedByAdmin.email} (أدمن)` : 'غير معروف'),
           activatorType: subscription.activatedBySeller ? 'بائع' : (subscription.activatedByAdmin ? 'أدمن' : 'غير معروف'),
           subscriptionDate: subscription.startDate,
-          planName: subscription.plan.name,
+          planName: subscription.plan?.name || 'غير معروف',
         };
       }),
     );
 
-    return result;
+    // ✅ إزالة القيم null من النتيجة
+    return result.filter(company => company !== null) as CompanyWithEmployeeCount[];
   }
 
   async getSellerCompanies(sellerId: string): Promise<CompanyWithEmployeeCount[]> {
@@ -276,8 +283,14 @@ export class SellerService {
       relations: ['company', 'plan', 'activatedBySeller'],
     });
 
-    return await Promise.all(
+    const result = await Promise.all(
       subscriptions.map(async (sub) => {
+        // ✅ التحقق من وجود company قبل الوصول إلى id
+        if (!sub.company) {
+          this.logger.warn(`Subscription ${sub.id} has no company relation`);
+          return null;
+        }
+
         const employeesCount = await this.employeeRepo.count({
           where: { company: { id: sub.company.id } }
         });
@@ -296,10 +309,13 @@ export class SellerService {
             (sub.activatedByAdmin ? `${sub.activatedByAdmin.email} (أدمن)` : 'غير معروف'),
           activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
           subscriptionDate: sub.startDate,
-          planName: sub.plan.name,
+          planName: sub.plan?.name || 'غير معروف',
         };
       })
     );
+
+    // ✅ إزالة القيم null من النتيجة
+    return result.filter(company => company !== null) as CompanyWithEmployeeCount[];
   }
 
   async getAllCompaniesWithActivator(): Promise<(CompanyWithEmployeeCount & { activatedById?: string })[]> {
@@ -307,8 +323,14 @@ export class SellerService {
       relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'],
     });
 
-    return await Promise.all(
+    const result = await Promise.all(
       subscriptions.map(async (sub) => {
+        // ✅ التحقق من وجود company قبل الوصول إلى id
+        if (!sub.company) {
+          this.logger.warn(`Subscription ${sub.id} has no company relation`);
+          return null;
+        }
+
         const employeesCount = await this.employeeRepo.count({
           where: { company: { id: sub.company.id } }
         });
@@ -328,10 +350,13 @@ export class SellerService {
           activatedById: sub.activatedBySeller?.id || sub.activatedByAdmin?.id,
           activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
           subscriptionDate: sub.startDate,
-          planName: sub.plan.name,
+          planName: sub.plan?.name || 'غير معروف',
         };
       })
     );
+
+    // ✅ إزالة القيم null من النتيجة
+    return result.filter(company => company !== null) as (CompanyWithEmployeeCount & { activatedById?: string })[];
   }
 
   async toggleCompany(id: string, isActive: boolean): Promise<Company | null> {

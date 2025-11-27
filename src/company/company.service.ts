@@ -34,6 +34,7 @@ import { AuthProvider } from './dto/create-company.dto';
 import { ActivityTrackerService } from './service/activity-tracker.service';
 import { CompanyActivity } from './entities/company-activity.entity';
 import { FileUploadService } from '../common/services/file-upload.service';
+import { CompanySubscription, SubscriptionStatus } from '../subscription/entities/company-subscription.entity';
 
 @Injectable()
 export class CompanyService implements OnModuleInit {
@@ -58,12 +59,73 @@ export class CompanyService implements OnModuleInit {
     @InjectRepository(CompanyActivity) 
     private readonly activityRepo: Repository<CompanyActivity>,
 
+    @InjectRepository(CompanySubscription)
+    private readonly subscriptionRepo: Repository<CompanySubscription>,
+
     public readonly jwtService: CompanyJwtService,
     private readonly dataSource: DataSource,
     private readonly cloudinaryService: CloudinaryService,
     private readonly activityTracker: ActivityTrackerService,
     private readonly fileUploadService: FileUploadService, 
   ) {}
+
+async syncSubscriptionStatus(companyId: string): Promise<void> {
+  try {
+    const company = await this.companyRepo.findOne({ 
+      where: { id: companyId },
+      relations: ['subscriptions', 'subscriptions.plan']    
+    });
+
+    if (!company) {
+      this.logger.warn(`الشركة غير موجودة: ${companyId}`);
+      return;
+    }
+
+    const activeSubscription = company.subscriptions?.find(
+      sub => sub.status === SubscriptionStatus.ACTIVE
+    );
+
+    if (activeSubscription && activeSubscription.plan) {
+      if (company.subscriptionStatus !== 'active') {
+        await this.companyRepo.update(companyId, {
+          subscriptionStatus: 'active',
+          planId: activeSubscription.plan.id, 
+          subscribedAt: activeSubscription.startDate
+        });
+        this.logger.log(` تم مزامنة حالة الاشتراك للشركة ${companyId} إلى active`);
+      }
+    } else {
+      if (company.subscriptionStatus === 'active') {
+        await this.companyRepo.update(companyId, {
+          subscriptionStatus: 'inactive',
+          planId: null,
+          subscribedAt: null as any 
+        });
+        this.logger.log(` تم مزامنة حالة الاشتراك للشركة ${companyId} إلى inactive`);
+      }
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    this.logger.error(` فشل مزامنة حالة الاشتراك للشركة ${companyId}: ${errorMessage}`);
+  }
+}
+
+  async getActiveSubscription(companyId: string): Promise<CompanySubscription | null> {
+    try {
+      return await this.subscriptionRepo.findOne({
+        where: {
+          company: { id: companyId },
+          status: SubscriptionStatus.ACTIVE
+        },
+        relations: ['plan'],
+        order: { createdAt: 'DESC' }
+      });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(` فشل جلب الاشتراك النشط للشركة ${companyId}: ${errorMessage}`);
+      return null;
+    }
+  }
 
   async recordUserActivity(companyId: string, action: string): Promise<void> {
     try {
@@ -488,6 +550,9 @@ export class CompanyService implements OnModuleInit {
     const isMatch = await company.comparePassword(dto.password);
     if (!isMatch) throw new UnauthorizedException('Invalid credentials');
 
+    // ✅ مزامنة حالة الاشتراك عند تسجيل الدخول
+    await this.syncSubscriptionStatus(company.id);
+
     const accessToken = this.jwtService.signAccess({
       companyId: company.id,
       role: company.role,
@@ -585,6 +650,9 @@ export class CompanyService implements OnModuleInit {
       company = this.companyRepo.create(newCompany);
       await this.companyRepo.save(company);
     }
+    
+    // ✅ مزامنة حالة الاشتراك عند تسجيل الدخول الاجتماعي
+    await this.syncSubscriptionStatus(company.id);
     
     await this.activityTracker.markAsOnline(company.id);
     await this.recordUserActivity(company.id, `social-login:${provider}`);

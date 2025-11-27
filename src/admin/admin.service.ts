@@ -6,7 +6,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Admin } from './entities/admin.entity';
 import { Manager, ManagerRole } from './entities/manager.entity';
 import { Company } from '../company/entities/company.entity';
@@ -18,6 +18,9 @@ import { AdminToken } from './auth/entities/admin-token.entity';
 import { AdminJwtService } from './auth/admin-jwt.service';
 import { ManagerToken } from './entities/manager-token.entity';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { CompanyActivity } from '../company/entities/company-activity.entity';
+import { CompanyToken } from '../company/auth/entities/company-token.entity';
+import { CompanyLoginLog } from '../company/auth/entities/company-login-log.entity';
 
 export interface CompanyWithActivator {
   id: string;
@@ -87,8 +90,12 @@ export class AdminService {
     @InjectRepository(Plan) private readonly planRepo: Repository<Plan>,
     @InjectRepository(AdminToken) private readonly tokenRepo: Repository<AdminToken>,
     @InjectRepository(ManagerToken) private readonly managerTokenRepo: Repository<ManagerToken>,
+    @InjectRepository(CompanyActivity) private readonly companyActivityRepo: Repository<CompanyActivity>,
+    @InjectRepository(CompanyToken) private readonly companyTokenRepo: Repository<CompanyToken>,
+    @InjectRepository(CompanyLoginLog) private readonly companyLoginLogRepo: Repository<CompanyLoginLog>,
     private readonly adminJwt: AdminJwtService,
     private readonly subscriptionService: SubscriptionService,
+    private readonly dataSource: DataSource, // ✅ أضف DataSource
   ) {}
 
   async ensureDefaultAdmin(): Promise<void> {
@@ -364,7 +371,31 @@ export class AdminService {
   }
 
   async deleteCompany(id: string): Promise<void> {
-    await this.companyRepo.delete(id);
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      await queryRunner.manager.delete(CompanyActivity, { company: { id } });
+      await queryRunner.manager.delete(CompanyToken, { company: { id } });
+      await queryRunner.manager.delete(CompanyLoginLog, { company: { id } });
+      await queryRunner.manager.delete(Employee, { company: { id } });
+      await queryRunner.manager.delete(CompanySubscription, { company: { id } });
+
+      await queryRunner.manager.delete(Company, { id });
+
+      await queryRunner.commitTransaction();
+    } catch (error: unknown) {
+      await queryRunner.rollbackTransaction();
+    
+      if (error instanceof Error) {
+        throw new InternalServerErrorException('فشل في حذف الشركة: ' + error.message);
+      } else {
+        throw new InternalServerErrorException('فشل في حذف الشركة: خطأ غير معروف');
+      }
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async getEmployeesByCompany(companyId: string): Promise<Employee[]> {

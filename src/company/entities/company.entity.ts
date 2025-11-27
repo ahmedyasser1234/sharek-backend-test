@@ -6,7 +6,8 @@ import {
   BeforeInsert,
   BeforeUpdate,
   CreateDateColumn, 
-  UpdateDateColumn 
+  UpdateDateColumn,
+  DeleteDateColumn
 } from 'typeorm';
 import { Employee } from '../../employee/entities/employee.entity';
 import { CompanySubscription } from '../../subscription/entities/company-subscription.entity';
@@ -106,6 +107,9 @@ export class Company {
   @UpdateDateColumn()
   updatedAt: Date;
 
+  @DeleteDateColumn()
+  deletedAt: Date;
+
   @OneToMany(() => Employee, (employee) => employee.company)
   employees: Employee[];
 
@@ -118,7 +122,9 @@ export class Company {
   @OneToMany(() => CompanyLoginLog, (log) => log.company)
   loginLogs: CompanyLoginLog[];
   
-  @OneToMany(() => CompanyActivity, (activity) => activity.company)
+  @OneToMany(() => CompanyActivity, (activity) => activity.company, {
+    onDelete: 'CASCADE' 
+  })
   activities: CompanyActivity[];
 
   @BeforeInsert()
