@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
   Controller,
   Get,
@@ -30,6 +31,31 @@ import {
   PlanChangeRequestResult,
   PlanChangeResult 
 } from './subscription.service';
+
+interface DebugSubscriptionResponse {
+  company: {
+    id: string;
+    subscriptionStatus: string;
+    planId: string | null;
+    subscribedAt: Date | null;
+  };
+  allSubscriptions: Array<{
+    id: string;
+    plan: string | undefined;
+    status: string;
+    startDate: Date;
+    endDate: Date;
+    isActive: boolean;
+  }>;
+  activeSubscriptions: Array<{
+    id: string;
+    plan: string | undefined;
+    startDate: Date;
+    endDate: Date;
+  }>;
+  syncNeeded: boolean;
+  error?: string;
+}
 
 @ApiTags('Subscription')
 @Controller()
@@ -186,7 +212,7 @@ export class SubscriptionController {
     @Param('newPlanId') newPlanId: string,
   ): Promise<PlanChangeValidation> {
     try {
-      const result: PlanChangeValidation = await this.subscriptionService.validatePlanChange(companyId, newPlanId);
+      const result = await this.subscriptionService.validatePlanChange(companyId, newPlanId);
       return result;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -205,7 +231,7 @@ export class SubscriptionController {
     @Param('newPlanId') newPlanId: string,
   ): Promise<PlanChangeRequestResult> {
     try {
-      const result: PlanChangeRequestResult = await this.subscriptionService.requestPlanChange(companyId, newPlanId);
+      const result = await this.subscriptionService.requestPlanChange(companyId, newPlanId);
       return result;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -224,12 +250,27 @@ export class SubscriptionController {
     @Param('newPlanId') newPlanId: string,
   ): Promise<PlanChangeResult> {
     try {
-      const result: PlanChangeResult = await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId);
+      const result = await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId);
       return result;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`فشل تغيير الخطة: ${msg}`);
       throw new HttpException(`فشل تغيير الخطة: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Get('debug/:companyId')
+  @ApiOperation({ summary: 'فحص حالة الاشتراك للشركة (للتشخيص)' })
+  @ApiParam({ name: 'companyId', description: 'معرف الشركة' })
+  @ApiResponse({ status: 200, description: 'تم فحص الحالة بنجاح' })
+  async debugSubscription(@Param('companyId') companyId: string): Promise<DebugSubscriptionResponse> {
+    try {
+      const debugResult = await this.subscriptionService.debugSubscriptionStatus(companyId);
+      return debugResult as DebugSubscriptionResponse;
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل فحص حالة الاشتراك: ${msg}`);
+      throw new HttpException(`فشل فحص حالة الاشتراك: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }
