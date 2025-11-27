@@ -617,20 +617,32 @@ export class SellerService {
         order: { createdAt: 'DESC' },
       });
 
-      return proofs.map((proof) => ({
-        id: proof.id,
-        companyId: proof.company.id,
-        companyName: proof.company.name,
-        companyEmail: proof.company.email,
-        planId: proof.plan.id,
-        planName: proof.plan.name,
-        imageUrl: proof.imageUrl,
-        createdAt: proof.createdAt,
-        status: proof.status, 
-        reviewed: proof.reviewed,
-        rejected: proof.rejected,
-        decisionNote: proof.decisionNote,
-      }));
+      return proofs.map((proof) => {
+        const companyId = proof.company?.id || 'غير معروف';
+        const companyName = proof.company?.name || 'شركة غير معروفة';
+        const companyEmail = proof.company?.email || 'بريد غير معروف';
+        const planId = proof.plan?.id || 'غير معروف';
+        const planName = proof.plan?.name || 'خطة غير معروفة';
+
+        if (!proof.company || !proof.plan) {
+          this.logger.warn(`طلب ${proof.id} يفتقد بيانات الشركة أو الخطة`);
+        }
+
+        return {
+          id: proof.id,
+          companyId,
+          companyName,
+          companyEmail,
+          planId,
+          planName,
+          imageUrl: proof.imageUrl,
+          createdAt: proof.createdAt,
+          status: proof.status, 
+          reviewed: proof.reviewed,
+          rejected: proof.rejected,
+          decisionNote: proof.decisionNote,
+        };
+      });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`فشل جلب طلبات التحويل`, errorMessage);
@@ -648,6 +660,11 @@ export class SellerService {
       });
 
       if (!proof) throw new NotFoundException('الطلب غير موجود');
+
+      if (!proof.company || !proof.plan) {
+        this.logger.warn(`طلب ${proofId} يفتقد بيانات الشركة أو الخطة`);
+        throw new NotFoundException('بيانات الطلب غير مكتملة');
+      }
 
       return {
         id: proof.id,
