@@ -20,7 +20,10 @@ import { ManagerJwtGuard } from './auth/manager-jwt.guard';
 import { Reflector } from '@nestjs/core';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { PaymentModule } from '../payment/payment.module';
-import { PaymentProof } from '../payment/entities/payment-proof.entity'
+import { PaymentProof } from '../payment/entities/payment-proof.entity';
+import { CompanyToken } from '../company/auth/entities/company-token.entity';
+import { CompanyLoginLog } from '../company/auth/entities/company-login-log.entity';
+import { CompanyActivity } from '../company/entities/company-activity.entity';
 
 @Module({
   imports: [
@@ -33,7 +36,10 @@ import { PaymentProof } from '../payment/entities/payment-proof.entity'
       Plan,
       AdminToken,
       ManagerToken,
-      PaymentProof, 
+      PaymentProof,
+      CompanyToken,
+      CompanyLoginLog,
+      CompanyActivity,
     ]),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'super-secret-key',
