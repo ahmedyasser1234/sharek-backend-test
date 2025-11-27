@@ -209,11 +209,18 @@ export class SubscriptionService {
 
         const savedSubscription = await this.subscriptionRepo.save(subscription);
 
-        company.subscriptionStatus = 'active';
-        company.subscribedAt = new Date();
-        company.planId = newPlan.id;
-        company.paymentProvider = newPlan.paymentProvider?.toString() ?? '';
-        await this.companyRepo.save(company);
+        // تحديث حالة الشركة باستخدام QueryBuilder لتجنب مشاكل TypeScript
+        await this.companyRepo
+          .createQueryBuilder()
+          .update(Company)
+          .set({
+            subscriptionStatus: 'active',
+            planId: newPlan.id,
+            paymentProvider: newPlan.paymentProvider?.toString() ?? '',
+            subscribedAt: () => 'CURRENT_TIMESTAMP'
+          })
+          .where('id = :id', { id: companyId })
+          .execute();
 
         if (isAdminOverride) {
           await this.updateRelatedPaymentProof(companyId, planId);
@@ -306,11 +313,15 @@ export class SubscriptionService {
 
       await this.subscriptionRepo.save(currentSubscription);
 
-      const company = await this.companyRepo.findOne({ where: { id: companyId } });
-      if (company) {
-        company.planId = newPlan.id;
-        await this.companyRepo.save(company);
-      }
+      // تحديث حالة الشركة باستخدام QueryBuilder
+      await this.companyRepo
+        .createQueryBuilder()
+        .update(Company)
+        .set({
+          planId: newPlan.id
+        })
+        .where('id = :id', { id: companyId })
+        .execute();
 
       return { 
         message: 'تم تغيير الخطة بنجاح', 
@@ -454,7 +465,7 @@ export class SubscriptionService {
   
   async getCompanySubscription(companyId: string): Promise<CompanySubscription | null> {
     try {
-      // ✅ البحث عن الاشتراك النشط فقط
+      // البحث عن الاشتراك النشط فقط
       const subscription = await this.subscriptionRepo
         .createQueryBuilder('sub')
         .leftJoinAndSelect('sub.plan', 'plan')
@@ -470,10 +481,10 @@ export class SubscriptionService {
       if (!subscription) {
         this.logger.debug(`No active subscription found for company: ${companyId}`);
         
-        // ✅ محاولة مزامنة الحالة
+        // محاولة مزامنة الحالة
         await this.syncCompanySubscriptionStatus(companyId);
         
-        // ✅ البحث مرة أخرى بعد المزامنة
+        // البحث مرة أخرى بعد المزامنة
         return await this.subscriptionRepo
           .createQueryBuilder('sub')
           .leftJoinAndSelect('sub.plan', 'plan')
@@ -615,27 +626,18 @@ export class SubscriptionService {
 
       this.logger.log(`تم حذف جميع الاشتراكات القديمة للشركة: ${companyId}`);
 
-      const company = await this.companyRepo.findOne({ where: { id: companyId } });
-      if (company) {
-        company.subscriptionStatus = 'inactive';
-        company.planId = null;
-        company.paymentProvider = '';
-        
-        // استخدام QueryBuilder لتجنب مشاكل TypeScript مع subscribedAt
-        await this.companyRepo
-          .createQueryBuilder()
-          .update(Company)
-          .set({
-            subscriptionStatus: 'inactive',
-            planId: null,
-            paymentProvider: '',
-            subscribedAt: () => 'NULL' // استخدام SQL NULL بدلاً من JavaScript null
-          })
-          .where('id = :id', { id: companyId })
-          .execute();
-          
-        this.logger.debug(`تم تحديث حالة الشركة إلى inactive`);
-      }
+      // تحديث حالة الشركة باستخدام QueryBuilder
+      await this.companyRepo
+        .createQueryBuilder()
+        .update(Company)
+        .set({
+          subscriptionStatus: 'inactive',
+          planId: () => 'NULL',
+          paymentProvider: '',
+          subscribedAt: () => 'NULL'
+        })
+        .where('id = :id', { id: companyId })
+        .execute();
 
       const planNames = [...new Set(subscriptions.map(sub => sub.plan?.name).filter(Boolean))];
 
@@ -967,9 +969,19 @@ export class SubscriptionService {
     try {
       this.logger.log(`Syncing subscription status for company: ${companyId}`);
       
+      // البحث عن جميع الاشتراكات النشطة للشركة
+      const activeSubscriptions = await this.subscriptionRepo.find({
+        where: {
+          company: { id: companyId },
+          status: SubscriptionStatus.ACTIVE,
+          endDate: MoreThanOrEqual(new Date())
+        },
+        relations: ['plan'],
+        order: { startDate: 'DESC' }
+      });
+
       const company = await this.companyRepo.findOne({ 
-        where: { id: companyId },
-        relations: ['subscriptions'] 
+        where: { id: companyId }
       });
 
       if (!company) {
@@ -977,39 +989,41 @@ export class SubscriptionService {
         return;
       }
 
-      const activeSubscription = company.subscriptions?.find(
-        sub => sub.status === SubscriptionStatus.ACTIVE && new Date(sub.endDate) > new Date()
-      );
-
-      if (activeSubscription) {
-        if (company.subscriptionStatus !== 'active') {
-          // استخدام QueryBuilder مع SQL expression لتجنب مشاكل TypeScript
+      if (activeSubscriptions.length > 0) {
+        // هناك اشتراكات نشطة
+        const latestSubscription = activeSubscriptions[0];
+        
+        if (company.subscriptionStatus !== 'active' || company.planId !== latestSubscription.plan.id) {
           await this.companyRepo
             .createQueryBuilder()
             .update(Company)
             .set({
               subscriptionStatus: 'active',
-              planId: activeSubscription.plan.id,
-              subscribedAt: () => 'CURRENT_TIMESTAMP' // استخدام SQL function بدلاً من JavaScript Date
+              planId: latestSubscription.plan.id,
+              subscribedAt: () => 'CURRENT_TIMESTAMP',
+              paymentProvider: latestSubscription.plan.paymentProvider?.toString() || 'manual_transfer'
             })
             .where('id = :id', { id: companyId })
             .execute();
-          this.logger.log(` Synced company ${companyId} status to ACTIVE`);
+          
+          this.logger.log(`Synced company ${companyId} status to ACTIVE with plan: ${latestSubscription.plan.name}`);
         }
       } else {
+        // لا توجد اشتراكات نشطة
         if (company.subscriptionStatus === 'active') {
-          // استخدام QueryBuilder مع SQL NULL
           await this.companyRepo
             .createQueryBuilder()
             .update(Company)
             .set({
               subscriptionStatus: 'inactive',
-              planId: () => 'NULL', // استخدام SQL NULL
-              subscribedAt: () => 'NULL' // استخدام SQL NULL بدلاً من JavaScript null
+              planId: () => 'NULL',
+              subscribedAt: () => 'NULL',
+              paymentProvider: ''
             })
             .where('id = :id', { id: companyId })
             .execute();
-          this.logger.log(`  Synced company ${companyId} status to INACTIVE`);
+          
+          this.logger.log(`Synced company ${companyId} status to INACTIVE - no active subscriptions`);
         }
       }
     } catch (error: unknown) {
@@ -1024,6 +1038,57 @@ export class SubscriptionService {
     } catch (error: unknown) {
       this.logger.error(`Failed to check active subscription for company ${companyId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       return false;
+    }
+  }
+
+  // دالة تشخيصية جديدة
+  async debugSubscriptionStatus(companyId: string): Promise<any> {
+    try {
+      const company = await this.companyRepo.findOne({ 
+        where: { id: companyId },
+        relations: ['subscriptions', 'subscriptions.plan']
+      });
+
+      if (!company) {
+        return { error: 'Company not found' };
+      }
+
+      const allSubscriptions = await this.subscriptionRepo.find({
+        where: { company: { id: companyId } },
+        relations: ['plan'],
+        order: { startDate: 'DESC' }
+      });
+
+      const activeSubscriptions = allSubscriptions.filter(
+        sub => sub.status === SubscriptionStatus.ACTIVE && new Date(sub.endDate) > new Date()
+      );
+
+      return {
+        company: {
+          id: company.id,
+          subscriptionStatus: company.subscriptionStatus,
+          planId: company.planId,
+          subscribedAt: company.subscribedAt
+        },
+        allSubscriptions: allSubscriptions.map(sub => ({
+          id: sub.id,
+          plan: sub.plan?.name,
+          status: sub.status,
+          startDate: sub.startDate,
+          endDate: sub.endDate,
+          isActive: sub.status === SubscriptionStatus.ACTIVE && new Date(sub.endDate) > new Date()
+        })),
+        activeSubscriptions: activeSubscriptions.map(sub => ({
+          id: sub.id,
+          plan: sub.plan?.name,
+          startDate: sub.startDate,
+          endDate: sub.endDate
+        })),
+        syncNeeded: activeSubscriptions.length > 0 && company.subscriptionStatus !== 'active'
+      };
+    } catch (error) {
+      this.logger.error(`Debug failed for company ${companyId}: ${error}`);
+      return { error: 'Debug failed' };
     }
   }
 }
