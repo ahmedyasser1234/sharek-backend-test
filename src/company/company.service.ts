@@ -402,7 +402,12 @@ export class CompanyService implements OnModuleInit {
         this.logger.error(`فشل رفع الخط المخصص: ${errorMessage}`);
         throw new InternalServerErrorException('فشل رفع ملف الخط');
       }
+    } else if (dto.customFontUrl) {
+      // إذا كان customFontUrl يأتي كنص (رابط خارجي)
+      customFontUrl = dto.customFontUrl;
+      finalCustomFontName = dto.customFontName || 'CustomFont';
     }
+
     const updateData: Partial<Company> = {};
 
     if (dto.name !== undefined) updateData.name = dto.name;
@@ -939,5 +944,4 @@ export class CompanyService implements OnModuleInit {
       fontFamily: 'Cairo, sans-serif'
     });
   }
-  
 }

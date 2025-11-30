@@ -126,42 +126,31 @@ export class AdminService {
     console.log(`تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
   }
 
-  async login(email: string, password: string): Promise<{ 
-    accessToken: string; 
-    refreshToken: string;
-    admin: AdminWithCompanyData;
-  }> {
-    const admin = await this.adminRepo.findOne({ 
-      where: { email, isActive: true } 
-    });
-    
-    if (!admin || !(await bcrypt.compare(password, admin.password))) {
-      throw new UnauthorizedException('بيانات الدخول غير صحيحة');
-    }
-
-    const payload = { adminId: admin.id, role: 'admin' };
-    const accessToken = this.adminJwt.signAccess(payload);
-    const refreshToken = this.adminJwt.signRefresh(payload);
-
-    await this.tokenRepo.save({ admin, refreshToken });
-
-    const companies = await this.getAdminCompanies(admin.id);
-
-    const adminData: AdminWithCompanyData = {
-      id: admin.id,
-      email: admin.email,
-      isActive: admin.isActive,
-      createdAt: admin.createdAt,
-      companies: companies,
-      refreshToken: refreshToken
-    };
-
-    return { 
-      accessToken, 
-      refreshToken, 
-      admin: adminData 
-    };
+async login(email: string, password: string): Promise<{ 
+  accessToken: string; 
+  refreshToken: string;
+  admin: { email: string };
+}> {
+  const admin = await this.adminRepo.findOne({ 
+    where: { email, isActive: true } 
+  });
+  
+  if (!admin || !(await bcrypt.compare(password, admin.password))) {
+    throw new UnauthorizedException('بيانات الدخول غير صحيحة');
   }
+
+  const payload = { adminId: admin.id, role: 'admin' };
+  const accessToken = this.adminJwt.signAccess(payload);
+  const refreshToken = this.adminJwt.signRefresh(payload);
+
+  await this.tokenRepo.save({ admin, refreshToken });
+
+  return { 
+    accessToken, 
+    refreshToken, 
+    admin: { email: admin.email }
+  };
+}
 
   async refresh(refreshToken: string): Promise<{ 
     accessToken: string;

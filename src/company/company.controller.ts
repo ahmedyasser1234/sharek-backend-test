@@ -526,102 +526,171 @@ export class CompanyController {
   }
 
   @UseGuards(CompanyJwtGuard)
-@ApiBearerAuth()
-@Put('update-with-font')
-@UseInterceptors(AnyFilesInterceptor({ 
-  storage: memoryStorage(),
-  limits: {
-    fileSize: 10 * 1024 * 1024, 
-  },
-  fileFilter: (req, file, cb) => {
-    try {
-      // ✅ أضف type annotation للـ file
-      const typedFile = file as Express.Multer.File;
-      
-      if (typedFile.fieldname === 'customFont') {
-        const allowedFontTypes = [
-          'font/woff',
-          'font/woff2', 
-          'application/font-woff',
-          'application/font-woff2',
-          'application/octet-stream' 
-        ];
+  @ApiBearerAuth()
+  @Put('update-with-font')
+  @UseInterceptors(AnyFilesInterceptor({ 
+    storage: memoryStorage(),
+    limits: {
+      fileSize: 10 * 1024 * 1024, 
+    },
+    fileFilter: (req, file, cb) => {
+      try {
+        const typedFile = file as Express.Multer.File;
         
-        const fileName = typedFile.originalname || '';
-        const parts = fileName.split('.');
-        const fileExtension = parts.length > 1 ? parts.pop()!.toLowerCase() : '';
-        
-        const isFontFile = allowedFontTypes.includes(typedFile.mimetype) || 
-                          ['woff', 'woff2'].includes(fileExtension);
-        
-        if (!isFontFile) {
-          return cb(new BadRequestException('نوع ملف الخط غير مدعوم. يرجى استخدام ملفات .woff أو .woff2'), false);
+        if (typedFile.fieldname === 'customFont') {
+          const allowedFontTypes = [
+            'font/woff',
+            'font/woff2', 
+            'application/font-woff',
+            'application/font-woff2',
+            'application/octet-stream' 
+          ];
+          
+          const fileName = typedFile.originalname || '';
+          const parts = fileName.split('.');
+          const fileExtension = parts.length > 1 ? parts.pop()!.toLowerCase() : '';
+          
+          const isFontFile = allowedFontTypes.includes(typedFile.mimetype) || 
+                            ['woff', 'woff2'].includes(fileExtension);
+          
+          if (!isFontFile) {
+            return cb(new BadRequestException('نوع ملف الخط غير مدعوم. يرجى استخدام ملفات .woff أو .woff2'), false);
+          }
+          return cb(null, true);
+          
+        } else if (typedFile.fieldname === 'logo') {
+          const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
+          if (!allowedImageTypes.includes(typedFile.mimetype)) {
+            return cb(new BadRequestException('نوع ملف الصورة غير مدعوم. يرجى استخدام JPEG أو PNG أو WebP'), false);
+          }
+          return cb(null, true);
         }
-        return cb(null, true);
         
-      } else if (typedFile.fieldname === 'logo') {
-        const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
-        if (!allowedImageTypes.includes(typedFile.mimetype)) {
-          return cb(new BadRequestException('نوع ملف الصورة غير مدعوم. يرجى استخدام JPEG أو PNG أو WebP'), false);
-        }
-        return cb(null, true);
+        // ❌ رفض أي حقول ملفات أخرى غير متوقعة
+        return cb(new BadRequestException(`حقل ملف غير متوقع: ${typedFile.fieldname}`), false);
+      } catch {
+        return cb(new BadRequestException('خطأ في معالجة الملف'), false);
       }
+    }
+  }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'تحديث بيانات الشركة مع الخط المخصص' })
+  @ApiBody({
+    description: 'بيانات الشركة والملفات',
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', example: 'اسم الشركة' },
+        phone: { type: 'string', example: '01012345678' },
+        description: { type: 'string', example: 'وصف الشركة' },
+        fontFamily: { type: 'string', example: 'MyCustomFont, sans-serif' },
+        customFontName: { type: 'string', example: 'MyCustomFont' },
+        customFontUrl: { type: 'string', example: 'https://example.com/font.woff2' }, // ✅ حقل نصي
+        logo: { type: 'string', format: 'binary' },
+        customFont: { type: 'string', format: 'binary' }
+      }
+    }
+  })
+  async updateWithFont(
+    @Body() dto: UpdateCompanyDto,
+    @UploadedFiles() files: Express.Multer.File[], 
+    @Req() req: CompanyRequest
+  ) {
+    console.log('بيانات الواردة:', dto);
+    if (!req.user?.companyId) {
+      throw new UnauthorizedException('Unauthorized access');
+    }
+
+    const logo = files.find(file => file.fieldname === 'logo');
+    const customFont = files.find(file => file.fieldname === 'customFont');
+
+    this.logger.debug(`ملفات مستلمة: logo=${!!logo}, customFont=${!!customFont}`);
+    this.logger.debug(`عدد الملفات الإجمالي: ${files.length}`);
+    files.forEach((file, index) => {
+      this.logger.debug(`ملف ${index + 1}: ${file.fieldname} - ${file.originalname}`);
+    });
+
+    // ✅ التأكد من أن customFontUrl لا يأتي كملف
+    if (files.some(file => file.fieldname === 'customFontUrl')) {
+      throw new BadRequestException('customFontUrl يجب أن يكون حقل نصي وليس ملف');
+    }
+
+    await this.companyService.updateCompany(
+      req.user.companyId, 
+      dto, 
+      logo, 
+      customFont
+    );
+    
+    return { 
+      statusCode: HttpStatus.OK,
+      message: 'تم تحديث بيانات الشركة والخط بنجاح' 
+    };
+  }
+
+  @UseGuards(CompanyJwtGuard)
+  @ApiBearerAuth()
+  @Put('update-font')
+  @UseInterceptors(FileInterceptor('customFont', {
+    storage: memoryStorage(),
+    limits: {
+      fileSize: 5 * 1024 * 1024,
+    },
+    fileFilter: (req, file, cb) => {
+      const allowedFontTypes = [
+        'font/woff',
+        'font/woff2', 
+        'application/font-woff',
+        'application/font-woff2',
+        'application/octet-stream' 
+      ];
       
-      // ✅ اسمح للحقول النصية الأخرى (مثل customFontUrl)
+      const fileName = file.originalname || '';
+      const parts = fileName.split('.');
+      const fileExtension = parts.length > 1 ? parts.pop()!.toLowerCase() : '';
+      
+      const isFontFile = allowedFontTypes.includes(file.mimetype) || 
+                        ['woff', 'woff2'].includes(fileExtension);
+      
+      if (!isFontFile) {
+        return cb(new BadRequestException('نوع ملف الخط غير مدعوم. يرجى استخدام ملفات .woff أو .woff2'), false);
+      }
       return cb(null, true);
-    } catch {
-      return cb(new BadRequestException('خطأ في معالجة الملف'), false);
     }
-  }
-}))
-@ApiConsumes('multipart/form-data')
-@ApiOperation({ summary: 'تحديث بيانات الشركة مع الخط المخصص' })
-@ApiBody({
-  description: 'بيانات الشركة والملفات',
-  schema: {
-    type: 'object',
-    properties: {
-      name: { type: 'string', example: 'اسم الشركة' },
-      phone: { type: 'string', example: '01012345678' },
-      description: { type: 'string', example: 'وصف الشركة' },
-      fontFamily: { type: 'string', example: 'MyCustomFont, sans-serif' },
-      customFontName: { type: 'string', example: 'MyCustomFont' },
-      logo: { type: 'string', format: 'binary' },
-      customFont: { type: 'string', format: 'binary' }
+  }))
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'تحديث الخط المخصص فقط' })
+  @ApiBody({
+    description: 'بيانات الخط المخصص',
+    schema: {
+      type: 'object',
+      properties: {
+        customFontName: { type: 'string', example: 'MyCustomFont' },
+        customFont: { type: 'string', format: 'binary' }
+      }
     }
+  })
+  async updateFont(
+    @Body() dto: { customFontName?: string },
+    @UploadedFile() customFont?: Express.Multer.File,
+    @Req() req?: CompanyRequest
+  ) {
+    if (!req?.user?.companyId) {
+      throw new UnauthorizedException('Unauthorized access');
+    }
+
+    await this.companyService.updateCompany(
+      req.user.companyId,
+      dto as UpdateCompanyDto,
+      undefined, // لا يوجد logo
+      customFont
+    );
+
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم تحديث الخط بنجاح'
+    };
   }
-})
-async updateWithFont(
-  @Body() dto: UpdateCompanyDto,
-  @UploadedFiles() files: Express.Multer.File[], 
-  @Req() req: CompanyRequest
-) {
-  console.log('بيانات الواردة:', dto);
-  if (!req.user?.companyId) {
-    throw new UnauthorizedException('Unauthorized access');
-  }
-
-  const logo = files.find(file => file.fieldname === 'logo');
-  const customFont = files.find(file => file.fieldname === 'customFont');
-
-  this.logger.debug(`ملفات مستلمة: logo=${!!logo}, customFont=${!!customFont}`);
-  this.logger.debug(`عدد الملفات الإجمالي: ${files.length}`);
-  files.forEach((file, index) => {
-    this.logger.debug(`ملف ${index + 1}: ${file.fieldname} - ${file.originalname}`);
-  });
-
-  await this.companyService.updateCompany(
-    req.user.companyId, 
-    dto, 
-    logo, 
-    customFont
-  );
-  
-  return { 
-    statusCode: HttpStatus.OK,
-    message: 'تم تحديث بيانات الشركة والخط بنجاح' 
-  };
-}
 
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
