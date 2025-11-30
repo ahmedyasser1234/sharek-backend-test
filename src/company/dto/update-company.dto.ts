@@ -43,4 +43,9 @@ export class UpdateCompanyDto {
   @IsOptional()
   @IsString()
   customFontName?: string;
+
+  @IsOptional()
+  @IsString()
+  customFontUrl?: string; 
+
 }
