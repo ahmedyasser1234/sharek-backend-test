@@ -13,15 +13,18 @@ import { Request, Response, NextFunction } from 'express';
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
-
-
   const app = await NestFactory.create(AppModule);
 
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+  // 🔧 غير هذا السطر فقط:
+  app.useGlobalPipes(new ValidationPipe({ 
+    whitelist: true,
+    forbidNonWhitelisted: false, // ✅ أضف هذا
+    skipUndefinedProperties: true // ✅ وأضف هذا
+  }));
+
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new ResponseInterceptor());
   app.enableCors();
-
 
   app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
 
