@@ -80,6 +80,18 @@ interface CompanyWithEmployeeCount {
   activatorType?: string;
   subscriptionDate?: Date;
   planName?: string;
+  adminEmail?: string;
+  sellerEmail?: string;
+}
+
+export interface SellerWithCompanyData {
+  id: string;
+  email: string;
+  role: ManagerRole;
+  isActive: boolean;
+  createdAt: Date;
+  companies?: CompanyWithEmployeeCount[];
+  refreshToken?: string;
 }
 
 @Injectable()
@@ -120,7 +132,8 @@ export class SellerService {
   async login(email: string, password: string): Promise<{ 
     accessToken: string; 
     refreshToken: string; 
-    role: ManagerRole 
+    role: ManagerRole;
+    seller: SellerWithCompanyData;
   }> {
     const seller = await this.sellerRepo.findOne({ 
       where: { email, isActive: true } 
@@ -141,10 +154,31 @@ export class SellerService {
 
     await this.tokenRepo.save({ manager: seller, refreshToken });
 
-    return { accessToken, refreshToken, role: seller.role };
+    // جلب بيانات الشركات المرتبطة بالبائع
+    const companies = await this.getSellerCompanies(seller.id);
+
+    const sellerData: SellerWithCompanyData = {
+      id: seller.id,
+      email: seller.email,
+      role: seller.role,
+      isActive: seller.isActive,
+      createdAt: seller.createdAt,
+      companies: companies,
+      refreshToken: refreshToken
+    };
+
+    return { 
+      accessToken, 
+      refreshToken, 
+      role: seller.role,
+      seller: sellerData
+    };
   }
 
-  async refresh(refreshToken: string): Promise<{ accessToken: string }> {
+  async refresh(refreshToken: string): Promise<{ 
+    accessToken: string;
+    seller: SellerWithCompanyData;
+  }> {
     const token = await this.tokenRepo.findOne({
       where: { refreshToken },
       relations: ['manager'],
@@ -181,9 +215,25 @@ export class SellerService {
       
       const accessToken = this.sellerJwt.signAccess(newPayload);
       
+      // جلب بيانات البائع والشركات
+      const companies = await this.getSellerCompanies(token.manager.id);
+      
+      const sellerData: SellerWithCompanyData = {
+        id: token.manager.id,
+        email: token.manager.email,
+        role: token.manager.role,
+        isActive: token.manager.isActive,
+        createdAt: token.manager.createdAt,
+        companies: companies,
+        refreshToken: refreshToken
+      };
+
       this.logger.log(`تم تجديد التوكن بنجاح للبائع: ${token.manager.email}`);
       
-      return { accessToken };
+      return { 
+        accessToken, 
+        seller: sellerData 
+      };
       
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
@@ -200,6 +250,48 @@ export class SellerService {
     return { success: true };
   }
 
+  async getSellerCompanies(sellerId: string): Promise<CompanyWithEmployeeCount[]> {
+    const subscriptions = await this.subRepo.find({
+      where: { activatedBySellerId: sellerId },
+      relations: ['company', 'plan', 'activatedBySeller'],
+    });
+
+    const result = await Promise.all(
+      subscriptions.map(async (sub) => {
+        if (!sub.company) {
+          this.logger.warn(`Subscription ${sub.id} has no company relation`);
+          return null;
+        }
+
+        const employeesCount = await this.employeeRepo.count({
+          where: { company: { id: sub.company.id } }
+        });
+
+        return {
+          id: sub.company.id,
+          name: sub.company.name,
+          email: sub.company.email,
+          phone: sub.company.phone,
+          isActive: sub.company.isActive,
+          isVerified: sub.company.isVerified,
+          subscriptionStatus: sub.company.subscriptionStatus,
+          employeesCount,
+          activatedBy: sub.activatedBySeller ? 
+            `${sub.activatedBySeller.email} (بائع)` : 
+            (sub.activatedByAdmin ? `${sub.activatedByAdmin.email} (أدمن)` : 'غير معروف'),
+          activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
+          subscriptionDate: sub.startDate,
+          planName: sub.plan?.name || 'غير معروف',
+          adminEmail: sub.activatedByAdmin?.email,
+          sellerEmail: sub.activatedBySeller?.email
+        };
+      })
+    );
+
+    return result.filter(company => company !== null) as CompanyWithEmployeeCount[];
+  }
+
+  // ... باقي الدوال كما هي بدون تغيير ...
   async getStats(sellerId?: string): Promise<{ 
     companies: number; 
     employees: number; 
@@ -244,7 +336,6 @@ export class SellerService {
 
     const result = await Promise.all(
       subscriptions.map(async (subscription) => {
-        // ✅ التحقق من وجود company قبل الوصول إلى id
         if (!subscription.company) {
           this.logger.warn(`Subscription ${subscription.id} has no company relation`);
           return null;
@@ -269,52 +360,12 @@ export class SellerService {
           activatorType: subscription.activatedBySeller ? 'بائع' : (subscription.activatedByAdmin ? 'أدمن' : 'غير معروف'),
           subscriptionDate: subscription.startDate,
           planName: subscription.plan?.name || 'غير معروف',
+          adminEmail: subscription.activatedByAdmin?.email,
+          sellerEmail: subscription.activatedBySeller?.email
         };
       }),
     );
 
-    // ✅ إزالة القيم null من النتيجة
-    return result.filter(company => company !== null) as CompanyWithEmployeeCount[];
-  }
-
-  async getSellerCompanies(sellerId: string): Promise<CompanyWithEmployeeCount[]> {
-    const subscriptions = await this.subRepo.find({
-      where: { activatedBySellerId: sellerId },
-      relations: ['company', 'plan', 'activatedBySeller'],
-    });
-
-    const result = await Promise.all(
-      subscriptions.map(async (sub) => {
-        // ✅ التحقق من وجود company قبل الوصول إلى id
-        if (!sub.company) {
-          this.logger.warn(`Subscription ${sub.id} has no company relation`);
-          return null;
-        }
-
-        const employeesCount = await this.employeeRepo.count({
-          where: { company: { id: sub.company.id } }
-        });
-
-        return {
-          id: sub.company.id,
-          name: sub.company.name,
-          email: sub.company.email,
-          phone: sub.company.phone,
-          isActive: sub.company.isActive,
-          isVerified: sub.company.isVerified,
-          subscriptionStatus: sub.company.subscriptionStatus,
-          employeesCount,
-          activatedBy: sub.activatedBySeller ? 
-            `${sub.activatedBySeller.email} (بائع)` : 
-            (sub.activatedByAdmin ? `${sub.activatedByAdmin.email} (أدمن)` : 'غير معروف'),
-          activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
-          subscriptionDate: sub.startDate,
-          planName: sub.plan?.name || 'غير معروف',
-        };
-      })
-    );
-
-    // ✅ إزالة القيم null من النتيجة
     return result.filter(company => company !== null) as CompanyWithEmployeeCount[];
   }
 
@@ -325,7 +376,6 @@ export class SellerService {
 
     const result = await Promise.all(
       subscriptions.map(async (sub) => {
-        // ✅ التحقق من وجود company قبل الوصول إلى id
         if (!sub.company) {
           this.logger.warn(`Subscription ${sub.id} has no company relation`);
           return null;
@@ -351,11 +401,12 @@ export class SellerService {
           activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
           subscriptionDate: sub.startDate,
           planName: sub.plan?.name || 'غير معروف',
+          adminEmail: sub.activatedByAdmin?.email,
+          sellerEmail: sub.activatedBySeller?.email
         };
       })
     );
 
-    // ✅ إزالة القيم null من النتيجة
     return result.filter(company => company !== null) as (CompanyWithEmployeeCount & { activatedById?: string })[];
   }
 

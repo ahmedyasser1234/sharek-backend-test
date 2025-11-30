@@ -23,7 +23,7 @@ import {
   ManagerWithoutPassword, 
   DatabaseDownloadResponse, 
   CompanyWithActivator,
-  SubscriptionResult 
+  SubscriptionResult,
 } from './admin.service';
 import { Employee } from '../employee/entities/employee.entity';
 import { CompanySubscription } from '../subscription/entities/company-subscription.entity';
@@ -32,19 +32,24 @@ interface ExtendedAdminRequest extends Request {
   user?: { adminId: string; role: string };
 }
 
+interface AdminSimpleData {
+  email: string;
+}
+
 @ApiTags('Admin')
 @Controller('admin')
 export class AdminController {
   constructor(private readonly service: AdminService) {}
 
   @Post('refresh')
-  refresh(@Body() body: { refreshToken: string }) {
+  @ApiOperation({ summary: 'تجديد توكن الأدمن مع البيانات' })
+  async refresh(@Body() body: { refreshToken: string }) {
     return this.service.refresh(body.refreshToken);
   }
 
   @Post('login')
-  @ApiOperation({ summary: 'تسجيل دخول الأدمن' })
-  login(@Body() body: { email: string; password: string }) {
+  @ApiOperation({ summary: 'تسجيل دخول الأدمن مع البيانات' })
+  async login(@Body() body: { email: string; password: string }) {
     return this.service.login(body.email, body.password);
   }
 
@@ -56,6 +61,21 @@ export class AdminController {
     const refreshToken = body?.refreshToken;
     if (!refreshToken) throw new UnauthorizedException('Missing refresh token');
     return this.service.logout(refreshToken);
+  }
+
+  @Get('profile')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'الحصول على بريد الأدمن' })
+  async getProfile(@Req() req: ExtendedAdminRequest): Promise<AdminSimpleData> {
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+
+    const admin = await this.service.getAdminEmail(adminId);
+
+    return {
+      email: admin.email,
+    };
   }
 
   @Post('managers')

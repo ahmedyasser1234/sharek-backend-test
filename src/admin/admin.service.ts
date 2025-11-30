@@ -36,6 +36,17 @@ export interface CompanyWithActivator {
   activatorType: string;
   subscriptionDate: Date;
   planName: string;
+  adminEmail?: string;
+  sellerEmail?: string;
+}
+
+export interface AdminWithCompanyData {
+  id: string;
+  email: string;
+  isActive: boolean;
+  createdAt: Date;
+  companies?: CompanyWithActivator[];
+  refreshToken?: string;
 }
 
 export interface SubscriptionResult {
@@ -115,8 +126,15 @@ export class AdminService {
     console.log(`تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
   }
 
-  async login(email: string, password: string): Promise<{ accessToken: string; refreshToken: string }> {
-    const admin = await this.adminRepo.findOne({ where: { email, isActive: true } });
+  async login(email: string, password: string): Promise<{ 
+    accessToken: string; 
+    refreshToken: string;
+    admin: AdminWithCompanyData;
+  }> {
+    const admin = await this.adminRepo.findOne({ 
+      where: { email, isActive: true } 
+    });
+    
     if (!admin || !(await bcrypt.compare(password, admin.password))) {
       throw new UnauthorizedException('بيانات الدخول غير صحيحة');
     }
@@ -127,10 +145,28 @@ export class AdminService {
 
     await this.tokenRepo.save({ admin, refreshToken });
 
-    return { accessToken, refreshToken };
+    const companies = await this.getAdminCompanies(admin.id);
+
+    const adminData: AdminWithCompanyData = {
+      id: admin.id,
+      email: admin.email,
+      isActive: admin.isActive,
+      createdAt: admin.createdAt,
+      companies: companies,
+      refreshToken: refreshToken
+    };
+
+    return { 
+      accessToken, 
+      refreshToken, 
+      admin: adminData 
+    };
   }
 
-  async refresh(refreshToken: string): Promise<{ accessToken: string }> {
+  async refresh(refreshToken: string): Promise<{ 
+    accessToken: string;
+    admin: AdminWithCompanyData;
+  }> {
     const token = await this.tokenRepo.findOne({
       where: { refreshToken },
       relations: ['admin'],
@@ -144,12 +180,97 @@ export class AdminService {
     }
 
     const accessToken = this.adminJwt.signAccess(payload);
-    return { accessToken };
+    
+    // جلب بيانات الأدمن والشركات
+    const companies = await this.getAdminCompanies(token.admin.id);
+    
+    const adminData: AdminWithCompanyData = {
+      id: token.admin.id,
+      email: token.admin.email,
+      isActive: token.admin.isActive,
+      createdAt: token.admin.createdAt,
+      companies: companies,
+      refreshToken: refreshToken
+    };
+
+    return { 
+      accessToken, 
+      admin: adminData 
+    };
   }
 
   async logout(refreshToken: string): Promise<{ success: boolean }> {
     await this.tokenRepo.delete({ refreshToken });
     return { success: true };
+  }
+
+  async getAdminEmail(adminId: string): Promise<{ email: string }> {
+    const admin = await this.adminRepo.findOne({ 
+      where: { id: adminId },
+      select: ['email']
+    });
+
+    if (!admin) {
+      throw new NotFoundException('الأدمن غير موجود');
+    }
+    
+    return {
+      email: admin.email
+    };
+  }
+
+  async getAdminCompanies(adminId: string): Promise<CompanyWithActivator[]> {
+    try {
+      const subscriptions = await this.subRepo.find({
+        relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'],
+        where: [
+          { activatedByAdmin: { id: adminId } },
+          { activatedBySeller: { createdBy: { id: adminId } } }
+        ]
+      });
+
+      const results = await Promise.all(
+        subscriptions.map(async (sub) => {
+          try {
+            if (!sub.company || !sub.company.id) {
+              return null;
+            }
+
+            const employeesCount = await this.employeeRepo.count({
+              where: { company: { id: sub.company.id } }
+            });
+
+            return {
+              id: sub.company.id,
+              name: sub.company.name || 'غير معروف',
+              email: sub.company.email || 'غير معروف',
+              phone: sub.company.phone || 'غير معروف',
+              isActive: sub.company.isActive ?? false,
+              isVerified: sub.company.isVerified ?? false,
+              subscriptionStatus: sub.company.subscriptionStatus || 'غير معروف',
+              employeesCount,
+              activatedBy: sub.activatedBySeller ? 
+                `${sub.activatedBySeller.email} (بائع)` : 
+                (sub.activatedByAdmin ? `${sub.activatedByAdmin.email} (أدمن)` : 'غير معروف'),
+              activatedById: sub.activatedBySeller?.id || sub.activatedByAdmin?.id,
+              activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
+              subscriptionDate: sub.startDate,
+              planName: sub.plan?.name || 'غير معروف',
+              adminEmail: sub.activatedByAdmin?.email,
+              sellerEmail: sub.activatedBySeller?.email
+            } as CompanyWithActivator;
+          } catch (error) {
+            console.error(`Error processing subscription ${sub.id}:`, error);
+            return null;
+          }
+        })
+      );
+
+      return results.filter((item): item is CompanyWithActivator => item !== null);
+    } catch (error) {
+      console.error('Error in getAdminCompanies:', error);
+      return [];
+    }
   }
 
   async createAdmin(dto: { email: string; password: string }): Promise<Admin> {
@@ -364,6 +485,8 @@ export class AdminService {
               activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
               subscriptionDate: sub.startDate,
               planName: sub.plan?.name || 'غير معروف',
+              adminEmail: sub.activatedByAdmin?.email,
+              sellerEmail: sub.activatedBySeller?.email
             } as CompanyWithActivator;
           } catch (error) {
             console.error(`Error processing subscription ${sub.id}:`, error);
