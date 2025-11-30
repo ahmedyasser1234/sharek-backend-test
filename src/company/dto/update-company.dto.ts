@@ -38,14 +38,9 @@ export class UpdateCompanyDto {
   @IsOptional()
   @IsString()
   fontFamily?: string;
-  
-  @ApiPropertyOptional({ type: 'string', format: 'binary' })
-  @IsOptional()
-  customFont?: any;
 
   @ApiPropertyOptional({ example: 'MyCustomFont' })
   @IsOptional()
   @IsString()
   customFontName?: string;
-
 }

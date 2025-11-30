@@ -33,6 +33,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
 import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -377,41 +378,41 @@ export class CompanyController {
     };
   }
 
-@UseGuards(CompanyJwtGuard)
-@ApiBearerAuth()
-@Post('session/renew')
-@ApiOperation({ summary: 'تجديد الجلسة يدوياً' })
-@ApiResponse({ 
-  status: HttpStatus.OK, 
-  description: 'تم تجديد الجلسة بنجاح',
-  schema: {
-    type: 'object',
-    properties: {
-      statusCode: { type: 'number', example: 200 },
-      message: { type: 'string', example: 'تم تجديد الجلسة بنجاح' },
-      data: {
-        type: 'object',
-        properties: {
-          renewedAt: { type: 'string', format: 'date-time' }
+  @UseGuards(CompanyJwtGuard)
+  @ApiBearerAuth()
+  @Post('session/renew')
+  @ApiOperation({ summary: 'تجديد الجلسة يدوياً' })
+  @ApiResponse({ 
+    status: HttpStatus.OK, 
+    description: 'تم تجديد الجلسة بنجاح',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 200 },
+        message: { type: 'string', example: 'تم تجديد الجلسة بنجاح' },
+        data: {
+          type: 'object',
+          properties: {
+            renewedAt: { type: 'string', format: 'date-time' }
+          }
         }
       }
     }
-  }
-})
-async renewSession(@Req() req: CompanyRequest) {
-  if (!req.user?.companyId)
-    throw new UnauthorizedException('Unauthorized access');
+  })
+  async renewSession(@Req() req: CompanyRequest) {
+    if (!req.user?.companyId)
+      throw new UnauthorizedException('Unauthorized access');
 
-  await this.companyService.recordUserActivity(req.user.companyId, 'manual-session-renew');
-  
-  return {
-    statusCode: HttpStatus.OK,
-    message: 'تم تجديد الجلسة بنجاح',
-    data: {
-      renewedAt: new Date()
-    }
-  };
-}
+    await this.companyService.recordUserActivity(req.user.companyId, 'manual-session-renew');
+    
+    return {
+      statusCode: HttpStatus.OK,
+      message: 'تم تجديد الجلسة بنجاح',
+      data: {
+        renewedAt: new Date()
+      }
+    };
+  }
 
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
@@ -440,6 +441,9 @@ async renewSession(@Req() req: CompanyRequest) {
             subscribedAt: { type: 'string', format: 'date-time' },
             planId: { type: 'string' },
             paymentProvider: { type: 'string' },
+            fontFamily: { type: 'string' },
+            customFontUrl: { type: 'string', nullable: true },
+            customFontName: { type: 'string', nullable: true },
             currentSubscription: { type: 'object' }
           }
         }
@@ -521,24 +525,69 @@ async renewSession(@Req() req: CompanyRequest) {
     };
   }
 
-  // ← أضف هذه الـ endpoint الجديدة لتحديث الشركة مع الخط المخصص
   @UseGuards(CompanyJwtGuard)
   @ApiBearerAuth()
   @Put('update-with-font')
   @UseInterceptors(FileFieldsInterceptor([
     { name: 'logo', maxCount: 1 },
     { name: 'customFont', maxCount: 1 }
-  ]))
+  ], {
+    storage: memoryStorage(),
+    limits: {
+      fileSize: 10 * 1024 * 1024, // 10MB للخطوط
+    },
+    fileFilter: (req, file, cb) => {
+      try {
+        if (file.fieldname === 'customFont') {
+          const allowedFontTypes = [
+            'font/woff',
+            'font/woff2', 
+            'application/font-woff',
+            'application/font-woff2',
+            'application/octet-stream' 
+          ];
+          
+          // استخراج الامتداد بطريقة آمنة
+          const fileName = file.originalname || '';
+          const parts = fileName.split('.');
+          const fileExtension = parts.length > 1 ? parts.pop()!.toLowerCase() : '';
+          
+          const isFontFile = allowedFontTypes.includes(file.mimetype) || 
+                            ['woff', 'woff2'].includes(fileExtension);
+          
+          if (!isFontFile) {
+            return cb(new BadRequestException('نوع ملف الخط غير مدعوم. يرجى استخدام ملفات .woff أو .woff2'), false);
+          }
+          return cb(null, true);
+          
+        } else if (file.fieldname === 'logo') {
+          const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
+          if (!allowedImageTypes.includes(file.mimetype)) {
+            return cb(new BadRequestException('نوع ملف الصورة غير مدعوم. يرجى استخدام JPEG أو PNG أو WebP'), false);
+          }
+          return cb(null, true);
+        }
+        
+        return cb(null, true);
+      } catch {
+        return cb(new BadRequestException('خطأ في معالجة الملف'), false);
+      }
+    }
+  }))
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'تحديث بيانات الشركة مع الخط المخصص' })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
-    description: 'تم تحديث بيانات الشركة والخط بنجاح',
+  @ApiBody({
+    description: 'بيانات الشركة والملفات',
     schema: {
       type: 'object',
       properties: {
-        statusCode: { type: 'number', example: 200 },
-        message: { type: 'string', example: 'تم تحديث بيانات الشركة والخط بنجاح' }
+        name: { type: 'string', example: 'اسم الشركة' },
+        phone: { type: 'string', example: '01012345678' },
+        description: { type: 'string', example: 'وصف الشركة' },
+        fontFamily: { type: 'string', example: 'MyCustomFont, sans-serif' },
+        customFontName: { type: 'string', example: 'MyCustomFont' },
+        logo: { type: 'string', format: 'binary' },
+        customFont: { type: 'string', format: 'binary' }
       }
     }
   })
@@ -556,6 +605,9 @@ async renewSession(@Req() req: CompanyRequest) {
 
     const logo = files.logo?.[0];
     const customFont = files.customFont?.[0];
+
+    this.logger.debug(`ملفات مستلمة: logo=${!!logo}, customFont=${!!customFont}`);
+    this.logger.debug(`بيانات DTO: ${JSON.stringify(dto)}`);
 
     await this.companyService.updateCompany(
       req.user.companyId, 
@@ -690,8 +742,6 @@ async renewSession(@Req() req: CompanyRequest) {
       }
     };
   }
-
-  // ← أضف هذه الـ endpoints الجديدة للخطوط
 
   @Public()
   @Get(':companyId/font.css')

@@ -43,10 +43,6 @@ export class CreateCompanyDto {
   @IsString()
   fontFamily?: string;
 
-  @ApiPropertyOptional({ type: 'string', format: 'binary' })
-  @IsOptional()
-  customFont?: any;
-
   @ApiPropertyOptional({ example: 'MyCustomFont' })
   @IsOptional()
   @IsString()

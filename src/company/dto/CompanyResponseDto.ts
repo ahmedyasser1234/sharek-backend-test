@@ -1,42 +1,48 @@
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CompanyResponseDto {
-  @ApiProperty({ example: '123e4567-e89b-12d3-a456-426614174000' })
+  @ApiProperty()
   id: string;
 
-  @ApiProperty({ example: 'شركة التقنية الحديثة' })
+  @ApiProperty()
   name: string;
 
-  @ApiProperty({ example: 'admin@company.com' })
+  @ApiProperty()
   email: string;
 
-  @ApiProperty({ example: '01012345678' })
-  phone?: string;
+  @ApiProperty()
+  phone: string;
 
-  @ApiProperty({ example: 'https://example.com/logo.png' })
+  @ApiProperty({ nullable: true })
   logoUrl?: string;
 
-  @ApiProperty({ example: 'شركة متخصصة في حلول البرمجيات' })
+  @ApiProperty({ nullable: true })
   description?: string;
 
-  @ApiProperty({ example: 'active' })
+  @ApiProperty()
   subscriptionStatus: string;
 
-  @ApiProperty({ example: 'Cairo, sans-serif' })
-  fontFamily?: string;
+  @ApiProperty()
+  fontFamily: string;
 
-  @ApiProperty({ example: true })
+  @ApiProperty({ nullable: true })
+  customFontUrl?: string;
+
+  @ApiProperty({ nullable: true })
+  customFontName?: string;
+
+  @ApiProperty()
   isActive: boolean;
 
-  @ApiProperty({ example: true })
+  @ApiProperty()
   isVerified: boolean;
 
-  @ApiProperty({ example: 'email' })
+  @ApiProperty()
   provider: string;
 
-  @ApiProperty({ example: '2023-01-01T00:00:00.000Z' })
+  @ApiProperty()
   createdAt: Date;
 
-  @ApiProperty({ example: '2023-01-01T00:00:00.000Z' })
+  @ApiProperty()
   updatedAt: Date;
 }

@@ -69,46 +69,46 @@ export class CompanyService implements OnModuleInit {
     private readonly fileUploadService: FileUploadService, 
   ) {}
 
-async syncSubscriptionStatus(companyId: string): Promise<void> {
-  try {
-    const company = await this.companyRepo.findOne({ 
-      where: { id: companyId },
-      relations: ['subscriptions', 'subscriptions.plan']    
-    });
+  async syncSubscriptionStatus(companyId: string): Promise<void> {
+    try {
+      const company = await this.companyRepo.findOne({ 
+        where: { id: companyId },
+        relations: ['subscriptions', 'subscriptions.plan']    
+      });
 
-    if (!company) {
-      this.logger.warn(`الشركة غير موجودة: ${companyId}`);
-      return;
-    }
-
-    const activeSubscription = company.subscriptions?.find(
-      sub => sub.status === SubscriptionStatus.ACTIVE
-    );
-
-    if (activeSubscription && activeSubscription.plan) {
-      if (company.subscriptionStatus !== 'active') {
-        await this.companyRepo.update(companyId, {
-          subscriptionStatus: 'active',
-          planId: activeSubscription.plan.id, 
-          subscribedAt: activeSubscription.startDate
-        });
-        this.logger.log(` تم مزامنة حالة الاشتراك للشركة ${companyId} إلى active`);
+      if (!company) {
+        this.logger.warn(`الشركة غير موجودة: ${companyId}`);
+        return;
       }
-    } else {
-      if (company.subscriptionStatus === 'active') {
-        await this.companyRepo.update(companyId, {
-          subscriptionStatus: 'inactive',
-          planId: null,
-          subscribedAt: null as any 
-        });
-        this.logger.log(` تم مزامنة حالة الاشتراك للشركة ${companyId} إلى inactive`);
+
+      const activeSubscription = company.subscriptions?.find(
+        sub => sub.status === SubscriptionStatus.ACTIVE
+      );
+
+      if (activeSubscription && activeSubscription.plan) {
+        if (company.subscriptionStatus !== 'active') {
+          await this.companyRepo.update(companyId, {
+            subscriptionStatus: 'active',
+            planId: activeSubscription.plan.id, 
+            subscribedAt: activeSubscription.startDate
+          });
+          this.logger.log(` تم مزامنة حالة الاشتراك للشركة ${companyId} إلى active`);
+        }
+      } else {
+        if (company.subscriptionStatus === 'active') {
+          await this.companyRepo.update(companyId, {
+            subscriptionStatus: 'inactive',
+            planId: null,
+            subscribedAt: null as any 
+          });
+          this.logger.log(` تم مزامنة حالة الاشتراك للشركة ${companyId} إلى inactive`);
+        }
       }
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(` فشل مزامنة حالة الاشتراك للشركة ${companyId}: ${errorMessage}`);
     }
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(` فشل مزامنة حالة الاشتراك للشركة ${companyId}: ${errorMessage}`);
   }
-}
 
   async getActiveSubscription(companyId: string): Promise<CompanySubscription | null> {
     try {
@@ -349,6 +349,7 @@ async syncSubscriptionStatus(companyId: string): Promise<void> {
 
     let logoUrl: string | undefined;
     let customFontUrl: string | undefined;
+    let finalCustomFontName: string | undefined;
 
     if (logo) {
       try {
@@ -368,37 +369,71 @@ async syncSubscriptionStatus(companyId: string): Promise<void> {
 
         const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
         logoUrl = result.secure_url;
+        this.logger.debug(`تم رفع الشعار الجديد: ${logoUrl}`);
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(` فشل رفع الشعار على Cloudinary: ${errorMessage}`);
+        this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
         throw new InternalServerErrorException('فشل رفع صورة الشعار');
       }
     }
 
     if (customFont) {
       try {
+        this.logger.debug(`بدء رفع الخط المخصص: ${customFont.originalname}`);
         const fontUploadResult = await this.fileUploadService.uploadFont(customFont, id);
         customFontUrl = fontUploadResult.fileUrl;
+        finalCustomFontName = dto.customFontName || 
+        customFont.originalname.split('.')[0] || 
+        `CustomFont-${Date.now()}`;
 
-        if (company.customFontUrl) {
-          await this.fileUploadService.deleteFont(company.customFontUrl);
+        this.logger.debug(`تم رفع الخط: ${customFontUrl}, بالاسم: ${finalCustomFontName}`);
+
+        if (company.customFontUrl && company.customFontUrl.trim() !== '') {
+          try {
+            await this.fileUploadService.deleteFont(company.customFontUrl);
+            this.logger.debug(`تم حذف الخط القديم: ${company.customFontUrl}`);
+          } catch (deleteError: unknown) {
+            const deleteErrorMessage = deleteError instanceof Error ? deleteError.message : 'Unknown error';
+            this.logger.warn(`فشل حذف الخط القديم: ${deleteErrorMessage}`);
+          }
         }
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(` فشل رفع الخط المخصص: ${errorMessage}`);
+        this.logger.error(`فشل رفع الخط المخصص: ${errorMessage}`);
         throw new InternalServerErrorException('فشل رفع ملف الخط');
       }
     }
+    const updateData: Partial<Company> = {};
 
-    const updateData: Partial<Company> = {
-      ...dto,
-      logoUrl: logoUrl ?? company.logoUrl,
-      fontFamily: dto.fontFamily ?? company.fontFamily,
-      customFontUrl: customFontUrl ?? company.customFontUrl, 
-      customFontName: dto.customFontName ?? company.customFontName, 
-    };
+    if (dto.name !== undefined) updateData.name = dto.name;
+    if (dto.email !== undefined) updateData.email = dto.email;
+    if (dto.phone !== undefined) updateData.phone = dto.phone;
+    if (dto.description !== undefined) updateData.description = dto.description;
+    if (dto.password !== undefined) updateData.password = dto.password;
 
-    await this.companyRepo.update(id, updateData);
+    if (logoUrl !== undefined) {
+      updateData.logoUrl = logoUrl;
+    }
+
+    if (customFontUrl !== undefined) {
+      updateData.customFontUrl = customFontUrl;
+      updateData.customFontName = finalCustomFontName;
+      updateData.fontFamily = `${finalCustomFontName}, sans-serif`;
+    } else if (dto.customFontName && company.customFontUrl) {
+      updateData.customFontName = dto.customFontName;
+      updateData.fontFamily = `${dto.customFontName}, sans-serif`;
+    } else if (dto.fontFamily !== undefined) {
+      updateData.fontFamily = dto.fontFamily;
+    }
+
+    this.logger.debug(`بيانات التحديث: ${JSON.stringify(updateData)}`);
+    if (Object.keys(updateData).length > 0) {
+      await this.companyRepo.update(id, updateData);
+      this.logger.debug(`تم تحديث بيانات الشركة ${id} بنجاح`);
+
+    } else {
+      this.logger.debug(`لا توجد بيانات لتحديثها للشركة ${id}`);
+    }
   }
 
   async findByEmail(email: string): Promise<Company> {
@@ -435,6 +470,9 @@ async syncSubscriptionStatus(companyId: string): Promise<void> {
         'subscribedAt',
         'planId',
         'paymentProvider',
+        'fontFamily',
+        'customFontUrl',
+        'customFontName',
       ],
     });
 
@@ -582,6 +620,8 @@ async syncSubscriptionStatus(companyId: string): Promise<void> {
       description: company.description,
       subscriptionStatus: company.subscriptionStatus,
       fontFamily: company.fontFamily,
+      customFontUrl: company.customFontUrl,
+      customFontName: company.customFontName,
       isActive: company.isActive,
       isVerified: company.isVerified,
       provider: company.provider,
@@ -651,7 +691,6 @@ async syncSubscriptionStatus(companyId: string): Promise<void> {
       await this.companyRepo.save(company);
     }
     
-    // ✅ مزامنة حالة الاشتراك عند تسجيل الدخول الاجتماعي
     await this.syncSubscriptionStatus(company.id);
     
     await this.activityTracker.markAsOnline(company.id);
@@ -900,4 +939,5 @@ async syncSubscriptionStatus(companyId: string): Promise<void> {
       fontFamily: 'Cairo, sans-serif'
     });
   }
+  
 }
