@@ -532,9 +532,10 @@ export class CompanyController {
     { name: 'logo', maxCount: 1 },
     { name: 'customFont', maxCount: 1 }
   ], {
+    
     storage: memoryStorage(),
     limits: {
-      fileSize: 10 * 1024 * 1024, // 10MB للخطوط
+      fileSize: 10 * 1024 * 1024, 
     },
     fileFilter: (req, file, cb) => {
       try {
@@ -599,6 +600,7 @@ export class CompanyController {
     },
     @Req() req: CompanyRequest
   ) {
+    console.log('بيانات الواردة:', dto);
     if (!req.user?.companyId) {
       throw new UnauthorizedException('Unauthorized access');
     }
@@ -763,7 +765,6 @@ export class CompanyController {
       const fontData = await this.companyService.getCompanyFont(companyId);
       return fontData.fontCss;
     } catch (error: unknown) {
-      // إذا فشل، ارجع CSS افتراضي
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`فشل جلب CSS الخط للشركة ${companyId}: ${errorMessage}`);
       return `/* خطأ في تحميل الخط: ${errorMessage} */`;
