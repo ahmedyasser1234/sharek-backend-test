@@ -1,6 +1,8 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Injectable, BadRequestException, Logger, InternalServerErrorException } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 
 interface FileSystemError extends Error {
   code?: string;
@@ -27,20 +29,39 @@ export class FileUploadService {
 
   async uploadFont(
     file: Express.Multer.File, 
-    companyId: string
-  ): Promise<{ fileName: string; filePath: string; fileUrl: string }> {
+    companyId: string,
+    fontType?: string
+  ): Promise<{ 
+    fileName: string; 
+    filePath: string; 
+    fileUrl: string;
+    mimeType: string;
+    fileSize: number;
+    fontType: string;
+  }> {
     try {
-      const allowedFontTypes = [
-        'font/ttf', 'font/otf', 'application/font-woff',
-        'application/font-woff2', 'font/woff', 'font/woff2'
-      ];
-
-      if (!allowedFontTypes.includes(file.mimetype)) {
-        throw new BadRequestException('نوع ملف الخط غير مدعوم. المسموح: TTF, OTF, WOFF, WOFF2');
+      if (!file || !file.buffer || !Buffer.isBuffer(file.buffer)) {
+        throw new BadRequestException('ملف الخط غير صالح أو لا يحتوي على بيانات');
       }
 
-      if (file.size > 5 * 1024 * 1024) {
-        throw new BadRequestException('حجم ملف الخط كبير جداً. الحد الأقصى 5MB');
+      const fileName = file.originalname || '';
+      const fileExtension = this.getFileExtension(fileName);
+      
+      const isFontFile = this.isFontFile(file);
+      
+      if (!isFontFile) {
+        const supportedExtensions = [
+          'ttf', 'otf', 'woff', 'woff2', 'eot', 'svg',
+          'ttc', 'dfont', 'fon', 'fnt'
+        ];
+        throw new BadRequestException(
+          `نوع ملف الخط غير مدعوم. الصيغ المدعومة: ${supportedExtensions.join(', ')}. ` +
+          `نوع الملف المرسل: ${file.mimetype}, الامتداد: ${fileExtension}`
+        );
+      }
+
+      if (file.size > 15 * 1024 * 1024) {
+        throw new BadRequestException('حجم ملف الخط كبير جداً. الحد الأقصى 15MB');
       }
 
       const companyFontsPath = path.join(this.fontsBasePath, companyId);
@@ -48,16 +69,30 @@ export class FileUploadService {
         fs.mkdirSync(companyFontsPath, { recursive: true });
       }
 
-      const fileExtension = this.getFileExtension(file.originalname);
-      const fileName = `${this.generateUniqueId()}.${fileExtension}`;
-      const filePath = path.join(companyFontsPath, fileName);
-      const fileUrl = `/uploads/fonts/${companyId}/${fileName}`;
+      const uniqueFileName = `${uuidv4()}-${Date.now()}.${fileExtension}`;
+      const filePath = path.join(companyFontsPath, uniqueFileName);
+      const fileUrl = `/uploads/fonts/${companyId}/${uniqueFileName}`;
 
       await fs.promises.writeFile(filePath, file.buffer);
 
-      this.logger.log(`تم رفع الخط بنجاح: ${filePath}`);
+      const detectedFontType = this.detectFontType(fileExtension);
+      
+      this.logger.log(`تم رفع الخط بنجاح: 
+        المسار: ${filePath}
+        الحجم: ${file.size} bytes
+        الامتداد: ${fileExtension}
+        نوع MIME: ${file.mimetype}
+        نوع الخط: ${detectedFontType}
+      `);
 
-      return { fileName, filePath, fileUrl };
+      return { 
+        fileName: uniqueFileName, 
+        filePath, 
+        fileUrl,
+        mimeType: file.mimetype,
+        fileSize: file.size,
+        fontType: fontType || detectedFontType
+      };
 
     } catch (error: unknown) {
       const errorMessage = this.getErrorMessage(error);
@@ -66,7 +101,7 @@ export class FileUploadService {
       if (this.isBadRequestException(error)) {
         throw error;
       }
-      throw new InternalServerErrorException('فشل رفع ملف الخط');
+      throw new InternalServerErrorException(`فشل رفع ملف الخط: ${errorMessage}`);
     }
   }
 
@@ -79,6 +114,17 @@ export class FileUploadService {
       await fs.promises.unlink(filePath);
       
       this.logger.log(`تم حذف الخط: ${filePath}`);
+      
+      const dirPath = path.dirname(filePath);
+      try {
+        const files = await fs.promises.readdir(dirPath);
+        if (files.length === 0) {
+          await fs.promises.rmdir(dirPath);
+          this.logger.log(`تم حذف المجلد الفارغ: ${dirPath}`);
+        }
+      } catch {
+        // تجاهل خطأ المجلد غير الفارغ - تم إزالة المعلمة غير المستخدمة
+      }
     } catch (error: unknown) {
       if (this.isFileNotFoundError(error)) {
         this.logger.warn(`الملف غير موجود: ${fileUrl}`);
@@ -92,7 +138,8 @@ export class FileUploadService {
   }
 
   private getFileExtension(filename: string): string {
-    return filename.split('.').pop()?.toLowerCase() || 'woff2';
+    const parts = filename.split('.');
+    return parts.length > 1 ? parts.pop()!.toLowerCase() : 'ttf';
   }
 
   private urlToFilePath(fileUrl: string): string {
@@ -103,9 +150,91 @@ export class FileUploadService {
     return path.join(this.fontsBasePath, parts[1]);
   }
 
+  isFontFile(file: Express.Multer.File): boolean {
+    const fileName = file.originalname || '';
+    const extension = this.getFileExtension(fileName);
+    
+    const fontExtensions = [
+      'ttf', 'otf', 'woff', 'woff2', 'eot', 'svg',
+      'ttc', 'dfont', 'fon', 'fnt'
+    ];
+    
+    const fontMimeTypes = [
+      'font/ttf',
+      'application/x-font-ttf',
+      'application/x-font-truetype',
+      
+      'font/otf',
+      'application/x-font-opentype',
+      'font/opentype',
+      
+      'font/woff',
+      'application/font-woff',
+      'application/x-font-woff',
+      
+      'font/woff2',
+      'application/font-woff2',
+      'application/x-font-woff2',
+      
+      'application/vnd.ms-fontobject',
+      'application/x-font-eot',
+      
+      'image/svg+xml',
+      'font/svg',
+      
+      'application/octet-stream',
+      'binary/octet-stream',
+    ];
+    
+    return fontExtensions.includes(extension) || fontMimeTypes.includes(file.mimetype);
+  }
+
+  private detectFontType(extension: string): string {
+    switch(extension) {
+      case 'ttf':
+      case 'ttc':
+      case 'dfont':
+      case 'fon':
+      case 'fnt':
+        return 'ttf';
+      case 'otf':
+        return 'otf';
+      case 'woff':
+        return 'woff';
+      case 'woff2':
+        return 'woff2';
+      case 'eot':
+        return 'eot';
+      case 'svg':
+        return 'svg';
+      default:
+        return extension;
+    }
+  }
+
+  getMimeTypeFromExtension(extension: string): string {
+    const mimeTypes: { [key: string]: string } = {
+      'ttf': 'font/ttf',
+      'otf': 'font/otf',
+      'woff': 'font/woff',
+      'woff2': 'font/woff2',
+      'eot': 'application/vnd.ms-fontobject',
+      'svg': 'image/svg+xml',
+      'ttc': 'font/collection',
+      'dfont': 'font/ttf',
+      'fon': 'application/x-font-fon',
+      'fnt': 'application/x-font-fnt',
+    };
+    
+    return mimeTypes[extension] || 'application/octet-stream';
+  }
+
   private isFileNotFoundError(error: unknown): boolean {
-    const fsError = error as FileSystemError;
-    return fsError instanceof Error && fsError.code === 'ENOENT';
+    if (error && typeof error === 'object' && 'code' in error) {
+      const fsError = error as FileSystemError;
+      return fsError.code === 'ENOENT';
+    }
+    return false;
   }
 
   private isBadRequestException(error: unknown): error is BadRequestException {
@@ -118,6 +247,9 @@ export class FileUploadService {
     }
     if (typeof error === 'string') {
       return error;
+    }
+    if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+      return error.message;
     }
     return 'Unknown error occurred';
   }
@@ -132,9 +264,34 @@ export class FileUploadService {
     }
   }
 
-  private generateUniqueId(): string {
-    const timestamp = Date.now().toString(36);
-    const randomStr = Math.random().toString(36).substring(2, 15);
-    return `${timestamp}-${randomStr}`;
+  async getFontInfo(fileUrl: string): Promise<{
+    exists: boolean;
+    filePath: string;
+    size?: number;
+    mimeType?: string;
+    extension?: string;
+  }> {
+    try {
+      const filePath = this.urlToFilePath(fileUrl);
+      
+      await fs.promises.access(filePath);
+      const stats = await fs.promises.stat(filePath);
+      const extension = this.getFileExtension(filePath);
+      
+      return {
+        exists: true,
+        filePath,
+        size: stats.size,
+        mimeType: this.getMimeTypeFromExtension(extension),
+        extension
+      };
+    } catch {
+      return { exists: false, filePath: '' };
+    }
+  }
+
+  validateFileSize(file: Express.Multer.File, maxSizeMB: number = 15): boolean {
+    const maxSizeBytes = maxSizeMB * 1024 * 1024;
+    return file.size <= maxSizeBytes;
   }
 }

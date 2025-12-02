@@ -47,4 +47,10 @@ export class CreateCompanyDto {
   @IsOptional()
   @IsString()
   customFontName?: string;
+
+  @ApiPropertyOptional() 
+  @IsOptional()
+  @IsString()
+  customFontUrl?: string; 
+  
 }

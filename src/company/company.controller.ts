@@ -62,7 +62,7 @@ export class CompanyController {
   @UseInterceptors(FileInterceptor('logo', {
     storage: memoryStorage(), 
     fileFilter: (req, file, cb) => {
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
       cb(null, allowedTypes.includes(file.mimetype));
     },
     limits: {
@@ -531,52 +531,98 @@ export class CompanyController {
   @UseInterceptors(AnyFilesInterceptor({ 
     storage: memoryStorage(),
     limits: {
-      fileSize: 10 * 1024 * 1024, 
+      fileSize: 15 * 1024 * 1024, 
     },
     fileFilter: (req, file, cb) => {
       try {
         const typedFile = file as Express.Multer.File;
         
+        const allowedFields = ['logo', 'customFont'];
+        
+        if (!allowedFields.includes(typedFile.fieldname)) {
+          return cb(new BadRequestException(`حقل ملف غير متوقع: ${typedFile.fieldname}. فقط 'logo' و 'customFont' مسموح بهما`), false);
+        }
+        
         if (typedFile.fieldname === 'customFont') {
           const allowedFontTypes = [
+            'font/ttf',
+            'application/x-font-ttf',
+            'application/x-font-truetype',
+            
+            'font/otf',
+            'application/x-font-opentype',
+            'font/opentype',
+            
             'font/woff',
-            'font/woff2', 
             'application/font-woff',
+            'application/x-font-woff',
+            
+            'font/woff2',
             'application/font-woff2',
-            'application/octet-stream' 
+            'application/x-font-woff2',
+            
+            'application/vnd.ms-fontobject',
+            'application/x-font-eot',
+            
+            'image/svg+xml',
+            'font/svg',
+            
+            'application/octet-stream',
+            'binary/octet-stream',
           ];
           
           const fileName = typedFile.originalname || '';
           const parts = fileName.split('.');
           const fileExtension = parts.length > 1 ? parts.pop()!.toLowerCase() : '';
           
+          const supportedExtensions = [
+            'ttf', 'otf', 'woff', 'woff2', 'eot', 'svg',
+            'ttc', 'dfont', 
+            'fon', 'fnt'
+          ];
+          
           const isFontFile = allowedFontTypes.includes(typedFile.mimetype) || 
-                            ['woff', 'woff2'].includes(fileExtension);
+                            supportedExtensions.includes(fileExtension);
           
           if (!isFontFile) {
-            return cb(new BadRequestException('نوع ملف الخط غير مدعوم. يرجى استخدام ملفات .woff أو .woff2'), false);
+            return cb(new BadRequestException(
+              `نوع ملف الخط غير مدعوم. الصيغ المدعومة: TTF, OTF, WOFF, WOFF2, EOT, SVG, TTC, DFONT. نوع الملف المرسل: ${typedFile.mimetype}`
+            ), false);
           }
           return cb(null, true);
           
         } else if (typedFile.fieldname === 'logo') {
-          const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
+          const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
           if (!allowedImageTypes.includes(typedFile.mimetype)) {
-            return cb(new BadRequestException('نوع ملف الصورة غير مدعوم. يرجى استخدام JPEG أو PNG أو WebP'), false);
+            return cb(new BadRequestException('نوع ملف الصورة غير مدعوم. يرجى استخدام JPEG أو PNG أو WebP أو SVG'), false);
           }
           return cb(null, true);
         }
         
-        // ❌ رفض أي حقول ملفات أخرى غير متوقعة
-        return cb(new BadRequestException(`حقل ملف غير متوقع: ${typedFile.fieldname}`), false);
-      } catch {
+        return cb(null, true);
+      } catch (error: unknown) {
+        let errorMessage = 'Unknown error occurred';
+        
+        if (error instanceof Error) {
+          errorMessage = error.message;
+        } else if (typeof error === 'string') {
+          errorMessage = error;
+        } else if (error && typeof error === 'object' && 'message' in error) {
+          const errorObj = error as { message?: unknown };
+          if (typeof errorObj.message === 'string') {
+            errorMessage = errorObj.message;
+          }
+        }
+        
+        console.error(`خطأ في فحص الملف: ${errorMessage}`);
         return cb(new BadRequestException('خطأ في معالجة الملف'), false);
       }
     }
   }))
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'تحديث بيانات الشركة مع الخط المخصص' })
+  @ApiOperation({ summary: 'تحديث بيانات الشركة مع الخط المخصص (يدعم جميع صيغ الخطوط)' })
   @ApiBody({
-    description: 'بيانات الشركة والملفات',
+    description: 'بيانات الشركة والملفات - يدعم TTF, OTF, WOFF, WOFF2, EOT, SVG',
     schema: {
       type: 'object',
       properties: {
@@ -585,10 +631,23 @@ export class CompanyController {
         description: { type: 'string', example: 'وصف الشركة' },
         fontFamily: { type: 'string', example: 'MyCustomFont, sans-serif' },
         customFontName: { type: 'string', example: 'MyCustomFont' },
-        customFontUrl: { type: 'string', example: 'https://example.com/font.woff2' }, // ✅ حقل نصي
-        logo: { type: 'string', format: 'binary' },
-        customFont: { type: 'string', format: 'binary' }
-      }
+        customFontUrl: { 
+          type: 'string', 
+          example: 'https://example.com/font.woff2',
+          description: 'رابط خارجي للخط (نص، ليس ملف)' 
+        },
+        logo: { 
+          type: 'string', 
+          format: 'binary', 
+          description: 'ملف صورة الشعار (JPEG, PNG, WebP, SVG)' 
+        },
+        customFont: { 
+          type: 'string', 
+          format: 'binary', 
+          description: 'ملف الخط المخصص (TTF, OTF, WOFF, WOFF2, EOT, SVG, TTC, DFONT)' 
+        }
+      },
+      required: []
     }
   })
   async updateWithFont(
@@ -596,7 +655,6 @@ export class CompanyController {
     @UploadedFiles() files: Express.Multer.File[], 
     @Req() req: CompanyRequest
   ) {
-    console.log('بيانات الواردة:', dto);
     if (!req.user?.companyId) {
       throw new UnauthorizedException('Unauthorized access');
     }
@@ -606,13 +664,18 @@ export class CompanyController {
 
     this.logger.debug(`ملفات مستلمة: logo=${!!logo}, customFont=${!!customFont}`);
     this.logger.debug(`عدد الملفات الإجمالي: ${files.length}`);
-    files.forEach((file, index) => {
-      this.logger.debug(`ملف ${index + 1}: ${file.fieldname} - ${file.originalname}`);
-    });
+    
+    if (customFont) {
+      this.logger.debug(`تفاصيل ملف الخط: 
+        اسم الملف: ${customFont.originalname}
+        نوع MIME: ${customFont.mimetype}
+        الحجم: ${customFont.size} bytes
+        الامتداد: ${customFont.originalname?.split('.').pop()?.toLowerCase()}
+      `);
+    }
 
-    // ✅ التأكد من أن customFontUrl لا يأتي كملف
     if (files.some(file => file.fieldname === 'customFontUrl')) {
-      throw new BadRequestException('customFontUrl يجب أن يكون حقل نصي وليس ملف');
+      throw new BadRequestException('customFontUrl يجب أن يكون حقل نصي (رابط خارجي) وليس ملف. استخدم customFont لرفع ملف خط');
     }
 
     await this.companyService.updateCompany(
@@ -634,26 +697,52 @@ export class CompanyController {
   @UseInterceptors(FileInterceptor('customFont', {
     storage: memoryStorage(),
     limits: {
-      fileSize: 5 * 1024 * 1024,
+      fileSize: 15 * 1024 * 1024,
     },
     fileFilter: (req, file, cb) => {
       const allowedFontTypes = [
+        'font/ttf',
+        'application/x-font-ttf',
+        'application/x-font-truetype',
+        
+        'font/otf',
+        'application/x-font-opentype',
+        'font/opentype',
+        
         'font/woff',
-        'font/woff2', 
         'application/font-woff',
+        'application/x-font-woff',
+        
+        'font/woff2',
         'application/font-woff2',
-        'application/octet-stream' 
+        'application/x-font-woff2',
+        
+        'application/vnd.ms-fontobject',
+        'application/x-font-eot',
+        
+        'image/svg+xml',
+        'font/svg',
+        
+        'application/octet-stream',
+        'binary/octet-stream',
       ];
       
       const fileName = file.originalname || '';
       const parts = fileName.split('.');
       const fileExtension = parts.length > 1 ? parts.pop()!.toLowerCase() : '';
       
+      const supportedExtensions = [
+        'ttf', 'otf', 'woff', 'woff2', 'eot', 'svg',
+        'ttc', 'dfont', 'fon', 'fnt'
+      ];
+      
       const isFontFile = allowedFontTypes.includes(file.mimetype) || 
-                        ['woff', 'woff2'].includes(fileExtension);
+                        supportedExtensions.includes(fileExtension);
       
       if (!isFontFile) {
-        return cb(new BadRequestException('نوع ملف الخط غير مدعوم. يرجى استخدام ملفات .woff أو .woff2'), false);
+        return cb(new BadRequestException(
+          `نوع ملف الخط غير مدعوم. الصيغ المدعومة: TTF, OTF, WOFF, WOFF2, EOT, SVG, TTC, DFONT. نوع الملف المرسل: ${file.mimetype}`
+        ), false);
       }
       return cb(null, true);
     }
@@ -666,7 +755,11 @@ export class CompanyController {
       type: 'object',
       properties: {
         customFontName: { type: 'string', example: 'MyCustomFont' },
-        customFont: { type: 'string', format: 'binary' }
+        customFont: { 
+          type: 'string', 
+          format: 'binary',
+          description: 'ملف الخط المخصص (TTF, OTF, WOFF, WOFF2, EOT, SVG)' 
+        }
       }
     }
   })
@@ -682,7 +775,7 @@ export class CompanyController {
     await this.companyService.updateCompany(
       req.user.companyId,
       dto as UpdateCompanyDto,
-      undefined, // لا يوجد logo
+      undefined,   
       customFont
     );
 
@@ -698,7 +791,7 @@ export class CompanyController {
   @UseInterceptors(FileInterceptor('logo', {
     storage: memoryStorage(),
     fileFilter: (req, file, cb) => {
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
       cb(null, allowedTypes.includes(file.mimetype));
     },
     limits: {

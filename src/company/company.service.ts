@@ -69,6 +69,13 @@ export class CompanyService implements OnModuleInit {
     private readonly fileUploadService: FileUploadService, 
   ) {}
 
+  /**
+   * تطبيع البريد الإلكتروني (تحويله إلى حروف صغيرة)
+   */
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
+  }
+
   async syncSubscriptionStatus(companyId: string): Promise<void> {
     try {
       const company = await this.companyRepo.findOne({ 
@@ -161,15 +168,16 @@ export class CompanyService implements OnModuleInit {
 
   async seedDefaultCompany(): Promise<void> {
     const email = 'admin2@company.com';
-    const exists = await this.companyRepo.findOne({ where: { email } });
+    const normalizedEmail = this.normalizeEmail(email);
+    const exists = await this.companyRepo.findOne({ where: { email: normalizedEmail } });
     if (exists) {
-      this.logger.warn(`الشركة الافتراضية موجودة بالفعل: ${email}`);
+      this.logger.warn(`الشركة الافتراضية موجودة بالفعل: ${normalizedEmail}`);
       return;
     }
 
     const hashedPassword = await bcrypt.hash('admin123', 10);
     const companyData: DeepPartial<Company> = {
-      email,
+      email: normalizedEmail,
       password: hashedPassword,
       isVerified: true,
       isActive: true,
@@ -184,7 +192,7 @@ export class CompanyService implements OnModuleInit {
 
     const company = this.companyRepo.create(companyData);
     await this.companyRepo.save(company);
-    this.logger.log(`تم زرع الشركة الافتراضية: ${email}`);
+    this.logger.log(`تم زرع الشركة الافتراضية: ${normalizedEmail}`);
   }
 
   async countEmployees(companyId: string): Promise<number> {
@@ -194,7 +202,14 @@ export class CompanyService implements OnModuleInit {
   }
 
   async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
-    const existing = await this.companyRepo.findOne({ where: { email: dto.email } });
+    // تطبيع البريد الإلكتروني
+    const normalizedEmail = this.normalizeEmail(dto.email);
+    
+    // البحث بالبريد بعد التطبيع
+    const existing = await this.companyRepo.findOne({ 
+      where: { email: normalizedEmail } 
+    });
+    
     if (existing) {
       throw new BadRequestException('هذا البريد مستخدم بالفعل');
     }
@@ -210,18 +225,26 @@ export class CompanyService implements OnModuleInit {
           throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
         }
 
-        const imageProcessor = sharp(logo.buffer);
-        const resized = imageProcessor.resize({ width: 800 });
-        const formatted = resized.webp({ quality: 70 });
-        const compressedBuffer = await formatted.toBuffer();
+        // معالجة الصور المختلفة
+        if (logo.mimetype === 'image/svg+xml') {
+          // SVG - يمكن رفعه كما هو
+          const result = await this.cloudinaryService.uploadImage(logo, `companies/${tempId}/logo`);
+          logoUrl = result.secure_url;
+        } else {
+          // صور أخرى (JPEG, PNG, WebP)
+          const imageProcessor = sharp(logo.buffer);
+          const resized = imageProcessor.resize({ width: 800 });
+          const formatted = resized.webp({ quality: 70 });
+          const compressedBuffer = await formatted.toBuffer();
 
-        const compressedFile = {
-          ...logo,
-          buffer: compressedBuffer,
-        };
+          const compressedFile = {
+            ...logo,
+            buffer: compressedBuffer,
+          };
 
-        const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${tempId}/logo`);
-        logoUrl = result.secure_url;
+          const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${tempId}/logo`);
+          logoUrl = result.secure_url;
+        }
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
@@ -231,6 +254,8 @@ export class CompanyService implements OnModuleInit {
 
     const companyData: DeepPartial<Company> = {
       ...dto,
+      // استخدام البريد بعد التطبيع للتخزين
+      email: normalizedEmail,
       password: hashedPassword,
       isVerified: false,
       verificationCode,
@@ -258,7 +283,11 @@ export class CompanyService implements OnModuleInit {
   }
 
   async sendVerificationCode(email: string, code: string): Promise<string> {
-    const company = await this.companyRepo.findOne({ where: { email } });
+    const normalizedEmail = this.normalizeEmail(email);
+    const company = await this.companyRepo.findOne({ 
+      where: { email: normalizedEmail } 
+    });
+    
     if (!company) {
       throw new NotFoundException('Company not found');
     }
@@ -298,7 +327,7 @@ export class CompanyService implements OnModuleInit {
     
     const mailOptions: nodemailer.SendMailOptions = {
       from: `"Sharik SA" <${emailUser}>`, 
-      to: email,
+      to: normalizedEmail,
       subject: 'رمز التحقق من البريد الإلكتروني',
       text: `كود التفعيل الخاص بك هو: ${code}`,
       html: `
@@ -312,8 +341,8 @@ export class CompanyService implements OnModuleInit {
 
     try {
       await transporter.sendMail(mailOptions);
-      this.logger.log(` تم إرسال كود التحقق إلى ${email}`);
-      return `تم إرسال كود التحقق إلى ${email}`;
+      this.logger.log(` تم إرسال كود التحقق إلى ${normalizedEmail}`);
+      return `تم إرسال كود التحقق إلى ${normalizedEmail}`;
     } catch (error: unknown) {
       const errorMessage = this.getErrorMessage(error);
       this.logger.error(` فشل إرسال البريد: ${errorMessage}`);
@@ -322,7 +351,11 @@ export class CompanyService implements OnModuleInit {
   }
 
   async verifyCode(email: string, code: string): Promise<string> {
-    const company = await this.companyRepo.findOne({ where: { email } });
+    const normalizedEmail = this.normalizeEmail(email);
+    const company = await this.companyRepo.findOne({ 
+      where: { email: normalizedEmail } 
+    });
+    
     if (!company) throw new NotFoundException('Company not found');
     if (company.verificationCode !== code)
       throw new UnauthorizedException('كود غير صحيح');
@@ -343,6 +376,23 @@ export class CompanyService implements OnModuleInit {
     const company = await this.companyRepo.findOne({ where: { id } });
     if (!company) throw new NotFoundException('Company not found');
 
+    // إذا كان هناك تحديث للبريد
+    if (dto.email) {
+      const normalizedEmail = this.normalizeEmail(dto.email);
+      
+      // التحقق من عدم تكرار البريد (باستثناء الشركة الحالية)
+      const existing = await this.companyRepo.findOne({
+        where: { email: normalizedEmail }
+      });
+      
+      if (existing && existing.id !== id) {
+        throw new BadRequestException('هذا البريد مستخدم بالفعل');
+      }
+      
+      // تحديث البريد بعد التطبيع
+      dto.email = normalizedEmail;
+    }
+
     if (dto.password) {
       dto.password = await bcrypt.hash(dto.password, 10);
     }
@@ -357,18 +407,24 @@ export class CompanyService implements OnModuleInit {
           throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
         }
 
-        const imageProcessor = sharp(logo.buffer);
-        const resized = imageProcessor.resize({ width: 800 });
-        const formatted = resized.webp({ quality: 70 });
-        const compressedBuffer = await formatted.toBuffer();
+        if (logo.mimetype === 'image/svg+xml') {
+          const result = await this.cloudinaryService.uploadImage(logo, `companies/${id}/logo`);
+          logoUrl = result.secure_url;
+        } else {
+          const imageProcessor = sharp(logo.buffer);
+          const resized = imageProcessor.resize({ width: 800 });
+          const formatted = resized.webp({ quality: 70 });
+          const compressedBuffer = await formatted.toBuffer();
 
-        const compressedFile = {
-          ...logo,
-          buffer: compressedBuffer,
-        };
+          const compressedFile = {
+            ...logo,
+            buffer: compressedBuffer,
+          };
 
-        const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
-        logoUrl = result.secure_url;
+          const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
+          logoUrl = result.secure_url;
+        }
+        
         this.logger.debug(`تم رفع الشعار الجديد: ${logoUrl}`);
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -380,13 +436,53 @@ export class CompanyService implements OnModuleInit {
     if (customFont) {
       try {
         this.logger.debug(`بدء رفع الخط المخصص: ${customFont.originalname}`);
-        const fontUploadResult = await this.fileUploadService.uploadFont(customFont, id);
+        
+        const fileName = customFont.originalname || '';
+        const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
+        
+        this.logger.debug(`امتداد ملف الخط: ${fileExtension}`);
+        this.logger.debug(`نوع MIME: ${customFont.mimetype}`);
+        
+        let fontType: string;
+        switch(fileExtension) {
+          case 'ttf':
+          case 'ttc':
+          case 'dfont':
+            fontType = 'ttf';
+            break;
+          case 'otf':
+            fontType = 'otf';
+            break;
+          case 'woff':
+            fontType = 'woff';
+            break;
+          case 'woff2':
+            fontType = 'woff2';
+            break;
+          case 'eot':
+            fontType = 'eot';
+            break;
+          case 'svg':
+            fontType = 'svg';
+            break;
+          case 'fon':
+          case 'fnt':
+            fontType = 'ttf'; 
+            break;
+          default:
+            fontType = fileExtension;
+        }
+        
+        this.logger.debug(`نوع الخط المكتشف: ${fontType}`);
+        
+        const fontUploadResult = await this.fileUploadService.uploadFont(customFont, id, fontType);
         customFontUrl = fontUploadResult.fileUrl;
+        
         finalCustomFontName = dto.customFontName || 
-        customFont.originalname.split('.')[0] || 
-        `CustomFont-${Date.now()}`;
+          fileName.split('.')[0] || 
+          `CustomFont-${Date.now()}`;
 
-        this.logger.debug(`تم رفع الخط: ${customFontUrl}, بالاسم: ${finalCustomFontName}`);
+        this.logger.debug(`تم رفع الخط: ${customFontUrl}, بالاسم: ${finalCustomFontName}, بالنوع: ${fontType}`);
 
         if (company.customFontUrl && company.customFontUrl.trim() !== '') {
           try {
@@ -400,10 +496,9 @@ export class CompanyService implements OnModuleInit {
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         this.logger.error(`فشل رفع الخط المخصص: ${errorMessage}`);
-        throw new InternalServerErrorException('فشل رفع ملف الخط');
+        throw new InternalServerErrorException(`فشل رفع ملف الخط: ${errorMessage}`);
       }
     } else if (dto.customFontUrl) {
-      // إذا كان customFontUrl يأتي كنص (رابط خارجي)
       customFontUrl = dto.customFontUrl;
       finalCustomFontName = dto.customFontName || 'CustomFont';
     }
@@ -442,7 +537,11 @@ export class CompanyService implements OnModuleInit {
   }
 
   async findByEmail(email: string): Promise<Company> {
-    const company = await this.companyRepo.findOne({ where: { email } });
+    const normalizedEmail = this.normalizeEmail(email);
+    const company = await this.companyRepo.findOne({ 
+      where: { email: normalizedEmail } 
+    });
+    
     if (!company) throw new NotFoundException('Company not found');
     return company;
   }
@@ -585,7 +684,9 @@ export class CompanyService implements OnModuleInit {
       company: CompanyResponseDto;
     }
   }> {
-    const company = await this.findByEmail(dto.email);
+    const normalizedEmail = this.normalizeEmail(dto.email);
+    const company = await this.findByEmail(normalizedEmail);
+    
     if (!company) throw new UnauthorizedException('Invalid credentials');
     if (!company.isActive) throw new UnauthorizedException('Company not active');
     if (!company.isVerified) throw new UnauthorizedException('Email not verified');
@@ -658,7 +759,8 @@ export class CompanyService implements OnModuleInit {
     );
     const { email } = res.data;
     if (!email) throw new BadRequestException('Google login failed');
-    return this.handleSocialLogin(email, 'google');
+    const normalizedEmail = this.normalizeEmail(email);
+    return this.handleSocialLogin(normalizedEmail, 'google');
   }
 
   private async loginWithFacebook(accessToken: string) {
@@ -667,7 +769,8 @@ export class CompanyService implements OnModuleInit {
     );
     const { email } = res.data;
     if (!email) throw new BadRequestException('Facebook login failed');
-    return this.handleSocialLogin(email, 'facebook');
+    const normalizedEmail = this.normalizeEmail(email);
+    return this.handleSocialLogin(normalizedEmail, 'facebook');
   }
 
   private async loginWithLinkedIn(accessToken: string) {
@@ -679,15 +782,17 @@ export class CompanyService implements OnModuleInit {
     );
     const email = res.data.elements[0]['handle~'].emailAddress;
     if (!email) throw new BadRequestException('LinkedIn login failed');
-    return this.handleSocialLogin(email, 'linkedin');
+    const normalizedEmail = this.normalizeEmail(email);
+    return this.handleSocialLogin(normalizedEmail, 'linkedin');
   }
 
   private async handleSocialLogin(email: string, provider: string) {
-    let company = await this.companyRepo.findOne({ where: { email } });
+    const normalizedEmail = this.normalizeEmail(email);
+    let company = await this.companyRepo.findOne({ where: { email: normalizedEmail } });
     if (!company) {
       const newCompany: DeepPartial<Company> = {
         id: uuid(),
-        email,
+        email: normalizedEmail,
         provider,
         isVerified: true,
         isActive: true,
@@ -798,7 +903,11 @@ export class CompanyService implements OnModuleInit {
   }
 
   async resetPassword(email: string, code: string, newPassword: string): Promise<string> {
-    const company = await this.companyRepo.findOne({ where: { email } });
+    const normalizedEmail = this.normalizeEmail(email);
+    const company = await this.companyRepo.findOne({ 
+      where: { email: normalizedEmail } 
+    });
+    
     if (!company) throw new NotFoundException('Company not found');
     if (company.verificationCode !== code)
       throw new UnauthorizedException('كود غير صحيح');
@@ -811,7 +920,11 @@ export class CompanyService implements OnModuleInit {
   }
   
   async requestPasswordReset(email: string): Promise<string> {
-    const company = await this.companyRepo.findOne({ where: { email } });
+    const normalizedEmail = this.normalizeEmail(email);
+    const company = await this.companyRepo.findOne({ 
+      where: { email: normalizedEmail } 
+    });
+    
     if (!company) throw new NotFoundException('Company not found');
 
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -845,7 +958,7 @@ export class CompanyService implements OnModuleInit {
 
     const mailOptions: nodemailer.SendMailOptions = {
       from: `"info@sharik-sa.com" <${emailUser}>`, 
-      to: email,
+      to: normalizedEmail,
       subject: 'إعادة تعيين كلمة المرور',
       text: `رمز إعادة تعيين كلمة المرور هو: ${resetCode}`,
       html: `
@@ -859,7 +972,7 @@ export class CompanyService implements OnModuleInit {
 
     try {
       await transporter.sendMail(mailOptions);
-      this.logger.log(` تم إرسال كود إعادة تعيين كلمة المرور إلى ${email}`);
+      this.logger.log(` تم إرسال كود إعادة تعيين كلمة المرور إلى ${normalizedEmail}`);
       return 'تم إرسال كود إعادة تعيين كلمة المرور';
     } catch (err: unknown) {
       const errorMessage = this.getErrorMessage(err);
@@ -912,16 +1025,102 @@ export class CompanyService implements OnModuleInit {
   private generateFontCss(company: Company): string {
     if (company.customFontUrl && company.customFontName) {
       const fontUrl = `http://localhost:3000${company.customFontUrl}`;
+      const extension = company.customFontUrl.split('.').pop()?.toLowerCase() || 'ttf';
       
-      return `
-        @font-face {
-          font-family: '${company.customFontName}';
-          src: url('${fontUrl}') format('woff2');
-          font-display: swap;
-          font-weight: normal;
-          font-style: normal;
-        }
-      `;
+      let format: string;
+      let cssCode: string;
+      
+      switch(extension) {
+        case 'ttf':
+        case 'ttc':
+        case 'dfont':
+        case 'fon':
+        case 'fnt':
+          format = 'truetype';
+          cssCode = `
+            @font-face {
+              font-family: '${company.customFontName}';
+              src: url('${fontUrl}') format('${format}');
+              font-display: swap;
+              font-weight: normal;
+              font-style: normal;
+            }
+          `;
+          break;
+        case 'otf':
+          format = 'opentype';
+          cssCode = `
+            @font-face {
+              font-family: '${company.customFontName}';
+              src: url('${fontUrl}') format('${format}');
+              font-display: swap;
+              font-weight: normal;
+              font-style: normal;
+            }
+          `;
+          break;
+        case 'woff':
+          format = 'woff';
+          cssCode = `
+            @font-face {
+              font-family: '${company.customFontName}';
+              src: url('${fontUrl}') format('${format}');
+              font-display: swap;
+              font-weight: normal;
+              font-style: normal;
+            }
+          `;
+          break;
+        case 'woff2':
+          format = 'woff2';
+          cssCode = `
+            @font-face {
+              font-family: '${company.customFontName}';
+              src: url('${fontUrl}') format('${format}');
+              font-display: swap;
+              font-weight: normal;
+              font-style: normal;
+            }
+          `;
+          break;
+        case 'eot':
+          // EOT يحتاج إلى معالجة خاصة للمتصفحات القديمة
+          cssCode = `
+            @font-face {
+              font-family: '${company.customFontName}';
+              src: url('${fontUrl}?#iefix') format('embedded-opentype');
+              font-display: swap;
+              font-weight: normal;
+              font-style: normal;
+            }
+          `;
+          break;
+        case 'svg':
+          format = 'svg';
+          cssCode = `
+            @font-face {
+              font-family: '${company.customFontName}';
+              src: url('${fontUrl}') format('${format}');
+              font-display: swap;
+              font-weight: normal;
+              font-style: normal;
+            }
+          `;
+          break;
+        default:
+          // افتراضي
+          cssCode = `
+            @font-face {
+              font-family: '${company.customFontName}';
+              src: url('${fontUrl}');
+              font-display: swap;
+              font-weight: normal;
+              font-style: normal;
+            }
+          `;
+      }
+      
+      return cssCode;
     }
     return '';
   }
