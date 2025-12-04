@@ -59,18 +59,103 @@ export class CompanyController {
 
   @Public()   
   @Post()
-  @UseInterceptors(FileInterceptor('logo', {
+  @UseInterceptors(AnyFilesInterceptor({ 
     storage: memoryStorage(), 
     fileFilter: (req, file, cb) => {
-      const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
-      cb(null, allowedTypes.includes(file.mimetype));
+      const allowedFields = ['logo', 'customFont'];
+      
+      if (!allowedFields.includes(file.fieldname)) {
+        return cb(new BadRequestException(`حقل ملف غير متوقع: ${file.fieldname}. فقط 'logo' و 'customFont' مسموح بهما`), false);
+      }
+      
+      if (file.fieldname === 'customFont') {
+        const allowedFontTypes = [
+          'font/ttf',
+          'application/x-font-ttf',
+          'application/x-font-truetype',
+          'font/otf',
+          'application/x-font-opentype',
+          'font/opentype',
+          'font/woff',
+          'application/font-woff',
+          'application/x-font-woff',
+          'font/woff2',
+          'application/font-woff2',
+          'application/x-font-woff2',
+          'application/vnd.ms-fontobject',
+          'application/x-font-eot',
+          'image/svg+xml',
+          'font/svg',
+          'application/octet-stream',
+          'binary/octet-stream',
+        ];
+        
+        const fileName = file.originalname || '';
+        const parts = fileName.split('.');
+        const fileExtension = parts.length > 1 ? parts.pop()!.toLowerCase() : '';
+        
+        const supportedExtensions = [
+          'ttf', 'otf', 'woff', 'woff2', 'eot', 'svg',
+          'ttc', 'dfont', 'fon', 'fnt'
+        ];
+        
+        const isFontFile = allowedFontTypes.includes(file.mimetype) || 
+                          supportedExtensions.includes(fileExtension);
+        
+        if (!isFontFile) {
+          return cb(new BadRequestException(
+            `نوع ملف الخط غير مدعوم. الصيغ المدعومة: TTF, OTF, WOFF, WOFF2, EOT, SVG, TTC, DFONT. نوع الملف المرسل: ${file.mimetype}`
+          ), false);
+        }
+        return cb(null, true);
+        
+      } else if (file.fieldname === 'logo') {
+        const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+        if (!allowedImageTypes.includes(file.mimetype)) {
+          return cb(new BadRequestException('نوع ملف الصورة غير مدعوم. يرجى استخدام JPEG أو PNG أو WebP أو SVG'), false);
+        }
+        return cb(null, true);
+      }
+      
+      return cb(null, true);
     },
     limits: {
-      fileSize: 5 * 1024 * 1024, 
+      fileSize: 15 * 1024 * 1024,
     }
   }))
   @ApiConsumes('multipart/form-data')
-  @ApiOperation({ summary: 'إنشاء شركة جديدة' })
+  @ApiOperation({ summary: 'إنشاء شركة جديدة مع رفع ملف خط مخصص' })
+  @ApiBody({
+    description: 'بيانات الشركة مع إمكانية رفع ملف خط مخصص',
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', example: 'اسم الشركة' },
+        email: { type: 'string', example: 'company@example.com' },
+        password: { type: 'string', example: 'password123' },
+        phone: { type: 'string', example: '01012345678' },
+        description: { type: 'string', example: 'وصف الشركة' },
+        fontFamily: { type: 'string', example: 'MyCustomFont, sans-serif' },
+        customFontName: { type: 'string', example: 'MyCustomFont' },
+        customFontUrl: { 
+          type: 'string', 
+          example: 'https://example.com/font.woff2',
+          description: 'رابط خارجي للخط (اختياري، استخدم customFont لرفع ملف بدلاً من الرابط)' 
+        },
+        logo: { 
+          type: 'string', 
+          format: 'binary', 
+          description: 'ملف صورة الشعار (JPEG, PNG, WebP, SVG)' 
+        },
+        customFont: { 
+          type: 'string', 
+          format: 'binary', 
+          description: 'ملف الخط المخصص (TTF, OTF, WOFF, WOFF2, EOT, SVG, TTC, DFONT)' 
+        }
+      },
+      required: ['name', 'email', 'password']
+    }
+  })
   @ApiResponse({ 
     status: HttpStatus.CREATED, 
     description: 'تم إنشاء الشركة بنجاح',
@@ -87,8 +172,20 @@ export class CompanyController {
     status: HttpStatus.BAD_REQUEST, 
     description: 'بيانات غير صالحة أو البريد مستخدم بالفعل' 
   })
-  async create(@Body() dto: CreateCompanyDto, @UploadedFile() logo?: Express.Multer.File) {
-    const company = await this.companyService.createCompany(dto, logo);
+  async create(
+    @Body() dto: CreateCompanyDto, 
+    @UploadedFiles() files: Express.Multer.File[]
+  ) {
+    this.logger.debug(`ملفات مستلمة: ${files.length} ملفات`);
+    
+    const logo = files.find(file => file.fieldname === 'logo');
+    const customFont = files.find(file => file.fieldname === 'customFont');
+    
+    if (customFont && dto.customFontUrl) {
+      this.logger.warn('تم رفع ملف خط، سيتم تجاهل customFontUrl النصي');
+    }
+    
+    const company = await this.companyService.createCompany(dto, logo, customFont);
     return {
       statusCode: HttpStatus.CREATED,
       message: 'تم إنشاء الشركة بنجاح، يرجى التحقق من البريد الإلكتروني',
@@ -548,25 +645,19 @@ export class CompanyController {
             'font/ttf',
             'application/x-font-ttf',
             'application/x-font-truetype',
-            
             'font/otf',
             'application/x-font-opentype',
             'font/opentype',
-            
             'font/woff',
             'application/font-woff',
             'application/x-font-woff',
-            
             'font/woff2',
             'application/font-woff2',
             'application/x-font-woff2',
-            
             'application/vnd.ms-fontobject',
             'application/x-font-eot',
-            
             'image/svg+xml',
             'font/svg',
-            
             'application/octet-stream',
             'binary/octet-stream',
           ];
@@ -634,7 +725,7 @@ export class CompanyController {
         customFontUrl: { 
           type: 'string', 
           example: 'https://example.com/font.woff2',
-          description: 'رابط خارجي للخط (نص، ليس ملف)' 
+          description: 'رابط خارجي للخط (اختياري، استخدم customFont لرفع ملف بدلاً من الرابط)' 
         },
         logo: { 
           type: 'string', 
@@ -674,8 +765,10 @@ export class CompanyController {
       `);
     }
 
-    if (files.some(file => file.fieldname === 'customFontUrl')) {
-      throw new BadRequestException('customFontUrl يجب أن يكون حقل نصي (رابط خارجي) وليس ملف. استخدم customFont لرفع ملف خط');
+    // إذا كان هناك ملف خط مرفوع، تجاهل customFontUrl إذا كان موجوداً
+    if (customFont && dto.customFontUrl) {
+      this.logger.warn('تم رفع ملف خط، سيتم تجاهل customFontUrl النصي');
+      dto.customFontUrl = undefined;
     }
 
     await this.companyService.updateCompany(
@@ -704,25 +797,19 @@ export class CompanyController {
         'font/ttf',
         'application/x-font-ttf',
         'application/x-font-truetype',
-        
         'font/otf',
         'application/x-font-opentype',
         'font/opentype',
-        
         'font/woff',
         'application/font-woff',
         'application/x-font-woff',
-        
         'font/woff2',
         'application/font-woff2',
         'application/x-font-woff2',
-        
         'application/vnd.ms-fontobject',
         'application/x-font-eot',
-        
         'image/svg+xml',
         'font/svg',
-        
         'application/octet-stream',
         'binary/octet-stream',
       ];

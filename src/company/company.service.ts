@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
@@ -201,11 +202,13 @@ export class CompanyService implements OnModuleInit {
     });
   }
 
-  async createCompany(dto: CreateCompanyDto, logo?: Express.Multer.File): Promise<Company> {
-    // تطبيع البريد الإلكتروني
+  async createCompany(
+    dto: CreateCompanyDto, 
+    logo?: Express.Multer.File, 
+    customFont?: Express.Multer.File
+  ): Promise<Company> {
     const normalizedEmail = this.normalizeEmail(dto.email);
     
-    // البحث بالبريد بعد التطبيع
     const existing = await this.companyRepo.findOne({ 
       where: { email: normalizedEmail } 
     });
@@ -218,6 +221,8 @@ export class CompanyService implements OnModuleInit {
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
     const tempId = uuid();
     let logoUrl: string | undefined;
+    let customFontUrl: string | undefined;
+    let finalCustomFontName: string | undefined;
 
     if (logo) {
       try {
@@ -225,13 +230,10 @@ export class CompanyService implements OnModuleInit {
           throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
         }
 
-        // معالجة الصور المختلفة
         if (logo.mimetype === 'image/svg+xml') {
-          // SVG - يمكن رفعه كما هو
           const result = await this.cloudinaryService.uploadImage(logo, `companies/${tempId}/logo`);
           logoUrl = result.secure_url;
         } else {
-          // صور أخرى (JPEG, PNG, WebP)
           const imageProcessor = sharp(logo.buffer);
           const resized = imageProcessor.resize({ width: 800 });
           const formatted = resized.webp({ quality: 70 });
@@ -252,9 +254,81 @@ export class CompanyService implements OnModuleInit {
       }
     }
 
+    if (customFont) {
+      try {
+        this.logger.debug(`بدء رفع الخط المخصص: ${customFont.originalname}`);
+        
+        const fileName = customFont.originalname || 'custom-font';
+        const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
+        
+        this.logger.debug(`امتداد ملف الخط: ${fileExtension}`);
+        this.logger.debug(`نوع MIME: ${customFont.mimetype}`);
+        
+        let fontType = 'ttf'; 
+        
+        if (fileExtension) {
+          switch(fileExtension) {
+            case 'ttf':
+            case 'ttc':
+            case 'dfont':
+              fontType = 'ttf';
+              break;
+            case 'otf':
+              fontType = 'otf';
+              break;
+            case 'woff':
+              fontType = 'woff';
+              break;
+            case 'woff2':
+              fontType = 'woff2';
+              break;
+            case 'eot':
+              fontType = 'eot';
+              break;
+            case 'svg':
+              fontType = 'svg';
+              break;
+            case 'fon':
+            case 'fnt':
+              fontType = 'ttf'; 
+              break;
+            default:
+              if (customFont.mimetype.includes('woff2')) {
+                fontType = 'woff2';
+              } else if (customFont.mimetype.includes('woff')) {
+                fontType = 'woff';
+              } else if (customFont.mimetype.includes('opentype')) {
+                fontType = 'otf';
+              } else if (customFont.mimetype.includes('truetype')) {
+                fontType = 'ttf';
+              }
+          }
+        }
+        
+        this.logger.debug(`نوع الخط المكتشف: ${fontType}`);
+        
+        const fontUploadResult = await this.fileUploadService.uploadFont(customFont, tempId, fontType);
+        customFontUrl = fontUploadResult.fileUrl;
+        
+        finalCustomFontName = dto.customFontName || 
+          fileName.split('.')[0] || 
+          `CustomFont-${Date.now()}`;
+
+        this.logger.debug(`تم رفع الخط: ${customFontUrl}, بالاسم: ${finalCustomFontName}, بالنوع: ${fontType}`);
+
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(`فشل رفع الخط المخصص: ${errorMessage}`);
+        throw new InternalServerErrorException(`فشل رفع ملف الخط: ${errorMessage}`);
+      }
+    } else if (dto.customFontUrl && dto.customFontUrl.trim() !== '') {
+      // استخدام الرابط النصي إذا لم يتم رفع ملف
+      customFontUrl = dto.customFontUrl;
+      finalCustomFontName = dto.customFontName || 'CustomFont';
+    }
+
     const companyData: DeepPartial<Company> = {
       ...dto,
-      // استخدام البريد بعد التطبيع للتخزين
       email: normalizedEmail,
       password: hashedPassword,
       isVerified: false,
@@ -269,6 +343,13 @@ export class CompanyService implements OnModuleInit {
       subscribedAt: undefined,
       paymentProvider: undefined,
     };
+
+    // إضافة بيانات الخط إذا تم رفعه أو إدخال رابط
+    if (customFontUrl) {
+      companyData.customFontUrl = customFontUrl;
+      companyData.customFontName = finalCustomFontName;
+      companyData.fontFamily = `${finalCustomFontName}, sans-serif`;
+    }
 
     const company = this.companyRepo.create(companyData);
     const saved = await this.companyRepo.save(company);
@@ -344,7 +425,7 @@ export class CompanyService implements OnModuleInit {
       this.logger.log(` تم إرسال كود التحقق إلى ${normalizedEmail}`);
       return `تم إرسال كود التحقق إلى ${normalizedEmail}`;
     } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(` فشل إرسال البريد: ${errorMessage}`);
       throw new BadRequestException('فشل إرسال البريد الإلكتروني');
     }
@@ -376,11 +457,9 @@ export class CompanyService implements OnModuleInit {
     const company = await this.companyRepo.findOne({ where: { id } });
     if (!company) throw new NotFoundException('Company not found');
 
-    // إذا كان هناك تحديث للبريد
     if (dto.email) {
       const normalizedEmail = this.normalizeEmail(dto.email);
       
-      // التحقق من عدم تكرار البريد (باستثناء الشركة الحالية)
       const existing = await this.companyRepo.findOne({
         where: { email: normalizedEmail }
       });
@@ -389,7 +468,6 @@ export class CompanyService implements OnModuleInit {
         throw new BadRequestException('هذا البريد مستخدم بالفعل');
       }
       
-      // تحديث البريد بعد التطبيع
       dto.email = normalizedEmail;
     }
 
@@ -437,40 +515,53 @@ export class CompanyService implements OnModuleInit {
       try {
         this.logger.debug(`بدء رفع الخط المخصص: ${customFont.originalname}`);
         
-        const fileName = customFont.originalname || '';
+        const fileName = customFont.originalname || 'custom-font';
         const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
         
         this.logger.debug(`امتداد ملف الخط: ${fileExtension}`);
         this.logger.debug(`نوع MIME: ${customFont.mimetype}`);
         
-        let fontType: string;
-        switch(fileExtension) {
-          case 'ttf':
-          case 'ttc':
-          case 'dfont':
-            fontType = 'ttf';
-            break;
-          case 'otf':
-            fontType = 'otf';
-            break;
-          case 'woff':
-            fontType = 'woff';
-            break;
-          case 'woff2':
-            fontType = 'woff2';
-            break;
-          case 'eot':
-            fontType = 'eot';
-            break;
-          case 'svg':
-            fontType = 'svg';
-            break;
-          case 'fon':
-          case 'fnt':
-            fontType = 'ttf'; 
-            break;
-          default:
-            fontType = fileExtension;
+        let fontType = 'ttf'; // قيمة افتراضية
+        
+        if (fileExtension) {
+          switch(fileExtension) {
+            case 'ttf':
+            case 'ttc':
+            case 'dfont':
+              fontType = 'ttf';
+              break;
+            case 'otf':
+              fontType = 'otf';
+              break;
+            case 'woff':
+              fontType = 'woff';
+              break;
+            case 'woff2':
+              fontType = 'woff2';
+              break;
+            case 'eot':
+              fontType = 'eot';
+              break;
+            case 'svg':
+              fontType = 'svg';
+              break;
+            case 'fon':
+            case 'fnt':
+              fontType = 'ttf'; 
+              break;
+            default:
+              // استخدم الميم تايب إذا كان معروفاً
+              if (customFont.mimetype.includes('woff2')) {
+                fontType = 'woff2';
+              } else if (customFont.mimetype.includes('woff')) {
+                fontType = 'woff';
+              } else if (customFont.mimetype.includes('opentype')) {
+                fontType = 'otf';
+              } else if (customFont.mimetype.includes('truetype')) {
+                fontType = 'ttf';
+              }
+              // وإلا يبقى 'ttf' كافتراضي
+          }
         }
         
         this.logger.debug(`نوع الخط المكتشف: ${fontType}`);
@@ -498,7 +589,7 @@ export class CompanyService implements OnModuleInit {
         this.logger.error(`فشل رفع الخط المخصص: ${errorMessage}`);
         throw new InternalServerErrorException(`فشل رفع ملف الخط: ${errorMessage}`);
       }
-    } else if (dto.customFontUrl) {
+    } else if (dto.customFontUrl && dto.customFontUrl.trim() !== '') {
       customFontUrl = dto.customFontUrl;
       finalCustomFontName = dto.customFontName || 'CustomFont';
     }
@@ -616,7 +707,7 @@ export class CompanyService implements OnModuleInit {
             [id]
           );
         } catch (tableError: unknown) {
-          const errorMessage = this.getErrorMessage(tableError);
+          const errorMessage = tableError instanceof Error ? tableError.message : 'Unknown error';
           this.logger.warn(` لا يوجد جدول ${table}: ${errorMessage}`);
         }
       }
@@ -628,7 +719,7 @@ export class CompanyService implements OnModuleInit {
 
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      const errorMessage = this.getErrorMessage(error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(` فشل حذف الشركة: ${errorMessage}`);
       
       await this.forceDeleteWithCascade(id);
@@ -656,20 +747,16 @@ export class CompanyService implements OnModuleInit {
 
       } catch (innerError: unknown) {
         await queryRunner.rollbackTransaction();
-        const errorMessage = this.getErrorMessage(innerError);
+        const errorMessage = innerError instanceof Error ? innerError.message : 'Unknown error';
         throw new Error(errorMessage);
       } finally {
         await queryRunner.release();
       }
     } catch (error: unknown) {
-      const errorMessage = this.getErrorMessage(error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(` فشل جميع محاولات الحذف: ${errorMessage}`);
       throw new InternalServerErrorException('فشل حذف الشركة. يرجى التحقق من قاعدة البيانات يدوياً.');
     }
-  }
-
-  private getErrorMessage(error: unknown): string {
-    return error instanceof Error ? error.message : 'Unknown error';
   }
 
   async login(
@@ -694,7 +781,6 @@ export class CompanyService implements OnModuleInit {
     const isMatch = await company.comparePassword(dto.password);
     if (!isMatch) throw new UnauthorizedException('Invalid credentials');
 
-    // ✅ مزامنة حالة الاشتراك عند تسجيل الدخول
     await this.syncSubscriptionStatus(company.id);
 
     const accessToken = this.jwtService.signAccess({
@@ -822,7 +908,7 @@ export class CompanyService implements OnModuleInit {
     try {
       return await this.jwtService.verifyAsync<CompanyPayload>(token);
     } catch (err: unknown) {
-      const errorMessage = this.getErrorMessage(err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(` خطأ في التحقق من Refresh Token: ${errorMessage}`);
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
@@ -975,7 +1061,7 @@ export class CompanyService implements OnModuleInit {
       this.logger.log(` تم إرسال كود إعادة تعيين كلمة المرور إلى ${normalizedEmail}`);
       return 'تم إرسال كود إعادة تعيين كلمة المرور';
     } catch (err: unknown) {
-      const errorMessage = this.getErrorMessage(err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(` فشل إرسال البريد: ${errorMessage}`);
       throw new BadRequestException('فشل إرسال البريد الإلكتروني');
     }
@@ -1084,7 +1170,6 @@ export class CompanyService implements OnModuleInit {
           `;
           break;
         case 'eot':
-          // EOT يحتاج إلى معالجة خاصة للمتصفحات القديمة
           cssCode = `
             @font-face {
               font-family: '${company.customFontName}';
@@ -1108,7 +1193,6 @@ export class CompanyService implements OnModuleInit {
           `;
           break;
         default:
-          // افتراضي
           cssCode = `
             @font-face {
               font-family: '${company.customFontName}';

@@ -31,8 +31,7 @@ export interface SubscriptionResponse {
 
 export interface CancelSubscriptionResult {
   message: string;
-  deletedSubscriptions: number;
-  disconnectedPlans: string[];
+  cancelledSubscriptions: number;
   companyStatus: string;
   note: string;
 }
@@ -120,38 +119,44 @@ export class SubscriptionService {
     private readonly paymentService: PaymentService,
   ) {}
 
-  
-  private async deleteOldSubscriptions(companyId: string): Promise<{ deletedCount: number; plansDeleted: string[] }> {
+  // دالة مساعدة لإلغاء تفعيل الاشتراكات القديمة بدلاً من حذفها
+  private async deactivateOldSubscriptions(companyId: string): Promise<{ deactivatedCount: number }> {
     try {
-      const oldSubscriptions = await this.subscriptionRepo.find({
+      // البحث عن الاشتراكات النشطة القديمة
+      const oldActiveSubscriptions = await this.subscriptionRepo.find({
         where: { 
-          company: { id: companyId }
+          company: { id: companyId },
+          status: SubscriptionStatus.ACTIVE
         },
         relations: ['plan']
       });
 
-      if (oldSubscriptions.length > 0) {
-        const plansDeleted = [...new Set(oldSubscriptions
-          .map(sub => sub.plan?.name)
-          .filter((name): name is string => name !== undefined))];
+      if (oldActiveSubscriptions.length > 0) {
+        let deactivatedCount = 0;
         
-        await this.subscriptionRepo.delete({
-          company: { id: companyId }
-        });
+        // تحديث حالة الاشتراكات القديمة إلى غير نشطة
+        for (const sub of oldActiveSubscriptions) {
+          // فقط إذا كان الاشتراك لا يزال نشطاً
+          if (sub.status === SubscriptionStatus.ACTIVE) {
+            sub.status = SubscriptionStatus.EXPIRED;
+            await this.subscriptionRepo.save(sub);
+            deactivatedCount++;
+            this.logger.log(` تم إلغاء تفعيل الاشتراك ${sub.id} للشركة ${companyId}`);
+          }
+        }
         
-        this.logger.log(` تم حذف ${oldSubscriptions.length} اشتراك قديم للشركة ${companyId}`);
+        this.logger.log(` تم إلغاء تفعيل ${deactivatedCount} اشتراك قديم للشركة ${companyId}`);
         
         return {
-          deletedCount: oldSubscriptions.length,
-          plansDeleted
+          deactivatedCount
         };
       }
       
-      return { deletedCount: 0, plansDeleted: [] };
+      return { deactivatedCount: 0 };
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل حذف الاشتراكات القديمة للشركة ${companyId}: ${errorMessage}`);
-      return { deletedCount: 0, plansDeleted: [] };
+      this.logger.error(` فشل إلغاء تفعيل الاشتراكات القديمة للشركة ${companyId}: ${errorMessage}`);
+      return { deactivatedCount: 0 };
     }
   }
 
@@ -186,11 +191,13 @@ export class SubscriptionService {
       const planPrice = parseFloat(String(newPlan.price));
       if (isNaN(planPrice)) throw new BadRequestException('السعر غير صالح للخطة');
 
+      // التحقق من الخطة التجريبية
       if (newPlan.isTrial) {
         const previousTrial = await this.subscriptionRepo.findOne({
           where: {
             company: { id: companyId },
             plan: { isTrial: true },
+            status: SubscriptionStatus.ACTIVE
           },
           relations: ['plan'],
         });
@@ -199,39 +206,39 @@ export class SubscriptionService {
         }
       }
 
-      const startDate = new Date();
-      const endDate = new Date();
-      endDate.setDate(startDate.getDate() + newPlan.durationInDays);
+      // التحقق من وجود اشتراك نشط بالفعل لهذه الشركة
+      const existingActiveSubscription = await this.subscriptionRepo.findOne({
+        where: {
+          company: { id: companyId },
+          status: SubscriptionStatus.ACTIVE,
+          endDate: MoreThanOrEqual(new Date())
+        }
+      });
 
-      const { deletedCount } = await this.deleteOldSubscriptions(companyId);
-      if (deletedCount > 0) {
-        this.logger.log(` تم تنظيف ${deletedCount} اشتراك قديم قبل إنشاء الجديد`);
-      }
+      if (existingActiveSubscription) {
+        // إذا كان هناك اشتراك نشط، نقوم بتحديثه بدلاً من إنشاء جديد
+        this.logger.log(` يوجد اشتراك نشط بالفعل للشركة ${companyId}، سيتم تحديثه`);
+        
+        existingActiveSubscription.plan = newPlan;
+        existingActiveSubscription.startDate = new Date();
+        existingActiveSubscription.endDate = new Date();
+        existingActiveSubscription.endDate.setDate(existingActiveSubscription.startDate.getDate() + newPlan.durationInDays);
+        existingActiveSubscription.price = planPrice;
+        existingActiveSubscription.customMaxEmployees = newPlan.maxEmployees;
+        
+        if (activatedBySellerId) {
+          existingActiveSubscription.activatedBySellerId = activatedBySellerId;
+          this.logger.log(`تم تسجيل البائع ${activatedBySellerId} كمفعل للاشتراك`);
+        }
+        
+        if (activatedByAdminId) {
+          existingActiveSubscription.activatedByAdminId = activatedByAdminId;
+          this.logger.log(`تم تسجيل الأدمن ${activatedByAdminId} كمفعل للاشتراك`);
+        }
 
-      const subscriptionData: Partial<CompanySubscription> = {
-        company,
-        plan: newPlan,
-        startDate,
-        endDate,
-        price: planPrice,
-        status: SubscriptionStatus.ACTIVE,
-        customMaxEmployees: newPlan.maxEmployees,
-      };
+        const savedSubscription = await this.subscriptionRepo.save(existingActiveSubscription);
 
-      if (activatedBySellerId) {
-        subscriptionData.activatedBySellerId = activatedBySellerId;
-        this.logger.log(`تم تسجيل البائع ${activatedBySellerId} كمفعل للاشتراك`);
-      }
-      
-      if (activatedByAdminId) {
-        subscriptionData.activatedByAdminId = activatedByAdminId;
-        this.logger.log(`تم تسجيل الأدمن ${activatedByAdminId} كمفعل للاشتراك`);
-      }
-
-      if (planPrice === 0 || newPlan.isTrial || isAdminOverride) {
-        const subscription = this.subscriptionRepo.create(subscriptionData);
-        const savedSubscription = await this.subscriptionRepo.save(subscription);
-
+        // تحديث حالة الشركة
         await this.companyRepo
           .createQueryBuilder()
           .update(Company)
@@ -250,44 +257,111 @@ export class SubscriptionService {
 
         let message = '';
         if (planPrice === 0) {
-          message = 'تم الاشتراك في الخطة المجانية بنجاح';
+          message = 'تم تحديث الاشتراك إلى الخطة المجانية بنجاح';
         } else if (newPlan.isTrial) {
-          message = 'تم الاشتراك في الخطة التجريبية بنجاح';
+          message = 'تم تحديث الاشتراك إلى الخطة التجريبية بنجاح';
         } else if (isAdminOverride) {
-          message = 'تم تفعيل الاشتراك يدويًا بواسطة الأدمن';
+          message = 'تم تحديث الاشتراك يدويًا بواسطة الأدمن';
+        } else {
+          message = 'تم تحديث الاشتراك بنجاح';
         }
 
-        this.logger.log(` تم تفعيل الاشتراك بنجاح للشركة ${companyId} في الخطة ${newPlan.name}`);
+        this.logger.log(` تم تحديث الاشتراك بنجاح للشركة ${companyId} في الخطة ${newPlan.name}`);
 
         return {
           message: message,
           redirectToDashboard: true,
           subscription: savedSubscription,
         };
-      }
+      } else {
+        // لا يوجد اشتراك نشط، ننشئ اشتراكاً جديداً
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setDate(startDate.getDate() + newPlan.durationInDays);
 
-      if (planPrice > 0) {
-        const provider = newPlan.paymentProvider;
-        if (!provider) {
-          throw new BadRequestException('مزود الدفع مطلوب للخطط المدفوعة');
+        const subscriptionData: Partial<CompanySubscription> = {
+          company,
+          plan: newPlan,
+          startDate,
+          endDate,
+          price: planPrice,
+          status: SubscriptionStatus.ACTIVE,
+          customMaxEmployees: newPlan.maxEmployees,
+        };
+
+        if (activatedBySellerId) {
+          subscriptionData.activatedBySellerId = activatedBySellerId;
+          this.logger.log(`تم تسجيل البائع ${activatedBySellerId} كمفعل للاشتراك`);
+        }
+        
+        if (activatedByAdminId) {
+          subscriptionData.activatedByAdminId = activatedByAdminId;
+          this.logger.log(`تم تسجيل الأدمن ${activatedByAdminId} كمفعل للاشتراك`);
         }
 
-        const checkoutUrl = await this.paymentService.generateCheckoutUrl(
-          provider,
-          newPlan,
-          companyId,
-        );
+        // للخطط المجانية أو التجريبية أو تجاوز الأدمن
+        if (planPrice === 0 || newPlan.isTrial || isAdminOverride) {
+          const subscription = this.subscriptionRepo.create(subscriptionData);
+          const savedSubscription = await this.subscriptionRepo.save(subscription);
 
-        this.logger.log(`تم إنشاء رابط دفع للشركة ${companyId}: ${checkoutUrl}`);
+          await this.companyRepo
+            .createQueryBuilder()
+            .update(Company)
+            .set({
+              subscriptionStatus: 'active',
+              planId: newPlan.id,
+              paymentProvider: newPlan.paymentProvider?.toString() ?? '',
+              subscribedAt: () => 'CURRENT_TIMESTAMP'
+            })
+            .where('id = :id', { id: companyId })
+            .execute();
 
-        return {
-          message: 'يتطلب إتمام عملية الدفع',
-          redirectToPayment: true,
-          checkoutUrl,
-        };
+          if (isAdminOverride) {
+            await this.updateRelatedPaymentProof(companyId, planId);
+          }
+
+          let message = '';
+          if (planPrice === 0) {
+            message = 'تم الاشتراك في الخطة المجانية بنجاح';
+          } else if (newPlan.isTrial) {
+            message = 'تم الاشتراك في الخطة التجريبية بنجاح';
+          } else if (isAdminOverride) {
+            message = 'تم تفعيل الاشتراك يدويًا بواسطة الأدمن';
+          }
+
+          this.logger.log(` تم إنشاء اشتراك جديد للشركة ${companyId} في الخطة ${newPlan.name}`);
+
+          return {
+            message: message,
+            redirectToDashboard: true,
+            subscription: savedSubscription,
+          };
+        }
+
+        // للخطط المدفوعة
+        if (planPrice > 0) {
+          const provider = newPlan.paymentProvider;
+          if (!provider) {
+            throw new BadRequestException('مزود الدفع مطلوب للخطط المدفوعة');
+          }
+
+          const checkoutUrl = await this.paymentService.generateCheckoutUrl(
+            provider,
+            newPlan,
+            companyId,
+          );
+
+          this.logger.log(`تم إنشاء رابط دفع للشركة ${companyId}: ${checkoutUrl}`);
+
+          return {
+            message: 'يتطلب إتمام عملية الدفع',
+            redirectToPayment: true,
+            checkoutUrl,
+          };
+        }
+
+        throw new BadRequestException('لم يتم الاشتراك - حالة غير متوقعة');
       }
-
-      throw new BadRequestException('لم يتم الاشتراك - حالة غير متوقعة');
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'خطأ غير معروف';
@@ -322,28 +396,15 @@ export class SubscriptionService {
         );
       }
 
-      await this.deleteOldSubscriptions(companyId);
+      // تحديث الاشتراك الحالي بدلاً من حذفه وإنشاء جديد
+      currentSubscription.plan = newPlan;
+      currentSubscription.startDate = new Date();
+      currentSubscription.endDate = new Date();
+      currentSubscription.endDate.setDate(currentSubscription.startDate.getDate() + newPlan.durationInDays);
+      currentSubscription.price = newPlan.price;
+      currentSubscription.customMaxEmployees = Math.max(newPlan.maxEmployees, validation.currentPlanMax);
 
-      const currentEmployees = validation.currentEmployees;
-      const currentPlanMax = validation.currentPlanMax;
-      const newPlanMax = validation.newPlanMax;
-      
-      const startDate = new Date();
-      const endDate = new Date();
-      endDate.setDate(startDate.getDate() + newPlan.durationInDays);
-      
-      const subscriptionData: Partial<CompanySubscription> = {
-        company: currentSubscription.company,
-        plan: newPlan,
-        startDate,
-        endDate,
-        price: newPlan.price,
-        status: SubscriptionStatus.ACTIVE,
-        customMaxEmployees: Math.max(newPlanMax, currentPlanMax),
-      };
-
-      const newSubscription = this.subscriptionRepo.create(subscriptionData);
-      const savedSubscription = await this.subscriptionRepo.save(newSubscription);
+      const updatedSubscription = await this.subscriptionRepo.save(currentSubscription);
 
       await this.companyRepo
         .createQueryBuilder()
@@ -356,18 +417,18 @@ export class SubscriptionService {
 
       return { 
         message: 'تم تغيير الخطة بنجاح', 
-        subscription: savedSubscription,
+        subscription: updatedSubscription,
         details: {
           action: validation.action,
           oldPlan: currentSubscription.plan?.name || 'غير معروف',
           newPlan: newPlan.name,
-          currentEmployees: currentEmployees,
-          oldMaxAllowed: currentPlanMax,
-          newMaxAllowed: newPlanMax,
+          currentEmployees: validation.currentEmployees,
+          oldMaxAllowed: validation.currentPlanMax,
+          newMaxAllowed: newPlan.maxEmployees,
           daysRemaining: 0,
           newDuration: newPlan.durationInDays,
-          newEndDate: savedSubscription.endDate,
-          employeeLimitUpdated: newPlanMax > currentPlanMax
+          newEndDate: updatedSubscription.endDate,
+          employeeLimitUpdated: newPlan.maxEmployees > validation.currentPlanMax
         }
       };
 
@@ -635,7 +696,8 @@ export class SubscriptionService {
 
   async cancelSubscription(companyId: string): Promise<CancelSubscriptionResult> {
     try {
-      const { deletedCount, plansDeleted } = await this.deleteOldSubscriptions(companyId);
+      // إلغاء تفعيل جميع الاشتراكات النشطة بدلاً من حذفها
+      const { deactivatedCount } = await this.deactivateOldSubscriptions(companyId);
 
       await this.companyRepo
         .createQueryBuilder()
@@ -650,14 +712,13 @@ export class SubscriptionService {
         .execute();
 
       const result: CancelSubscriptionResult = { 
-        message: 'تم إلغاء وحذف جميع اشتراكات الشركة بنجاح', 
-        deletedSubscriptions: deletedCount,
-        disconnectedPlans: plansDeleted,
+        message: 'تم إلغاء جميع اشتراكات الشركة بنجاح', 
+        cancelledSubscriptions: deactivatedCount,
         companyStatus: 'inactive - غير قادرة على إضافة موظفين',
-        note: 'الشركة لن تتمكن من إضافة موظفين جدد حتى تشترك في خطة جديدة'
+        note: 'الشركة لن تتمكن من إضافة موظفين جدد حتى تشترك في خطة جديدة. يمكن استرجاع الاشتراكات السابقة من سجل الاشتراكات.'
       };
 
-      this.logger.log(` تم إلغاء اشتراك الشركة ${companyId} وحذف ${deletedCount} اشتراك`);
+      this.logger.log(` تم إلغاء اشتراك الشركة ${companyId} وإلغاء تفعيل ${deactivatedCount} اشتراك`);
       return result;
 
     } catch (error: unknown) {
@@ -686,24 +747,14 @@ export class SubscriptionService {
         );
       }
 
-      await this.deleteOldSubscriptions(companyId);
-
-      const newStartDate = new Date();
+      // تحديث تاريخ الانتهاء للاشتراك الحالي بدلاً من إنشاء جديد
       const newEndDate = new Date();
-      newEndDate.setDate(newStartDate.getDate() + activeSubscription.plan.durationInDays);
-
-      const newSubscriptionData: Partial<CompanySubscription> = {
-        company: activeSubscription.company,
-        plan: activeSubscription.plan,
-        startDate: newStartDate,
-        endDate: newEndDate,
-        price: activeSubscription.price,
-        status: SubscriptionStatus.ACTIVE,
-        customMaxEmployees: activeSubscription.customMaxEmployees,
-      };
-
-      const newSubscription = this.subscriptionRepo.create(newSubscriptionData);
-      const savedSubscription = await this.subscriptionRepo.save(newSubscription);
+      newEndDate.setDate(newEndDate.getDate() + activeSubscription.plan.durationInDays);
+      
+      activeSubscription.endDate = newEndDate;
+      activeSubscription.startDate = new Date(); // تحديث تاريخ البدء أيضاً
+      
+      const updatedSubscription = await this.subscriptionRepo.save(activeSubscription);
 
       await this.companyRepo
         .createQueryBuilder()
@@ -716,16 +767,16 @@ export class SubscriptionService {
         .where('id = :id', { id: companyId })
         .execute();
 
-      this.logger.log(` تم إنشاء اشتراك جديد للتمديد للشركة ${companyId}`);
+      this.logger.log(` تم تمديد اشتراك الشركة ${companyId} حتى ${newEndDate.toDateString()}`);
 
       const result: ExtendSubscriptionResult = { 
-        message: 'تم تجديد الاشتراك بنجاح', 
-        subscription: savedSubscription,
+        message: 'تم تمديد الاشتراك بنجاح', 
+        subscription: updatedSubscription,
         details: {
           currentEmployees: currentEmployeeCount,
           maxAllowed: maxAllowed,
           remainingSlots: maxAllowed - currentEmployeeCount,
-          newEndDate: savedSubscription.endDate,
+          newEndDate: updatedSubscription.endDate,
           planStatus: `الخطة الحالية (${maxAllowed} موظف) ${maxAllowed === currentEmployeeCount ? 'مساوية' : 'أعلى'} من عدد الموظفين الحاليين`,
           planName: activeSubscription.plan.name,
           durationAdded: `${activeSubscription.plan.durationInDays} يوم`
@@ -1056,13 +1107,15 @@ export class SubscriptionService {
           status: sub.status,
           startDate: sub.startDate,
           endDate: sub.endDate,
+          customMaxEmployees: sub.customMaxEmployees,
           isActive: sub.status === SubscriptionStatus.ACTIVE && new Date(sub.endDate) > new Date()
         })),
         activeSubscriptions: activeSubscriptions.map(sub => ({
           id: sub.id,
           plan: sub.plan?.name,
           startDate: sub.startDate,
-          endDate: sub.endDate
+          endDate: sub.endDate,
+          customMaxEmployees: sub.customMaxEmployees
         })),
         syncNeeded: activeSubscriptions.length > 0 && company.subscriptionStatus !== 'active'
       };

@@ -139,3 +139,4 @@ export class Company {
     return bcrypt.compare(plain, this.password);
   }
 }
+

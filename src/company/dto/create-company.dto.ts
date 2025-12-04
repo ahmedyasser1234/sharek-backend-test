@@ -48,9 +48,11 @@ export class CreateCompanyDto {
   @IsString()
   customFontName?: string;
 
-  @ApiPropertyOptional() 
+  @ApiPropertyOptional({ 
+    example: 'https://example.com/font.woff2',
+    description: 'رابط خارجي للخط (بدلاً من رفع ملف)' 
+  }) 
   @IsOptional()
   @IsString()
   customFontUrl?: string; 
-  
 }
