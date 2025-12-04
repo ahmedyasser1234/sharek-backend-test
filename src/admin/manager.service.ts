@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
   Injectable,
   UnauthorizedException,
@@ -291,7 +292,6 @@ export class SellerService {
     return result.filter(company => company !== null) as CompanyWithEmployeeCount[];
   }
 
-  // ... باقي الدوال كما هي بدون تغيير ...
   async getStats(sellerId?: string): Promise<{ 
     companies: number; 
     employees: number; 
@@ -537,51 +537,52 @@ export class SellerService {
   }
 
   private isCancelSubscriptionResult(obj: unknown): obj is CancelSubscriptionResult {
-    return (
-      typeof obj === 'object' &&
-      obj !== null &&
-      'message' in obj &&
-      'deletedSubscriptions' in obj &&
-      'disconnectedPlans' in obj &&
-      'companyStatus' in obj &&
-      'note' in obj &&
-      typeof (obj as CancelSubscriptionResult).message === 'string' &&
-      typeof (obj as CancelSubscriptionResult).deletedSubscriptions === 'number' &&
-      Array.isArray((obj as CancelSubscriptionResult).disconnectedPlans) &&
-      typeof (obj as CancelSubscriptionResult).companyStatus === 'string' &&
-      typeof (obj as CancelSubscriptionResult).note === 'string'
-    );
+    if (obj && typeof obj === 'object') {
+      const typedObj = obj as Record<string, unknown>;
+      
+      // الحقول الأساسية المطلوبة
+      const hasRequiredFields = 
+        typeof typedObj.message === 'string' &&
+        typeof typedObj.cancelledSubscriptions === 'number' && // ✅ اسم صحيح
+        typeof typedObj.companyStatus === 'string' &&
+        typeof typedObj.note === 'string';
+      
+      // الحقل الاختياري disconnectedPlans
+      const hasOptionalField = 
+        !('disconnectedPlans' in typedObj) || 
+        Array.isArray(typedObj.disconnectedPlans);
+      
+      return hasRequiredFields && hasOptionalField;
+    }
+    return false;
   }
 
   private isExtendSubscriptionResult(obj: unknown): obj is ExtendSubscriptionResult {
-    return (
-      typeof obj === 'object' &&
-      obj !== null &&
-      'message' in obj &&
-      'subscription' in obj &&
-      typeof (obj as ExtendSubscriptionResult).message === 'string' &&
-      typeof (obj as ExtendSubscriptionResult).subscription === 'object' &&
-      (obj as ExtendSubscriptionResult).subscription !== null
-    );
+    if (obj && typeof obj === 'object') {
+      const typedObj = obj as Record<string, unknown>;
+      return (
+        typeof typedObj.message === 'string' &&
+        'subscription' in typedObj &&
+        typedObj.subscription !== null &&
+        typeof typedObj.subscription === 'object'
+      );
+    }
+    return false;
   }
 
   private isPlanChangeValidation(obj: unknown): obj is PlanChangeValidation {
-    return (
-      typeof obj === 'object' &&
-      obj !== null &&
-      'canChange' in obj &&
-      'message' in obj &&
-      'currentPlanMax' in obj &&
-      'newPlanMax' in obj &&
-      'currentEmployees' in obj &&
-      'action' in obj &&
-      typeof (obj as PlanChangeValidation).canChange === 'boolean' &&
-      typeof (obj as PlanChangeValidation).message === 'string' &&
-      typeof (obj as PlanChangeValidation).currentPlanMax === 'number' &&
-      typeof (obj as PlanChangeValidation).newPlanMax === 'number' &&
-      typeof (obj as PlanChangeValidation).currentEmployees === 'number' &&
-      typeof (obj as PlanChangeValidation).action === 'string'
-    );
+    if (obj && typeof obj === 'object') {
+      const typedObj = obj as Record<string, unknown>;
+      return (
+        typeof typedObj.canChange === 'boolean' &&
+        typeof typedObj.message === 'string' &&
+        typeof typedObj.currentPlanMax === 'number' &&
+        typeof typedObj.newPlanMax === 'number' &&
+        typeof typedObj.currentEmployees === 'number' &&
+        typeof typedObj.action === 'string'
+      );
+    }
+    return false;
   }
 
   async changeSubscriptionPlanSeller(companyId: string, newPlanId: string): Promise<SubscriptionResult> {
