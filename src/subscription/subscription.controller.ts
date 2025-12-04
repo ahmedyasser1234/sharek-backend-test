@@ -9,7 +9,8 @@ import {
   HttpStatus,
   NotFoundException,
   UseInterceptors, 
-  UploadedFile
+  UploadedFile,
+  BadRequestException
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CompanyService } from '../company/company.service';
@@ -91,10 +92,15 @@ export class SubscriptionController {
     @Param('planId') planId: string,
   ): Promise<SubscriptionResponse> {
     try {
-      return await this.subscriptionService.subscribe(companyId, planId);
+      return await this.subscriptionService.subscribe(companyId, planId, false);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`فشل الاشتراك: ${msg}`);
+      
+      if (error instanceof BadRequestException) {
+        throw new HttpException(`فشل الاشتراك: ${msg}`, HttpStatus.BAD_REQUEST);
+      }
+      
       throw new HttpException(`فشل الاشتراك: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -186,6 +192,19 @@ export class SubscriptionController {
         throw new HttpException('الصورة مطلوبة لإثبات الدفع', HttpStatus.BAD_REQUEST);
       }
 
+      const currentSubscription = await this.subscriptionService.getCompanySubscription(companyId);
+      if (currentSubscription && currentSubscription.plan) {
+        if (plan.maxEmployees < currentSubscription.plan.maxEmployees || 
+            plan.price < currentSubscription.plan.price) {
+          throw new HttpException(
+            `لا يمكن الاشتراك في خطة ${plan.name} (${plan.maxEmployees} موظف - ${plan.price} ريال) ` +
+            `لأنك مشترك حالياً في خطة ${currentSubscription.plan.name} (${currentSubscription.plan.maxEmployees} موظف - ${currentSubscription.plan.price} ريال) - ` +
+            `غير مسموح بالنزول لخطة أقل`,
+            HttpStatus.BAD_REQUEST
+          );
+        }
+      }
+
       await this.paymentService.handleManualTransferProof({ companyId, planId }, file);
 
       return { message: 'تم إرسال وصل التحويل، سيتم مراجعته من قبل الإدارة' };
@@ -198,6 +217,11 @@ export class SubscriptionController {
       }
     
       this.logger.error(`فشل الاشتراك اليدوي: ${errorMessage}`);
+      
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      
       throw new HttpException(`فشل الاشتراك اليدوي: ${errorMessage}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }

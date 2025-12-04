@@ -219,7 +219,6 @@ export class AdminSubscriptionController {
   @ApiResponse({ status: 200, description: 'تم جلب الطلبات بنجاح' })
   async getManualTransferProofs() {
     try {
-      // إزالة شرط الحالة PENDING لجلب جميع الطلبات
       const proofs = await this.proofRepo.find({
         relations: ['company', 'plan'],
         order: { createdAt: 'DESC' },
@@ -465,4 +464,3 @@ export class AdminSubscriptionController {
     }
   }
 }
-

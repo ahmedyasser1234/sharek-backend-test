@@ -6,6 +6,7 @@ import {
   NotFoundException,
   InternalServerErrorException,
   Logger,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -155,7 +156,6 @@ export class SellerService {
 
     await this.tokenRepo.save({ manager: seller, refreshToken });
 
-    // جلب بيانات الشركات المرتبطة بالبائع
     const companies = await this.getSellerCompanies(seller.id);
 
     const sellerData: SellerWithCompanyData = {
@@ -216,7 +216,6 @@ export class SellerService {
       
       const accessToken = this.sellerJwt.signAccess(newPayload);
       
-      // جلب بيانات البائع والشركات
       const companies = await this.getSellerCompanies(token.manager.id);
       
       const sellerData: SellerWithCompanyData = {
@@ -471,10 +470,24 @@ export class SellerService {
     try {
       this.logger.log(`البائع ${sellerId} يشترك بالشركة ${companyId} في الخطة ${planId}`);
       
+      const currentSubscription = await this.subscriptionService.getCompanySubscription(companyId);
+      const newPlan = await this.planRepo.findOne({ where: { id: planId } });
+      
+      if (currentSubscription && currentSubscription.plan && newPlan) {
+        if (newPlan.maxEmployees < currentSubscription.plan.maxEmployees || 
+            newPlan.price < currentSubscription.plan.price) {
+          throw new BadRequestException(
+            `غير مسموح للبائع بتغيير الشركة من خطة ${currentSubscription.plan.name} ` +
+            `(${currentSubscription.plan.maxEmployees} موظف - ${currentSubscription.plan.price} ريال) إلى خطة ${newPlan.name} ` +
+            `(${newPlan.maxEmployees} موظف - ${newPlan.price} ريال) - غير مسموح بالنزول لخطة أقل`
+          );
+        }
+      }
+      
       const result = await this.subscriptionService.subscribe(
         companyId, 
         planId, 
-        true, 
+        false,  
         sellerId, 
         undefined
       );
@@ -540,14 +553,12 @@ export class SellerService {
     if (obj && typeof obj === 'object') {
       const typedObj = obj as Record<string, unknown>;
       
-      // الحقول الأساسية المطلوبة
       const hasRequiredFields = 
         typeof typedObj.message === 'string' &&
-        typeof typedObj.cancelledSubscriptions === 'number' && // ✅ اسم صحيح
+        typeof typedObj.cancelledSubscriptions === 'number' && 
         typeof typedObj.companyStatus === 'string' &&
         typeof typedObj.note === 'string';
       
-      // الحقل الاختياري disconnectedPlans
       const hasOptionalField = 
         !('disconnectedPlans' in typedObj) || 
         Array.isArray(typedObj.disconnectedPlans);
@@ -589,6 +600,20 @@ export class SellerService {
     try {
       this.logger.log(`البائع يغير خطة الشركة ${companyId} إلى ${newPlanId}`);
       
+      const currentSubscription = await this.subscriptionService.getCompanySubscription(companyId);
+      const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
+      
+      if (currentSubscription && currentSubscription.plan && newPlan) {
+        if (newPlan.maxEmployees < currentSubscription.plan.maxEmployees || 
+            newPlan.price < currentSubscription.plan.price) {
+          throw new BadRequestException(
+            `غير مسموح للبائع بتغيير الشركة من خطة ${currentSubscription.plan.name} ` +
+            `(${currentSubscription.plan.maxEmployees} موظف - ${currentSubscription.plan.price} ريال) إلى خطة ${newPlan.name} ` +
+            `(${newPlan.maxEmployees} موظف - ${newPlan.price} ريال) - غير مسموح بالنزول لخطة أقل`
+          );
+        }
+      }
+      
       const result = await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId) as SubscriptionResult;
       
       if (result && typeof result.message === 'string') {
@@ -608,10 +633,24 @@ export class SellerService {
     try {
       this.logger.log(`البائع ${sellerId} يفعل اشتراك الشركة ${companyId} في الخطة ${planId} يدويًا`);
       
+      const currentSubscription = await this.subscriptionService.getCompanySubscription(companyId);
+      const newPlan = await this.planRepo.findOne({ where: { id: planId } });
+      
+      if (currentSubscription && currentSubscription.plan && newPlan) {
+        if (newPlan.maxEmployees < currentSubscription.plan.maxEmployees || 
+            newPlan.price < currentSubscription.plan.price) {
+          throw new BadRequestException(
+            `غير مسموح للبائع بتغيير الشركة من خطة ${currentSubscription.plan.name} ` +
+            `(${currentSubscription.plan.maxEmployees} موظف - ${currentSubscription.plan.price} ريال) إلى خطة ${newPlan.name} ` +
+            `(${newPlan.maxEmployees} موظف - ${newPlan.price} ريال) - غير مسموح بالنزول لخطة أقل`
+          );
+        }
+      }
+      
       const result = await this.subscriptionService.subscribe(
         companyId, 
         planId, 
-        true, 
+        false,  
         sellerId, 
         undefined
       );
