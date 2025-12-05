@@ -26,7 +26,8 @@ export class Manager {
   @Column({ unique: true })
   email: string;
 
-  @Column({ name: 'normalized_email', unique: true })
+  // غير NOT NULL مؤقتًا
+  @Column({ name: 'normalized_email', unique: true, nullable: true })
   normalizedEmail: string;
 
   @Column()
