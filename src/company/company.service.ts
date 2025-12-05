@@ -28,6 +28,7 @@ import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 import axios from 'axios';
 import { RevokedToken } from './entities/revoked-token.entity';
 import { DataSource } from 'typeorm';
+import { CloudinaryService } from '../common/services/cloudinary.service';
 import sharp from 'sharp';
 import { CompanyResponseDto } from './dto/CompanyResponseDto';
 import { AuthProvider } from './dto/create-company.dto';
@@ -35,21 +36,10 @@ import { ActivityTrackerService } from './service/activity-tracker.service';
 import { CompanyActivity } from './entities/company-activity.entity';
 import { FileUploadService } from '../common/services/file-upload.service';
 import { CompanySubscription, SubscriptionStatus } from '../subscription/entities/company-subscription.entity';
-import * as path from 'path';
-import * as fs from 'fs';
-import { promises as fsPromises } from 'fs';
-
-// دالة لإنشاء المجلدات التلقائية
-const ensureDirectoryExists = (dirPath: string): void => {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
-};
 
 @Injectable()
 export class CompanyService implements OnModuleInit {
   private readonly logger = new Logger(CompanyService.name);
-  private readonly baseUploadsDir = path.join(process.cwd(), 'uploads');
 
   constructor(
     @InjectRepository(Company)
@@ -75,6 +65,7 @@ export class CompanyService implements OnModuleInit {
 
     public readonly jwtService: CompanyJwtService,
     private readonly dataSource: DataSource,
+    private readonly cloudinaryService: CloudinaryService,
     private readonly activityTracker: ActivityTrackerService,
     private readonly fileUploadService: FileUploadService, 
   ) {}
@@ -84,68 +75,6 @@ export class CompanyService implements OnModuleInit {
    */
   private normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
-  }
-
-  private async uploadImageToLocal(
-    file: Express.Multer.File,
-    companyId: string,
-    subFolder: string = 'logo'
-  ): Promise<string> {
-    try {
-      const companyDir = path.join(this.baseUploadsDir, companyId);
-      const targetDir = path.join(companyDir, subFolder);
-      
-      ensureDirectoryExists(targetDir);
-      
-      let processedBuffer: Buffer;
-      let fileExtension: string;
-      
-      if (file.mimetype === 'image/svg+xml') {
-        // SVG لا يحتاج إلى معالجة
-        processedBuffer = file.buffer;
-        fileExtension = '.svg';
-      } else {
-        // معالجة الصور الأخرى
-        processedBuffer = await sharp(file.buffer, { failOnError: false })
-          .resize({ width: 800 })
-          .webp({ quality: 70 })
-          .toBuffer();
-        fileExtension = '.webp';
-      }
-      
-      const uniqueFileName = `logo_${Date.now()}_${Math.random().toString(36).substring(2, 9)}${fileExtension}`;
-      const filePath = path.join(targetDir, uniqueFileName);
-      
-      await fsPromises.writeFile(filePath, processedBuffer);
-      
-      const fileUrl = `/uploads/${companyId}/${subFolder}/${uniqueFileName}`;
-      
-      this.logger.log(`تم رفع الشعار محلياً: ${fileUrl}`);
-      
-      return fileUrl;
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل رفع الشعار محلياً: ${errorMessage}`);
-      throw new Error(`فشل رفع الشعار: ${errorMessage}`);
-    }
-  }
-
-  private async deleteOldLogo(companyId: string, currentLogoUrl: string): Promise<void> {
-    try {
-      if (!currentLogoUrl) return;
-      
-      if (currentLogoUrl.startsWith('/uploads/')) {
-        const filePath = path.join(this.baseUploadsDir, currentLogoUrl.replace('/uploads/', ''));
-        
-        if (fs.existsSync(filePath)) {
-          await fsPromises.unlink(filePath);
-          this.logger.log(`تم حذف الشعار القديم: ${filePath}`);
-        }
-      }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.warn(`فشل حذف الشعار القديم: ${errorMessage}`);
-    }
   }
 
   async syncSubscriptionStatus(companyId: string): Promise<void> {
@@ -171,7 +100,7 @@ export class CompanyService implements OnModuleInit {
             planId: activeSubscription.plan.id, 
             subscribedAt: activeSubscription.startDate
           });
-          this.logger.log(`تم مزامنة حالة الاشتراك للشركة ${companyId} إلى active`);
+          this.logger.log(` تم مزامنة حالة الاشتراك للشركة ${companyId} إلى active`);
         }
       } else {
         if (company.subscriptionStatus === 'active') {
@@ -180,12 +109,12 @@ export class CompanyService implements OnModuleInit {
             planId: null,
             subscribedAt: null as any 
           });
-          this.logger.log(`تم مزامنة حالة الاشتراك للشركة ${companyId} إلى inactive`);
+          this.logger.log(` تم مزامنة حالة الاشتراك للشركة ${companyId} إلى inactive`);
         }
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل مزامنة حالة الاشتراك للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(` فشل مزامنة حالة الاشتراك للشركة ${companyId}: ${errorMessage}`);
     }
   }
 
@@ -201,7 +130,7 @@ export class CompanyService implements OnModuleInit {
       });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب الاشتراك النشط للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(` فشل جلب الاشتراك النشط للشركة ${companyId}: ${errorMessage}`);
       return null;
     }
   }
@@ -210,17 +139,17 @@ export class CompanyService implements OnModuleInit {
     try {
       await this.activityTracker.recordActivity(companyId, action);
     } catch (error) {
-      this.logger.error(`فشل تسجيل النشاط في CompanyService: ${error}`);
+      this.logger.error(` فشل تسجيل النشاط في CompanyService: ${error}`);
     }
   }
 
   async shouldLogoutDueToInactivity(companyId: string): Promise<boolean> {
     try {
       const result = await this.activityTracker.checkInactivity(companyId);
-      this.logger.debug(`نتيجة التحقق من النشاط للشركة ${companyId}: ${result}`);
+      this.logger.debug(` نتيجة التحقق من النشاط للشركة ${companyId}: ${result}`);
       return result;
     } catch (error) {
-      this.logger.error(`خطأ في التحقق من النشاط في CompanyService: ${error}`);
+      this.logger.error(` خطأ في التحقق من النشاط في CompanyService: ${error}`);
       return false; 
     }
   }
@@ -228,9 +157,9 @@ export class CompanyService implements OnModuleInit {
   async markUserAsOffline(companyId: string): Promise<void> {
     try {
       await this.activityTracker.markAsOffline(companyId);
-      this.logger.log(`تم تسجيل خروج الشركة ${companyId} بسبب عدم النشاط`);
+      this.logger.log(` تم تسجيل خروج الشركة ${companyId} بسبب عدم النشاط`);
     } catch (error) {
-      this.logger.error(`فشل تعيين حالة غير متصل في CompanyService: ${error}`);
+      this.logger.error(` فشل تعيين حالة غير متصل في CompanyService: ${error}`);
     }
   }
 
@@ -301,10 +230,26 @@ export class CompanyService implements OnModuleInit {
           throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
         }
 
-        logoUrl = await this.uploadImageToLocal(logo, tempId, 'logo');
+        if (logo.mimetype === 'image/svg+xml') {
+          const result = await this.cloudinaryService.uploadImage(logo, `companies/${tempId}/logo`);
+          logoUrl = result.secure_url;
+        } else {
+          const imageProcessor = sharp(logo.buffer);
+          const resized = imageProcessor.resize({ width: 800 });
+          const formatted = resized.webp({ quality: 70 });
+          const compressedBuffer = await formatted.toBuffer();
+
+          const compressedFile = {
+            ...logo,
+            buffer: compressedBuffer,
+          };
+
+          const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${tempId}/logo`);
+          logoUrl = result.secure_url;
+        }
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(`فشل رفع الشعار محلياً: ${errorMessage}`);
+        this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
         throw new InternalServerErrorException('فشل رفع صورة الشعار');
       }
     }
@@ -439,7 +384,7 @@ export class CompanyService implements OnModuleInit {
       throw new InternalServerErrorException('إعدادات البريد الإلكتروني غير مكتملة');
     }
 
-    this.logger.log(`إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
+    this.logger.log(` إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
 
     const transportOptions: SMTPTransport.Options = {
       host: emailHost,
@@ -477,11 +422,11 @@ export class CompanyService implements OnModuleInit {
 
     try {
       await transporter.sendMail(mailOptions);
-      this.logger.log(`تم إرسال كود التحقق إلى ${normalizedEmail}`);
+      this.logger.log(` تم إرسال كود التحقق إلى ${normalizedEmail}`);
       return `تم إرسال كود التحقق إلى ${normalizedEmail}`;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل إرسال البريد: ${errorMessage}`);
+      this.logger.error(` فشل إرسال البريد: ${errorMessage}`);
       throw new BadRequestException('فشل إرسال البريد الإلكتروني');
     }
   }
@@ -540,17 +485,28 @@ export class CompanyService implements OnModuleInit {
           throw new BadRequestException('الملف غير صالح أو لا يحتوي على buffer');
         }
 
-        logoUrl = await this.uploadImageToLocal(logo, id, 'logo');
-        
-        // حذف الشعار القديم
-        if (company.logoUrl) {
-          await this.deleteOldLogo(id, company.logoUrl);
+        if (logo.mimetype === 'image/svg+xml') {
+          const result = await this.cloudinaryService.uploadImage(logo, `companies/${id}/logo`);
+          logoUrl = result.secure_url;
+        } else {
+          const imageProcessor = sharp(logo.buffer);
+          const resized = imageProcessor.resize({ width: 800 });
+          const formatted = resized.webp({ quality: 70 });
+          const compressedBuffer = await formatted.toBuffer();
+
+          const compressedFile = {
+            ...logo,
+            buffer: compressedBuffer,
+          };
+
+          const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
+          logoUrl = result.secure_url;
         }
         
         this.logger.debug(`تم رفع الشعار الجديد: ${logoUrl}`);
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(`فشل رفع الشعار محلياً: ${errorMessage}`);
+        this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
         throw new InternalServerErrorException('فشل رفع صورة الشعار');
       }
     }
@@ -726,15 +682,6 @@ export class CompanyService implements OnModuleInit {
       throw new BadRequestException('الشركة غير موجودة');
     }
 
-    // حذف الملفات المحلية أولاً
-    if (company.logoUrl && company.logoUrl.startsWith('/uploads/')) {
-      try {
-        await this.deleteOldLogo(id, company.logoUrl);
-      } catch (error) {
-        this.logger.warn(`فشل حذف الشعار: ${error}`);
-      }
-    }
-
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -761,19 +708,19 @@ export class CompanyService implements OnModuleInit {
           );
         } catch (tableError: unknown) {
           const errorMessage = tableError instanceof Error ? tableError.message : 'Unknown error';
-          this.logger.warn(`لا يوجد جدول ${table}: ${errorMessage}`);
+          this.logger.warn(` لا يوجد جدول ${table}: ${errorMessage}`);
         }
       }
 
       await queryRunner.query(`DELETE FROM company WHERE id = $1`, [id]);
 
       await queryRunner.commitTransaction();
-      this.logger.log(`تم حذف الشركة ${id} وجميع بياناتها`);
+      this.logger.log(` تم حذف الشركة ${id} وجميع بياناتها`);
 
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل حذف الشركة: ${errorMessage}`);
+      this.logger.error(` فشل حذف الشركة: ${errorMessage}`);
       
       await this.forceDeleteWithCascade(id);
     } finally {
@@ -796,7 +743,7 @@ export class CompanyService implements OnModuleInit {
         await queryRunner.query(`DELETE FROM company WHERE id = $1`, [id]);
 
         await queryRunner.commitTransaction();
-        this.logger.log(`تم حذف الشركة ${id} بعد إزالة الـ constraint`);
+        this.logger.log(` تم حذف الشركة ${id} بعد إزالة الـ constraint`);
 
       } catch (innerError: unknown) {
         await queryRunner.rollbackTransaction();
@@ -807,7 +754,7 @@ export class CompanyService implements OnModuleInit {
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جميع محاولات الحذف: ${errorMessage}`);
+      this.logger.error(` فشل جميع محاولات الحذف: ${errorMessage}`);
       throw new InternalServerErrorException('فشل حذف الشركة. يرجى التحقق من قاعدة البيانات يدوياً.');
     }
   }
@@ -962,7 +909,7 @@ export class CompanyService implements OnModuleInit {
       return await this.jwtService.verifyAsync<CompanyPayload>(token);
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      this.logger.error(`خطأ في التحقق من Refresh Token: ${errorMessage}`);
+      this.logger.error(` خطأ في التحقق من Refresh Token: ${errorMessage}`);
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
   }
@@ -983,14 +930,14 @@ export class CompanyService implements OnModuleInit {
     });
 
     if (!existing) {
-      this.logger.warn(`التوكن غير موجود في عملية تسجيل الخروج`);
+      this.logger.warn(` التوكن غير موجود في عملية تسجيل الخروج`);
       throw new NotFoundException('Refresh token غير صالح');
     }
 
     const companyId = existing.company?.id;
 
     if (!companyId || typeof companyId !== 'string') {
-      this.logger.error(`companyId غير موجود أو غير صالح في عملية تسجيل الخروج`);
+      this.logger.error(` companyId غير موجود أو غير صالح في عملية تسجيل الخروج`);
       throw new InternalServerErrorException('فشل استخراج معرف الشركة');
     }
 
@@ -1008,7 +955,7 @@ export class CompanyService implements OnModuleInit {
         await this.revokedTokenRepo.save(revoked);
         this.logger.debug(`تم إلغاء توكن الوصول للشركة ${companyId}`);
       } catch {
-        this.logger.warn(`التوكن غير صالح للتسجيل كـ ملغي`);
+        this.logger.warn(` التوكن غير صالح للتسجيل كـ ملغي`);
       }
     }
     
@@ -1019,7 +966,7 @@ export class CompanyService implements OnModuleInit {
       success: true,
     });
 
-    this.logger.log(`تم تسجيل خروج الشركة ${companyId} بنجاح`);
+    this.logger.log(` تم تسجيل خروج الشركة ${companyId} بنجاح`);
     
     return { success: true };
   }
@@ -1079,7 +1026,7 @@ export class CompanyService implements OnModuleInit {
       throw new InternalServerErrorException('إعدادات البريد الإلكتروني غير مكتملة');
     }
 
-    this.logger.log(`إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
+    this.logger.log(` إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
 
     const transporter = nodemailer.createTransport({
       host: emailHost,
@@ -1111,11 +1058,11 @@ export class CompanyService implements OnModuleInit {
 
     try {
       await transporter.sendMail(mailOptions);
-      this.logger.log(`تم إرسال كود إعادة تعيين كلمة المرور إلى ${normalizedEmail}`);
+      this.logger.log(` تم إرسال كود إعادة تعيين كلمة المرور إلى ${normalizedEmail}`);
       return 'تم إرسال كود إعادة تعيين كلمة المرور';
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      this.logger.error(`فشل إرسال البريد: ${errorMessage}`);
+      this.logger.error(` فشل إرسال البريد: ${errorMessage}`);
       throw new BadRequestException('فشل إرسال البريد الإلكتروني');
     }
   }
@@ -1163,7 +1110,7 @@ export class CompanyService implements OnModuleInit {
 
   private generateFontCss(company: Company): string {
     if (company.customFontUrl && company.customFontName) {
-      const fontUrl = company.customFontUrl;
+      const fontUrl = `http://localhost:3000${company.customFontUrl}`;
       const extension = company.customFontUrl.split('.').pop()?.toLowerCase() || 'ttf';
       
       let format: string;
@@ -1270,7 +1217,7 @@ export class CompanyService implements OnModuleInit {
       try {
         await this.fileUploadService.deleteFont(company.customFontUrl);
       } catch (error) {
-        this.logger.error(`فشل حذف الخط من التخزين: ${error}`);
+        this.logger.error(` فشل حذف الخط من التخزين: ${error}`);
       }
     }
 

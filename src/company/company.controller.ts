@@ -207,7 +207,7 @@ export class CompanyController {
         data: {
           type: 'object',
           properties: {
-            logoUrl: { type: 'string', example: '/uploads/{companyId}/logo/logo_123456.webp' },
+            logoUrl: { type: 'string', example: 'https://example.com/logo.jpg' },
             companyId: { type: 'string', example: '12345' },
             companyName: { type: 'string', example: 'اسم الشركة' }
           }
@@ -229,7 +229,7 @@ export class CompanyController {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب الشعار للشركة ${id}: ${msg}`);
+      this.logger.error(` فشل جلب الشعار للشركة ${id}: ${msg}`);
       if (error instanceof NotFoundException) {
         throw error;
       }
@@ -567,7 +567,7 @@ export class CompanyController {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل تحميل بيانات الشركة: ${msg}`);
+      this.logger.error(` فشل تحميل بيانات الشركة: ${msg}`);
       throw new InternalServerErrorException('فشل تحميل بيانات الشركة');
     }
   }
@@ -835,6 +835,7 @@ export class CompanyController {
     }
   }))
   @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'تحديث الخط المخصص فقط' })
   @ApiBody({
     description: 'بيانات الخط المخصص',
     schema: {
@@ -1082,5 +1083,3 @@ export class CompanyController {
     };
   }
 }
-
- 

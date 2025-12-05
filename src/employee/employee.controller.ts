@@ -126,11 +126,11 @@ export class EmployeeController {
       this.logger.error(`فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
     
       if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
+      throw error;
     }
+    throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
   }
+}
 
   @Public()
   @Get('card/:uniqueUrl')
@@ -193,6 +193,7 @@ export class EmployeeController {
     }
   }
 
+
   @Public()
   @Get(':id/google-wallet/redirect')
   @ApiOperation({ summary: 'صفحة إضافة بطاقة Google Wallet' })
@@ -245,14 +246,14 @@ export class EmployeeController {
     }
   }
 
-  @Public()
-  @Get(':id/wallet-options')
-  @ApiOperation({ summary: 'خيارات إضافة البطاقة إلى المحافظ الرقمية' })
-  async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
-    try {
-      const employee = await this.employeeService.getEmployeeForWallet(id);
-      
-      const html = `
+ @Public()
+@Get(':id/wallet-options')
+@ApiOperation({ summary: 'خيارات إضافة البطاقة إلى المحافظ الرقمية' })
+async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
+  try {
+    const employee = await this.employeeService.getEmployeeForWallet(id);
+    
+    const html = `
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
@@ -339,220 +340,16 @@ export class EmployeeController {
     </div>
 </body>
 </html>
-      `;
-      
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.send(html);
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل تحميل صفحة الخيارات: ${msg}`);
-      throw new InternalServerErrorException('حدث خطأ أثناء تحميل الصفحة');
-    }
-  }
-
-  // ✅ ✅ ✅ إضافة endpoint جديد لاختبار الصور
-  @Public()
-  @Get('test-images/:employeeId')
-  @ApiOperation({ summary: 'اختبار عرض الصور للموظف' })
-  async testEmployeeImages(@Param('employeeId', ParseIntPipe) employeeId: number, @Res() res: Response) {
-    try {
-      const result = await this.employeeService.findOne(employeeId);
-      
-      if (!result.data) {
-        throw new NotFoundException('Employee not found');
-      }
-      
-      const employee = result.data;
-      const baseUrl = process.env.API_BASE_URL || 'http://89.116.39.168:3000';
-      
-      // دالة مساعدة لإنشاء بطاقة صورة - تم تعديلها لتقبل string | null | undefined
-      const generateImageCard = (title: string, imageUrl: string | null | undefined, label?: string) => {
-        if (!imageUrl) return '';
-        
-        const fullUrl = imageUrl.startsWith('http') ? imageUrl : `${baseUrl}${imageUrl.startsWith('/') ? imageUrl : '/' + imageUrl}`;
-        
-        return `
-          <div class="image-card">
-              <div class="image-title">${label || title}</div>
-              <div class="image-url">${fullUrl}</div>
-              <img src="${fullUrl}" alt="${title}" onerror="this.src='https://via.placeholder.com/250x200?text=Image+Not+Found'">
-              <div class="status">جارِ التحميل...</div>
-          </div>
-        `;
-      };
-      
-      const html = `
-<!DOCTYPE html>
-<html dir="rtl" lang="ar">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>اختبار الصور - ${employee.name}</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #f5f5f5;
-            margin: 0;
-            padding: 20px;
-        }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        h1 {
-            color: #333;
-            text-align: center;
-            margin-bottom: 30px;
-        }
-        .employee-info {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 30px;
-        }
-        .image-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 20px;
-            margin-top: 20px;
-        }
-        .image-card {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 15px;
-            text-align: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .image-card img {
-            max-width: 100%;
-            height: 200px;
-            object-fit: cover;
-            border-radius: 5px;
-            margin-bottom: 10px;
-        }
-        .image-title {
-            font-weight: bold;
-            color: #333;
-            margin-bottom: 5px;
-        }
-        .image-url {
-            font-size: 12px;
-            color: #666;
-            word-break: break-all;
-            margin-bottom: 10px;
-        }
-        .status {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        .status-success {
-            background: #d4edda;
-            color: #155724;
-        }
-        .status-error {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        .test-link {
-            display: block;
-            text-align: center;
-            margin-top: 20px;
-            padding: 10px;
-            background: #007bff;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>📸 اختبار الصور للموظف: ${employee.name}</h1>
-        
-        <div class="employee-info">
-            <h3>معلومات الموظف:</h3>
-            <p><strong>الاسم:</strong> ${employee.name}</p>
-            <p><strong>المسمى الوظيفي:</strong> ${employee.jobTitle || 'غير محدد'}</p>
-            <p><strong>رقم الموظف:</strong> ${employee.id}</p>
-            <p><strong>Base URL:</strong> ${baseUrl}</p>
-        </div>
-        
-        <h3>الصور الرئيسية:</h3>
-        <div class="image-grid">
-            ${generateImageCard('صورة الملف الشخصي', employee.profileImageUrl)}
-            ${generateImageCard('صورة التحميل', employee.secondaryImageUrl)}
-            ${generateImageCard('الشعار', employee.logoUrl)}
-            ${generateImageCard('صورة صفحة الاتصال', employee.contactFormHeaderImageUrl)}
-            ${generateImageCard('صورة الشهادات', employee.testimonialImageUrl)}
-            ${generateImageCard('صورة PDF', employee.pdfThumbnailUrl)}
-            ${generateImageCard('صورة الرابط', employee.workLinkImageUrl)}
-            ${generateImageCard('صورة الخلفية',   (employee as { backgroundImage?: string | null }).backgroundImage)}        
-            </div>
-        
-        ${employee.images && employee.images.length > 0 ? `
-        <h3>الصور الإضافية (${employee.images.length} صورة):</h3>
-        <div class="image-grid">
-            ${employee.images.map((img, index) => 
-                generateImageCard(`صورة إضافية ${index + 1}`, img.imageUrl, img.label)
-            ).join('')}
-        </div>
-        ` : ''}
-        
-        <a href="${baseUrl}/employee/by-url?url=${employee.cards?.[0]?.uniqueUrl || ''}&source=link" 
-           class="test-link" target="_blank">
-            اختبار صفحة الموظف الكاملة
-        </a>
-    </div>
+    `;
     
-    <script>
-        // التحقق من الصور
-        document.addEventListener('DOMContentLoaded', function() {
-            document.querySelectorAll('.image-card img').forEach(img => {
-                img.onerror = function() {
-                    const card = this.closest('.image-card');
-                    const status = card.querySelector('.status');
-                    status.textContent = ' غير متاحة';
-                    status.className = 'status status-error';
-                };
-                
-                img.onload = function() {
-                    const card = this.closest('.image-card');
-                    const status = card.querySelector('.status');
-                    status.textContent = ' متاحة';
-                    status.className = 'status status-success';
-                };
-            });
-        });
-    </script>
-</body>
-</html>
-      `;
-      
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.send(html);
-      
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : 'Unknown error';
-      const errorHtml = `
-        <html>
-          <body style="font-family: Arial; padding: 20px;">
-            <h1> خطأ في اختبار الصور</h1>
-            <p>${msg}</p>
-          </body>
-        </html>
-      `;
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.send(errorHtml);
-    }
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    this.logger.error(`فشل تحميل صفحة الخيارات: ${msg}`);
+    throw new InternalServerErrorException('حدث خطأ أثناء تحميل الصفحة');
   }
+}
 
   @UseGuards(CompanyJwtGuard, SubscriptionGuard)
   @Post()
