@@ -27,12 +27,11 @@ import {
   DatabaseDownloadResponse, 
   CompanyWithActivator,
   SubscriptionResult,
-  AdminBankInfo,
-  AdminFullBankInfo,
+  BankAccountResponse,
 } from './admin.service';
 import { Employee } from '../employee/entities/employee.entity';
 import { CompanySubscription } from '../subscription/entities/company-subscription.entity';
-import { AdminBankDto } from './dto/admin-bank.dto';
+import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/admin-bank.dto';
 
 interface ExtendedAdminRequest extends Request {
   user?: { adminId: string; role: string };
@@ -179,7 +178,7 @@ export class AdminController {
   @ApiOperation({ summary: 'إنشاء أدمن جديد' })
   @ApiResponse({ status: 201, description: 'تم إنشاء الأدمن بنجاح' })
   @ApiResponse({ status: 400, description: 'البريد الإلكتروني مستخدم بالفعل' })
-  createAdmin(@Body() dto: { email: string; password: string; bankInfo?: AdminBankDto }): Promise<Admin> {
+  createAdmin(@Body() dto: { email: string; password: string }): Promise<Admin> {
     return this.service.createAdmin(dto);
   }
 
@@ -193,67 +192,71 @@ export class AdminController {
     return this.service.updateAdmin(id, dto);
   }
 
-  // === دوال معلومات البنك ===
-  @Put('bank-info')
+  // === دوال إدارة الحسابات البنكية المستقلة ===
+  @Post('bank-accounts')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'تحديث معلومات البنك للأدمن الحالي' })
-  @ApiResponse({ status: 200, description: 'تم تحديث معلومات البنك بنجاح' })
-  @ApiResponse({ status: 404, description: 'الأدمن غير موجود' })
-  async updateBankInfo(
-    @Req() req: ExtendedAdminRequest,
-    @Body() dto: AdminBankDto
-  ): Promise<Admin> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-
-    return this.service.updateBankInfo(adminId, dto);
+  @ApiOperation({ summary: 'إنشاء حساب بنكي جديد' })
+  @ApiResponse({ status: 201, description: 'تم إنشاء الحساب البنكي بنجاح' })
+  @ApiResponse({ status: 400, description: 'رقم الحساب أو الآيبان موجود بالفعل' })
+  async createBankAccount(
+    @Body() dto: CreateBankAccountDto
+  ): Promise<BankAccountResponse> {
+    return this.service.createBankAccount(dto);
   }
 
-  @Post('bank-account')
+  @Get('bank-accounts')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'إضافة حساب بنكي جديد للأدمن الحالي' })
-  @ApiResponse({ status: 201, description: 'تم إضافة الحساب البنكي بنجاح' })
-  @ApiResponse({ status: 400, description: 'معلومات الحساب البنكي غير مكتملة' })
-  @ApiResponse({ status: 404, description: 'الأدمن غير موجود' })
-  async addBankAccount(
-    @Req() req: ExtendedAdminRequest,
-    @Body() dto: AdminBankDto
-  ): Promise<Admin> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-
-    return this.service.addBankAccount(adminId, dto);
+  @ApiOperation({ summary: 'عرض جميع الحسابات البنكية (محمي)' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على الحسابات بنجاح' })
+  async getAllBankAccounts(): Promise<BankAccountResponse[]> {
+    return this.service.getAllBankAccounts();
   }
 
-  @Get('bank-info')
+  @Get('bank-accounts/public')
+  @ApiOperation({ summary: 'عرض جميع الحسابات البنكية (عام)' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على الحسابات بنجاح' })
+  async getPublicBankAccounts(): Promise<BankAccountResponse[]> {
+    return this.service.getPublicBankAccounts();
+  }
+
+  @Get('bank-accounts/:id')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'الحصول على معلومات البنك للأدمن الحالي' })
-  @ApiResponse({ status: 200, description: 'تم الحصول على معلومات البنك بنجاح' })
-  @ApiResponse({ status: 404, description: 'الأدمن غير موجود' })
-  async getAdminBankInfo(@Req() req: ExtendedAdminRequest): Promise<AdminBankInfo> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-
-    return this.service.getAdminBankInfo(adminId);
+  @ApiOperation({ summary: 'عرض تفاصيل حساب بنكي معين' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على تفاصيل الحساب بنجاح' })
+  @ApiResponse({ status: 404, description: 'الحساب البنكي غير موجود' })
+  async getBankAccountById(
+    @Param('id') id: string
+  ): Promise<BankAccountResponse> {
+    return this.service.getBankAccountById(id);
   }
 
-  @Get('bank-info/all')
+  @Put('bank-accounts/:id')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'الحصول على معلومات البنك لجميع الأدمنز (محمي)' })
-  @ApiResponse({ status: 200, description: 'تم الحصول على المعلومات بنجاح' })
-  async getAllAdminsBankInfo(): Promise<AdminFullBankInfo[]> {
-    return this.service.getAllAdminsBankInfo();
+  @ApiOperation({ summary: 'تحديث بيانات حساب بنكي' })
+  @ApiResponse({ status: 200, description: 'تم تحديث الحساب البنكي بنجاح' })
+  @ApiResponse({ status: 400, description: 'رقم الحساب أو الآيبان موجود بالفعل لحساب آخر' })
+  @ApiResponse({ status: 404, description: 'الحساب البنكي غير موجود' })
+  async updateBankAccount(
+    @Param('id') id: string,
+    @Body() dto: UpdateBankAccountDto
+  ): Promise<BankAccountResponse> {
+    return this.service.updateBankAccount(id, dto);
   }
 
-  @Get('bank-info/public')
-  @ApiOperation({ summary: 'الحصول على معلومات البنك للأدمنز (عام)' })
-  @ApiResponse({ status: 200, description: 'تم الحصول على المعلومات بنجاح' })
-  async getBankInfoPublic(): Promise<AdminFullBankInfo[]> {
-    return this.service.getBankInfoPublic();
+  @Delete('bank-accounts/:id')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'حذف حساب بنكي' })
+  @ApiResponse({ status: 200, description: 'تم حذف الحساب البنكي بنجاح' })
+  @ApiResponse({ status: 404, description: 'الحساب البنكي غير موجود' })
+  async deleteBankAccount(
+    @Param('id') id: string
+  ): Promise<{ message: string }> {
+    return this.service.deleteBankAccount(id);
   }
 
   // === الإحصائيات والبيانات ===

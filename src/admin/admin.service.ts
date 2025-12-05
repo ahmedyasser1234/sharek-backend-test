@@ -22,7 +22,8 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { CompanyActivity } from '../company/entities/company-activity.entity';
 import { CompanyToken } from '../company/auth/entities/company-token.entity';
 import { CompanyLoginLog } from '../company/auth/entities/company-login-log.entity';
-import { AdminBankDto } from './dto/admin-bank.dto';
+import { BankAccount } from './entities/bank-account.entity';
+import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/admin-bank.dto';
 
 export interface CompanyWithActivator {
   id: string;
@@ -79,7 +80,7 @@ export interface DatabaseDownloadResponse {
     employees: Employee[];
     subscriptions: CompanySubscription[];
     plans: Plan[];
-    admins: Array<Pick<Admin, 'id' | 'email' | 'isActive' | 'createdAt' | 'bankName' | 'accountNumber' | 'ibanNumber'>>;
+    admins: Array<Pick<Admin, 'id' | 'email' | 'isActive' | 'createdAt'>>;
     managers: Array<{
       id: string;
       email: string;
@@ -88,6 +89,7 @@ export interface DatabaseDownloadResponse {
       createdAt: Date;
       createdBy: { id: string; email: string } | null;
     }>;
+    bankAccounts: BankAccount[];
   };
   timestamp: string;
 }
@@ -98,12 +100,11 @@ export interface AdminBankInfo {
   ibanNumber?: string;
 }
 
-export interface AdminFullBankInfo {
-  adminId: string;
-  email: string;
-  bankName?: string;
-  accountNumber?: string;
-  ibanNumber?: string;
+export interface BankAccountResponse {
+  id: string;
+  bankName: string;
+  accountNumber: string;
+  ibanNumber: string;
 }
 
 @Injectable()
@@ -120,6 +121,7 @@ export class AdminService {
     @InjectRepository(CompanyActivity) private readonly companyActivityRepo: Repository<CompanyActivity>,
     @InjectRepository(CompanyToken) private readonly companyTokenRepo: Repository<CompanyToken>,
     @InjectRepository(CompanyLoginLog) private readonly companyLoginLogRepo: Repository<CompanyLoginLog>,
+    @InjectRepository(BankAccount) private readonly bankAccountRepo: Repository<BankAccount>,
     private readonly adminJwt: AdminJwtService,
     private readonly subscriptionService: SubscriptionService,
     private readonly dataSource: DataSource,
@@ -186,7 +188,6 @@ async login(email: string, password: string): Promise<{
 
     const accessToken = this.adminJwt.signAccess(payload);
     
-    // جلب بيانات الأدمن والشركات
     const companies = await this.getAdminCompanies(token.admin.id);
     
     const adminData: AdminWithCompanyData = {
@@ -278,7 +279,7 @@ async login(email: string, password: string): Promise<{
     }
   }
 
-  async createAdmin(dto: { email: string; password: string; bankInfo?: AdminBankDto }): Promise<Admin> {
+  async createAdmin(dto: { email: string; password: string }): Promise<Admin> {
     const exists = await this.adminRepo.findOne({ where: { email: dto.email } });
     if (exists) throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
 
@@ -286,9 +287,6 @@ async login(email: string, password: string): Promise<{
     const admin = this.adminRepo.create({
       email: dto.email,
       password: hashedPassword,
-      bankName: dto.bankInfo?.bankName,
-      accountNumber: dto.bankInfo?.accountNumber,
-      ibanNumber: dto.bankInfo?.ibanNumber,
     });
 
     return this.adminRepo.save(admin);
@@ -416,88 +414,109 @@ async login(email: string, password: string): Promise<{
     return this.adminRepo.save(admin);
   }
 
-  // === دوال معلومات البنك الجديدة ===
-  async updateBankInfo(adminId: string, dto: AdminBankDto): Promise<Admin> {
-    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
-    if (!admin) throw new NotFoundException('الأدمن غير موجود');
-
-    if (dto.bankName !== undefined) admin.bankName = dto.bankName;
-    if (dto.accountNumber !== undefined) admin.accountNumber = dto.accountNumber;
-    if (dto.ibanNumber !== undefined) admin.ibanNumber = dto.ibanNumber;
-
-    return this.adminRepo.save(admin);
-  }
-
-  async addBankAccount(adminId: string, dto: AdminBankDto): Promise<Admin> {
-    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
-    if (!admin) throw new NotFoundException('الأدمن غير موجود');
-
-    // التحقق من أن المعلومات مكتملة
-    if (!dto.bankName || !dto.accountNumber || !dto.ibanNumber) {
-      throw new BadRequestException('جميع معلومات الحساب البنكي مطلوبة (اسم البنك، رقم الحساب، رقم الآيبان)');
-    }
-
-    // التحقق من أن رقم الآيبان صحيح التنسيق (اختياري)
-    if (dto.ibanNumber && dto.ibanNumber.length < 15) {
-      throw new BadRequestException('رقم الآيبان يجب أن يكون صحيح التنسيق');
-    }
-
-    // تحديث المعلومات البنكية
-    admin.bankName = dto.bankName;
-    admin.accountNumber = dto.accountNumber;
-    admin.ibanNumber = dto.ibanNumber;
-
-    return this.adminRepo.save(admin);
-  }
-
-  async getAdminBankInfo(adminId: string): Promise<AdminBankInfo> {
-    const admin = await this.adminRepo.findOne({
-      where: { id: adminId },
-      select: ['bankName', 'accountNumber', 'ibanNumber']
+  // === دوال إدارة الحسابات البنكية المستقلة ===
+  async createBankAccount(dto: CreateBankAccountDto): Promise<BankAccountResponse> {
+    // التحقق من عدم تكرار رقم الحساب
+    const existingAccount = await this.bankAccountRepo.findOne({ 
+      where: { accountNumber: dto.accountNumber } 
     });
-
-    if (!admin) {
-      throw new NotFoundException('الأدمن غير موجود');
+    
+    if (existingAccount) {
+      throw new BadRequestException('رقم الحساب البنكي موجود بالفعل');
     }
 
+    // التحقق من عدم تكرار رقم الآيبان
+    const existingIban = await this.bankAccountRepo.findOne({ 
+      where: { ibanNumber: dto.ibanNumber } 
+    });
+    
+    if (existingIban) {
+      throw new BadRequestException('رقم الآيبان موجود بالفعل');
+    }
+
+    const bankAccount = this.bankAccountRepo.create(dto);
+    const savedAccount = await this.bankAccountRepo.save(bankAccount);
+    
+    return this.mapBankAccountToResponse(savedAccount);
+  }
+
+  async getAllBankAccounts(): Promise<BankAccountResponse[]> {
+    const accounts = await this.bankAccountRepo.find();
+    
+    return accounts.map(account => this.mapBankAccountToResponse(account));
+  }
+
+  async getBankAccountById(id: string): Promise<BankAccountResponse> {
+    const account = await this.bankAccountRepo.findOne({ where: { id } });
+    
+    if (!account) {
+      throw new NotFoundException('الحساب البنكي غير موجود');
+    }
+    
+    return this.mapBankAccountToResponse(account);
+  }
+
+  async updateBankAccount(id: string, dto: UpdateBankAccountDto): Promise<BankAccountResponse> {
+    const account = await this.bankAccountRepo.findOne({ where: { id } });
+    
+    if (!account) {
+      throw new NotFoundException('الحساب البنكي غير موجود');
+    }
+
+    // إذا كان هناك تحديث لرقم الحساب، التحقق من عدم التكرار
+    if (dto.accountNumber && dto.accountNumber !== account.accountNumber) {
+      const existingAccount = await this.bankAccountRepo.findOne({ 
+        where: { accountNumber: dto.accountNumber } 
+      });
+      
+      if (existingAccount && existingAccount.id !== id) {
+        throw new BadRequestException('رقم الحساب البنكي موجود بالفعل لحساب آخر');
+      }
+    }
+
+    // إذا كان هناك تحديث لرقم الآيبان، التحقق من عدم التكرار
+    if (dto.ibanNumber && dto.ibanNumber !== account.ibanNumber) {
+      const existingIban = await this.bankAccountRepo.findOne({ 
+        where: { ibanNumber: dto.ibanNumber } 
+      });
+      
+      if (existingIban && existingIban.id !== id) {
+        throw new BadRequestException('رقم الآيبان موجود بالفعل لحساب آخر');
+      }
+    }
+
+    Object.assign(account, dto);
+    const updatedAccount = await this.bankAccountRepo.save(account);
+    
+    return this.mapBankAccountToResponse(updatedAccount);
+  }
+
+  async deleteBankAccount(id: string): Promise<{ message: string }> {
+    const account = await this.bankAccountRepo.findOne({ where: { id } });
+    
+    if (!account) {
+      throw new NotFoundException('الحساب البنكي غير موجود');
+    }
+
+    await this.bankAccountRepo.delete(id);
+    
+    return { message: 'تم حذف الحساب البنكي بنجاح' };
+  }
+
+  async getPublicBankAccounts(): Promise<BankAccountResponse[]> {
+    const accounts = await this.bankAccountRepo.find();
+    
+    return accounts.map(account => this.mapBankAccountToResponse(account));
+  }
+
+  private mapBankAccountToResponse(account: BankAccount): BankAccountResponse {
     return {
-      bankName: admin.bankName,
-      accountNumber: admin.accountNumber,
-      ibanNumber: admin.ibanNumber
+      id: account.id,
+      bankName: account.bankName,
+      accountNumber: account.accountNumber,
+      ibanNumber: account.ibanNumber,
     };
   }
-
-  async getAllAdminsBankInfo(): Promise<AdminFullBankInfo[]> {
-    const admins = await this.adminRepo.find({
-      select: ['id', 'email', 'bankName', 'accountNumber', 'ibanNumber']
-    });
-
-    return admins.map(admin => ({
-      adminId: admin.id,
-      email: admin.email,
-      bankName: admin.bankName,
-      accountNumber: admin.accountNumber,
-      ibanNumber: admin.ibanNumber
-    }));
-  }
-
-  async getBankInfoPublic(): Promise<AdminFullBankInfo[]> {
-    const admins = await this.adminRepo.find({
-      where: { isActive: true },
-      select: ['id', 'email', 'bankName', 'accountNumber', 'ibanNumber']
-    });
-
-    return admins
-      .filter(admin => admin.bankName || admin.accountNumber || admin.ibanNumber)
-      .map(admin => ({
-        adminId: admin.id,
-        email: admin.email,
-        bankName: admin.bankName,
-        accountNumber: admin.accountNumber,
-        ibanNumber: admin.ibanNumber
-      }));
-  }
-
 
   async getStats(): Promise<{ companies: number; employees: number; activeSubscriptions: number }> {
     const companies = await this.companyRepo.count();
@@ -689,7 +708,7 @@ async login(email: string, password: string): Promise<{
     const plans = await this.planRepo.find();
     
     const admins = await this.adminRepo.find({ 
-      select: ['id', 'email', 'isActive', 'createdAt', 'bankName', 'accountNumber', 'ibanNumber'] as (keyof Admin)[]
+      select: ['id', 'email', 'isActive', 'createdAt'] as (keyof Admin)[]
     });
 
     const managers = await this.managerRepo.find({ 
@@ -707,6 +726,8 @@ async login(email: string, password: string): Promise<{
       }
     });
 
+    const bankAccounts = await this.bankAccountRepo.find();
+
     const data = {
       companies,
       employees,
@@ -723,7 +744,8 @@ async login(email: string, password: string): Promise<{
           id: manager.createdBy.id,
           email: manager.createdBy.email
         } : null
-      }))
+      })),
+      bankAccounts
     };
 
     return {

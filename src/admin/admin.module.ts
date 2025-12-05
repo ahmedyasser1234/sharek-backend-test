@@ -1,3 +1,4 @@
+// admin.module.ts
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
@@ -24,6 +25,7 @@ import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { CompanyToken } from '../company/auth/entities/company-token.entity';
 import { CompanyLoginLog } from '../company/auth/entities/company-login-log.entity';
 import { CompanyActivity } from '../company/entities/company-activity.entity';
+import { BankAccount } from './entities/bank-account.entity';
 
 @Module({
   imports: [
@@ -40,6 +42,7 @@ import { CompanyActivity } from '../company/entities/company-activity.entity';
       CompanyToken,
       CompanyLoginLog,
       CompanyActivity,
+      BankAccount, 
     ]),
     JwtModule.registerAsync({
       useFactory: () => ({
