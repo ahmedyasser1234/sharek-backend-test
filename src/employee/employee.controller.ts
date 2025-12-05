@@ -126,11 +126,11 @@ export class EmployeeController {
       this.logger.error(`فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
     
       if (error instanceof NotFoundException) {
-      throw error;
+        throw error;
+      }
+      throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
     }
-    throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
   }
-}
 
   @Public()
   @Get('card/:uniqueUrl')
@@ -193,7 +193,6 @@ export class EmployeeController {
     }
   }
 
-
   @Public()
   @Get(':id/google-wallet/redirect')
   @ApiOperation({ summary: 'صفحة إضافة بطاقة Google Wallet' })
@@ -246,14 +245,14 @@ export class EmployeeController {
     }
   }
 
- @Public()
-@Get(':id/wallet-options')
-@ApiOperation({ summary: 'خيارات إضافة البطاقة إلى المحافظ الرقمية' })
-async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
-  try {
-    const employee = await this.employeeService.getEmployeeForWallet(id);
-    
-    const html = `
+  @Public()
+  @Get(':id/wallet-options')
+  @ApiOperation({ summary: 'خيارات إضافة البطاقة إلى المحافظ الرقمية' })
+  async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
+    try {
+      const employee = await this.employeeService.getEmployeeForWallet(id);
+      
+      const html = `
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
@@ -340,16 +339,16 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
     </div>
 </body>
 </html>
-    `;
-    
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Unknown error';
-    this.logger.error(`فشل تحميل صفحة الخيارات: ${msg}`);
-    throw new InternalServerErrorException('حدث خطأ أثناء تحميل الصفحة');
+      `;
+      
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(html);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل تحميل صفحة الخيارات: ${msg}`);
+      throw new InternalServerErrorException('حدث خطأ أثناء تحميل الصفحة');
+    }
   }
-}
 
   @UseGuards(CompanyJwtGuard, SubscriptionGuard)
   @Post()
