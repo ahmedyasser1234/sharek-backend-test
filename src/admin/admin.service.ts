@@ -310,10 +310,11 @@ export class AdminService {
 
   async getAllManagers(): Promise<ManagerWithoutPassword[]> {
     const managers = await this.managerRepo.find({
-      relations: ['createdBy'],
+      relations: ['createdBy', 'activatedSubscriptions'],
       select: {
         id: true,
         email: true,
+        normalizedEmail: true,
         role: true,
         isActive: true,
         createdAt: true,
@@ -332,8 +333,41 @@ export class AdminService {
         email: manager.createdBy.email 
       } as Admin : null,
       tokens: [],
-      activatedSubscriptions: []
+      activatedSubscriptions: manager.activatedSubscriptions || []
     })) as ManagerWithoutPassword[];
+  }
+
+  async getAllManagersWithStats(): Promise<any[]> {
+    const managers = await this.managerRepo.find({
+      relations: ['createdBy', 'activatedSubscriptions'],
+      select: {
+        id: true,
+        email: true,
+        normalizedEmail: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        createdBy: {
+          id: true,
+          email: true,
+        }
+      }
+    });
+
+    return managers.map(manager => ({
+      id: manager.id,
+      email: manager.email,
+      normalizedEmail: manager.normalizedEmail,
+      role: manager.role,
+      isActive: manager.isActive,
+      createdAt: manager.createdAt,
+      subscriptionCount: manager.activatedSubscriptions?.length || 0,
+      createdBy: manager.createdBy ? { 
+        id: manager.createdBy.id, 
+        email: manager.createdBy.email 
+      } : null
+    }));
   }
 
   async updateManager(id: string, dto: Partial<Manager>): Promise<ManagerWithoutPassword> {
@@ -386,19 +420,136 @@ export class AdminService {
     } as ManagerWithoutPassword;
   }
 
+  async transferManagerSubscriptionsToAdmin(
+    managerId: string, 
+    adminId: string
+  ): Promise<{ message: string; transferredCount: number }> {
+    const manager = await this.managerRepo.findOne({ where: { id: managerId } });
+    if (!manager) throw new NotFoundException('البائع غير موجود');
+
+    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+    if (!admin) throw new NotFoundException('الأدمن غير موجود');
+
+    const subscriptionCount = await this.subRepo.count({
+      where: { activatedBySeller: { id: managerId } }
+    });
+
+    if (subscriptionCount === 0) {
+      return {
+        message: 'لا توجد اشتراكات مرتبطة بالبائع',
+        transferredCount: 0
+      };
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+
+    try {
+      await queryRunner.query(
+        `UPDATE company_subscriptions 
+         SET "activatedBySellerId" = NULL, 
+             "activatedByAdminId" = $1
+         WHERE "activatedBySellerId" = $2`,
+        [adminId, managerId]
+      );
+
+      return {
+        message: `تم نقل ${subscriptionCount} اشتراك بنجاح إلى الأدمن ${admin.email}`,
+        transferredCount: subscriptionCount
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'خطأ غير معروف';
+      throw new InternalServerErrorException('فشل في نقل الاشتراكات: ' + errorMessage);
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   async deleteManager(id: string): Promise<{ message: string }> {
     const manager = await this.managerRepo.findOne({ 
       where: { id },
-      relations: ['tokens']
+      relations: ['createdBy', 'activatedSubscriptions']
     });
     
     if (!manager) throw new NotFoundException('البائع غير موجود');
+
+    const subscriptionCount = await this.subRepo.count({
+      where: { activatedBySeller: { id } }
+    });
+
+    if (subscriptionCount > 0) {
+      if (!manager.createdBy) {
+        throw new BadRequestException(
+          `لا يمكن حذف البائع لأنه مرتبط بـ ${subscriptionCount} اشتراك/اشتراكات ولا يوجد أدمن مرتبط به لنقل الاشتراكات إليه.`
+        );
+      }
+
+      await this.transferManagerSubscriptionsToAdmin(id, manager.createdBy.id);
+    }
 
     await this.managerTokenRepo.delete({ manager: { id } });
     
     await this.managerRepo.delete(id);
     
-    return { message: 'تم حذف البائع بنجاح' };
+    return { 
+      message: subscriptionCount > 0 
+        ? `تم حذف البائع ونقل ${subscriptionCount} اشتراك إلى الأدمن ${manager.createdBy?.email || 'غير معروف'}`
+        : 'تم حذف البائع بنجاح'
+    };
+  }
+
+  async deleteManagerForce(id: string, adminId?: string): Promise<{ message: string }> {
+    const manager = await this.managerRepo.findOne({ 
+      where: { id },
+      relations: ['createdBy']
+    });
+    
+    if (!manager) throw new NotFoundException('البائع غير موجود');
+
+    const subscriptionCount = await this.subRepo.count({
+      where: { activatedBySeller: { id } }
+    });
+
+    if (subscriptionCount > 0) {
+      let targetAdminId = adminId;
+      
+      if (!targetAdminId && manager.createdBy) {
+        targetAdminId = manager.createdBy.id;
+      } else if (!targetAdminId) {
+        const defaultAdmin = await this.adminRepo.findOne({ 
+          where: { email: 'admin@system.local' } 
+        });
+        
+        if (!defaultAdmin) {
+          const anyAdmin = await this.adminRepo.findOne({
+            where: { isActive: true }
+          });          
+          if (!anyAdmin) {
+            throw new BadRequestException(
+              `لا يمكن حذف البائع لأنه مرتبط بـ ${subscriptionCount} اشتراك/اشتراكات ولا يوجد أدمن لنقل الاشتراكات إليه.`
+            );
+          }
+          targetAdminId = anyAdmin.id;
+        } else {
+          targetAdminId = defaultAdmin.id;
+        }
+      }
+
+      // نقل الاشتراكات إلى الأدمن
+      await this.transferManagerSubscriptionsToAdmin(id, targetAdminId);
+    }
+
+    // 3. حذف التوكنات
+    await this.managerTokenRepo.delete({ manager: { id } });
+    
+    // 4. حذف البائع
+    await this.managerRepo.delete(id);
+    
+    return { 
+      message: subscriptionCount > 0 
+        ? `تم حذف البائع ونقل ${subscriptionCount} اشتراك إلى الأدمن`
+        : 'تم حذف البائع بنجاح'
+    };
   }
 
   async updateAdmin(id: string, dto: Partial<Admin>): Promise<Admin> {
@@ -409,14 +560,22 @@ export class AdminService {
     return this.adminRepo.save(admin);
   }
 
-  async getStats(): Promise<{ companies: number; employees: number; activeSubscriptions: number }> {
+  async getStats(): Promise<{ 
+    companies: number; 
+    employees: number; 
+    activeSubscriptions: number;
+    managers: number;
+    admins: number;
+  }> {
     const companies = await this.companyRepo.count();
     const employees = await this.employeeRepo.count();
     const activeSubs = await this.subRepo.count({
       where: { status: SubscriptionStatus.ACTIVE },
     });
+    const managers = await this.managerRepo.count();
+    const admins = await this.adminRepo.count();
 
-    return { companies, employees, activeSubscriptions: activeSubs };
+    return { companies, employees, activeSubscriptions: activeSubs, managers, admins };
   }
 
   async getAllCompaniesWithEmployeeCount(): Promise<Array<{
@@ -550,7 +709,9 @@ export class AdminService {
   }
 
   async getAllSubscriptions(): Promise<CompanySubscription[]> {
-    return this.subRepo.find({ relations: ['company', 'plan'] });
+    return this.subRepo.find({ 
+      relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'] 
+    });
   }
 
   async activateSubscription(id: string): Promise<CompanySubscription | null> {

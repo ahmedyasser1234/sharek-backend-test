@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AdminJwtGuard } from './auth/admin-jwt.guard';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam } from '@nestjs/swagger';
 import { Company } from '../company/entities/company.entity';
 import { Admin } from './entities/admin.entity';
 import { Manager } from './entities/manager.entity';
@@ -94,6 +94,14 @@ export class AdminController {
     return this.service.getAllManagers();
   }
 
+  @Get('managers/stats')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'عرض البائعين مع إحصائيات الاشتراكات' })
+  getAllManagersWithStats() {
+    return this.service.getAllManagersWithStats();
+  }
+
   @Put('managers/:id')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -121,9 +129,35 @@ export class AdminController {
   @Delete('managers/:id')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'حذف البائع' })
+  @ApiOperation({ summary: 'حذف البائع (ينقل الاشتراكات إلى الأدمن تلقائياً)' })
+  @ApiParam({ name: 'id', description: 'معرف البائع المراد حذفه' })
   deleteManager(@Param('id') id: string): Promise<{ message: string }> {
     return this.service.deleteManager(id);
+  }
+
+  @Delete('managers/:id/force')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'حذف بائع مع تحديد الأدمن المستلم للاشتراكات' })
+  @ApiParam({ name: 'id', description: 'معرف البائع المراد حذفه' })
+  deleteManagerForce(
+    @Param('id') id: string,
+    @Body() body: { adminId?: string }
+  ): Promise<{ message: string }> {
+    return this.service.deleteManagerForce(id, body.adminId);
+  }
+
+  @Patch('managers/:id/transfer-to-admin/:adminId')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'نقل اشتراكات بائع إلى أدمن محدد' })
+  @ApiParam({ name: 'id', description: 'معرف البائع' })
+  @ApiParam({ name: 'adminId', description: 'معرف الأدمن المستلم للاشتراكات' })
+  transferManagerSubscriptionsToAdmin(
+    @Param('id') id: string,
+    @Param('adminId') adminId: string
+  ): Promise<{ message: string; transferredCount: number }> {
+    return this.service.transferManagerSubscriptionsToAdmin(id, adminId);
   }
 
   @Post('create-admin')
@@ -154,7 +188,13 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'إحصائيات النظام' })
-  getStats(): Promise<{ companies: number; employees: number; activeSubscriptions: number }> {
+  getStats(): Promise<{ 
+    companies: number; 
+    employees: number; 
+    activeSubscriptions: number;
+    managers: number;
+    admins: number;
+  }> {
     return this.service.getStats();
   }
 

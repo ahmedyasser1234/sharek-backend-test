@@ -30,12 +30,21 @@ export class CompanySubscription {
   @ManyToOne(() => Company, (company) => company.subscriptions, {
     onDelete: 'CASCADE',
   })
+  @JoinColumn({ name: 'companyId' })
   company: Company;
+
+  @Column()
+  companyId: string;
 
   @ManyToOne(() => Plan, (plan) => plan.subscriptions, {
     onDelete: 'CASCADE',
+    eager: true,
   })
+  @JoinColumn({ name: 'planId' })
   plan: Plan;
+
+  @Column()
+  planId: string;
 
   @Column({ type: 'timestamp', comment: 'تاريخ بدء الاشتراك' })
   startDate: Date;
@@ -79,11 +88,15 @@ export class CompanySubscription {
   @Column({ nullable: true, comment: 'معرف الأدمن الذي فعل الاشتراك' })
   activatedByAdminId?: string;
 
-  @ManyToOne(() => Manager, { nullable: true })
+  @ManyToOne(() => Manager, (manager) => manager.activatedSubscriptions, { 
+    nullable: true 
+  })
   @JoinColumn({ name: 'activatedBySellerId' })
-  activatedBySeller?: Manager;
+  activatedBySeller: Manager | null;
 
-  @ManyToOne(() => Admin, { nullable: true })
+  @ManyToOne(() => Admin, (admin) => admin.activatedSubscriptions, { 
+    nullable: true 
+  })
   @JoinColumn({ name: 'activatedByAdminId' })
-  activatedByAdmin?: Admin;
+  activatedByAdmin: Admin | null;
 }

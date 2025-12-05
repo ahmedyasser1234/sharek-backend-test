@@ -26,8 +26,7 @@ export class Manager {
   @Column({ unique: true })
   email: string;
 
-  // غير NOT NULL مؤقتًا
-  @Column({ name: 'normalized_email', unique: true, nullable: true })
+  @Column({ name: 'normalized_email', unique: true })
   normalizedEmail: string;
 
   @Column()
@@ -39,11 +38,13 @@ export class Manager {
   @Column({ default: true })
   isActive: boolean;
 
-  @ManyToOne(() => Admin, admin => admin.createdManagers)
+  @ManyToOne(() => Admin, admin => admin.createdManagers, { 
+    nullable: false 
+  })
   @JoinColumn({ name: 'createdById' })
   createdBy: Admin;
 
-  @Column()
+  @Column({ nullable: false })
   createdById: string;
 
   @OneToMany(() => ManagerToken, token => token.manager)
