@@ -428,6 +428,28 @@ async login(email: string, password: string): Promise<{
     return this.adminRepo.save(admin);
   }
 
+  async addBankAccount(adminId: string, dto: AdminBankDto): Promise<Admin> {
+    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+    if (!admin) throw new NotFoundException('الأدمن غير موجود');
+
+    // التحقق من أن المعلومات مكتملة
+    if (!dto.bankName || !dto.accountNumber || !dto.ibanNumber) {
+      throw new BadRequestException('جميع معلومات الحساب البنكي مطلوبة (اسم البنك، رقم الحساب، رقم الآيبان)');
+    }
+
+    // التحقق من أن رقم الآيبان صحيح التنسيق (اختياري)
+    if (dto.ibanNumber && dto.ibanNumber.length < 15) {
+      throw new BadRequestException('رقم الآيبان يجب أن يكون صحيح التنسيق');
+    }
+
+    // تحديث المعلومات البنكية
+    admin.bankName = dto.bankName;
+    admin.accountNumber = dto.accountNumber;
+    admin.ibanNumber = dto.ibanNumber;
+
+    return this.adminRepo.save(admin);
+  }
+
   async getAdminBankInfo(adminId: string): Promise<AdminBankInfo> {
     const admin = await this.adminRepo.findOne({
       where: { id: adminId },

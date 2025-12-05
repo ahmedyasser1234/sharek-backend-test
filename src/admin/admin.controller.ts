@@ -210,6 +210,23 @@ export class AdminController {
     return this.service.updateBankInfo(adminId, dto);
   }
 
+  @Post('bank-account')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'إضافة حساب بنكي جديد للأدمن الحالي' })
+  @ApiResponse({ status: 201, description: 'تم إضافة الحساب البنكي بنجاح' })
+  @ApiResponse({ status: 400, description: 'معلومات الحساب البنكي غير مكتملة' })
+  @ApiResponse({ status: 404, description: 'الأدمن غير موجود' })
+  async addBankAccount(
+    @Req() req: ExtendedAdminRequest,
+    @Body() dto: AdminBankDto
+  ): Promise<Admin> {
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+
+    return this.service.addBankAccount(adminId, dto);
+  }
+
   @Get('bank-info')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
