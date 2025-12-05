@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
 import { AdminService } from './admin.service';
@@ -25,7 +25,6 @@ import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { CompanyToken } from '../company/auth/entities/company-token.entity';
 import { CompanyLoginLog } from '../company/auth/entities/company-login-log.entity';
 import { CompanyActivity } from '../company/entities/company-activity.entity';
-import { SubscriptionService } from '../subscription/subscription.service'; // <-- إضافة هنا
 
 @Module({
   imports: [
@@ -49,8 +48,8 @@ import { SubscriptionService } from '../subscription/subscription.service'; // <
         signOptions: { expiresIn: '30m' },
       }),
     }),
-    SubscriptionModule, 
-    PaymentModule, 
+    forwardRef(() => SubscriptionModule), 
+    forwardRef(() => PaymentModule), 
   ],
   controllers: [AdminController, SellerController],
   providers: [
@@ -62,8 +61,13 @@ import { SubscriptionService } from '../subscription/subscription.service'; // <
     ManagerJwtGuard,
     SupervisorGuard, 
     Reflector,
-    SubscriptionService, 
   ],
-  exports: [AdminService, SellerService, ManagerJwtService, ManagerJwtGuard, SupervisorGuard],
+  exports: [
+    AdminService, 
+    SellerService, 
+    ManagerJwtService, 
+    ManagerJwtGuard, 
+    SupervisorGuard
+  ],
 })
 export class AdminModule {}

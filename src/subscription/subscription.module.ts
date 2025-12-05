@@ -29,8 +29,8 @@ import { Admin } from '../admin/entities/admin.entity';
       Manager, 
       Admin, 
     ]),
-    forwardRef(() => CompanyModule),
-    forwardRef(() => PaymentModule), 
+    forwardRef(() => CompanyModule), 
+    forwardRef(() => PaymentModule),
     JwtModule.register({
       secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '1d' },

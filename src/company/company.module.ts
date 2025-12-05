@@ -29,7 +29,7 @@ import { ActivityInterceptor } from './interceptors/activity.interceptor';
       RevokedToken,
       CompanyActivity, 
     ]),
-    forwardRef(() => SubscriptionModule),
+    forwardRef(() => SubscriptionModule), 
     CloudinaryModule,
     JwtModule.registerAsync({
       useFactory: () => ({
