@@ -54,7 +54,6 @@ interface FileUploadResult {
   public_id: string;
 }
 
-// دالة لإنشاء المجلدات التلقائية
 const ensureDirectoryExists = (dirPath: string): void => {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
@@ -534,7 +533,6 @@ export class EmployeeService {
       await this.employeeRepo.update(saved.id, { profileImageUrl: saved.profileImageUrl });
       this.logger.log(`تم تعيين الصورة الافتراضية: ${saved.profileImageUrl}`);
       
-      // إنشاء مجلد الافتراضي إذا لم يكن موجوداً
       const defaultDir = path.join(this.baseUploadsDir, 'default');
       ensureDirectoryExists(defaultDir);
     }
@@ -1373,21 +1371,72 @@ export class EmployeeService {
       qrStyle = generatedQr;
     }
 
-    const employeeWithQrCode = {
+    const baseUrl = process.env.API_BASE_URL || 'http://89.116.39.168:3000';
+    
+    const employeeWithFullUrls = {
       ...employee,
+      profileImageUrl: this.getFullImageUrl(employee.profileImageUrl ?? null, baseUrl),
+      secondaryImageUrl: this.getFullImageUrl(employee.secondaryImageUrl ?? null, baseUrl),
+      logoUrl: this.getFullImageUrl(employee.logoUrl ?? null, baseUrl),
+      facebookImageUrl: this.getFullImageUrl(employee.facebookImageUrl ?? null, baseUrl),
+      instagramImageUrl: this.getFullImageUrl(employee.instagramImageUrl ?? null, baseUrl),
+      tiktokImageUrl: this.getFullImageUrl(employee.tiktokImageUrl ?? null, baseUrl),
+      snapchatImageUrl: this.getFullImageUrl(employee.snapchatImageUrl ?? null, baseUrl),
+      xImageUrl: this.getFullImageUrl(employee.xImageUrl ?? null, baseUrl),
+      linkedinImageUrl: this.getFullImageUrl(employee.linkedinImageUrl ?? null, baseUrl),
+      customImageUrl: this.getFullImageUrl(employee.customImageUrl ?? null, baseUrl),
+      testimonialImageUrl: this.getFullImageUrl(employee.testimonialImageUrl ?? null, baseUrl),
+      workingHoursImageUrl: this.getFullImageUrl(employee.workingHoursImageUrl ?? null, baseUrl),
+      contactFormHeaderImageUrl: this.getFullImageUrl(employee.contactFormHeaderImageUrl ?? null, baseUrl),
+      pdfThumbnailUrl: this.getFullImageUrl(employee.pdfThumbnailUrl ?? null, baseUrl),
+      pdfFileUrl: this.getFullImageUrl(employee.pdfFileUrl ?? null, baseUrl),
+      workLinkImageUrl: this.getFullImageUrl(employee.workLinkImageUrl ?? null, baseUrl),
+      workLinkkImageUrl: this.getFullImageUrl(employee.workLinkkImageUrl ?? null, baseUrl),
+      workLinkkkImageUrl: this.getFullImageUrl(employee.workLinkkkImageUrl ?? null, baseUrl),
+      workLinkkkkImageUrl: this.getFullImageUrl(employee.workLinkkkkImageUrl ?? null, baseUrl),
+      workLinkkkkkImageUrl: this.getFullImageUrl(employee.workLinkkkkkImageUrl ?? null, baseUrl),
+  
+      images: employee.images?.map(img => ({
+        ...img,
+        imageUrl: this.getFullImageUrl(img.imageUrl ?? null, baseUrl)
+      })) || [],
+  
       qrStyle,
       cardInfo: {
         uniqueUrl: card.uniqueUrl,
         designId: card.designId,
-        backgroundImage: card.backgroundImage,
+        backgroundImage: this.getFullImageUrl(card.backgroundImage ?? null, baseUrl),
       }
     };
-
     return {
       statusCode: HttpStatus.OK,
       message: 'تم جلب بيانات البطاقة بنجاح',
-      data: employeeWithQrCode,
+      data: employeeWithFullUrls,
     };
+  }
+
+  private getFullImageUrl(imageUrl: string | null, baseUrl: string): string | null {
+    if (!imageUrl) {
+      return null;
+    }
+    
+    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+      return imageUrl;
+    }
+    
+    if (imageUrl.startsWith('/uploads/')) {
+      return `${baseUrl}${imageUrl}`;
+    }
+    
+    if (imageUrl.startsWith('uploads/')) {
+      return `${baseUrl}/${imageUrl}`;
+    }
+    
+    if (imageUrl.startsWith('/')) {
+      return `${baseUrl}${imageUrl}`;
+    }
+    
+    return `${baseUrl}/${imageUrl}`;
   }
 
   async getSecondaryImageUrl(uniqueUrl: string): Promise<{ secondaryImageUrl: string }> {
@@ -1400,14 +1449,18 @@ export class EmployeeService {
       throw new NotFoundException('البطاقة غير موجودة');
     }
 
-    const secondaryImageUrl = card.employee.secondaryImageUrl;
-    
+    const baseUrl = process.env.API_BASE_URL || 'http://89.116.39.168:3000';
+
+    const secondaryImageUrl = this.getFullImageUrl(
+      card.employee.secondaryImageUrl ?? null, 
+      baseUrl
+    );
+  
     if (!secondaryImageUrl) {
       throw new NotFoundException('صورة التحميل غير متاحة');
     }
-    
-    return { secondaryImageUrl };
-  }
+      return { secondaryImageUrl };
+    }
   
   async exportToExcel(companyId: string): Promise<Buffer> {
     try {

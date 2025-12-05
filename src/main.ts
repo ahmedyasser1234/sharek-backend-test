@@ -9,7 +9,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AdminService } from './admin/admin.service';
 import * as bodyParser from 'body-parser';
 import { Request, Response, NextFunction } from 'express';
-import * as fs from 'fs'; 
+import * as fs from 'fs';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -28,6 +28,9 @@ async function bootstrap() {
     setHeaders: (res) => {
       res.set('Access-Control-Allow-Origin', '*');
       res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.set('Cache-Control', 'public, max-age=86400');
     }
   }));
 
@@ -41,10 +44,11 @@ async function bootstrap() {
   app.useGlobalInterceptors(new ResponseInterceptor());
   
   app.enableCors({
-    origin: true, 
+    origin: '*',
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin', 'X-Requested-With'],
+    exposedHeaders: ['Content-Type', 'Authorization', 'Content-Length', 'X-Requested-With']
   });
 
   app.use(bodyParser.json({ limit: '10mb' }));
@@ -74,11 +78,13 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
   
+  const baseUrl = process.env.API_BASE_URL || `http://89.116.39.168:${port}`;
+  
   logger.log(`========================================`);
-  logger.log(` Server is running on http://localhost:${port}`);
-  logger.log(` Uploads available at: http://localhost:${port}/uploads/`);
-  logger.log(` Example: http://localhost:${port}/uploads/bf4a8252-d955-499e-b4ef-57dfb11ff42d/images/img_1764936885928_sx7sogt.webp`);
-  logger.log(` Swagger: http://localhost:${port}/docs`);
+  logger.log(` Server is running on ${baseUrl}`);
+  logger.log(` Uploads available at: ${baseUrl}/uploads/`);
+  logger.log(` Swagger: ${baseUrl}/docs`);
+  logger.log(` API Base URL: ${baseUrl}`);
   logger.log(`========================================`);
 }
 
