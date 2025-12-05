@@ -1,3 +1,4 @@
+// admin.controller.ts
 import {
   Controller,
   Post,
@@ -11,15 +12,14 @@ import {
   UseGuards,
   Request,
   Req,
-  SetMetadata,
-  ForbiddenException,
+  UseInterceptors,
+  ClassSerializerInterceptor,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { AdminJwtGuard } from './auth/admin-jwt.guard';
-import { SupervisorGuard } from './auth/supervisor.guard';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Company } from '../company/entities/company.entity';
-import { Admin, AdminRole } from './entities/admin.entity';
+import { Admin } from './entities/admin.entity';
 import { Manager } from './entities/manager.entity';
 import { AdminRequest } from './auth/interfaces/admin-request.interface';
 import { 
@@ -42,286 +42,36 @@ interface AdminSimpleData {
   email: string;
 }
 
-interface CreateAdminDto {
-  email: string;
-  password: string;
-  bankInfo?: AdminBankDto;
-}
-
-export const Permissions = (...permissions: string[]) => 
-  SetMetadata('permissions', permissions);
-
 @ApiTags('Admin')
 @Controller('admin')
+@UseInterceptors(ClassSerializerInterceptor)
 export class AdminController {
   constructor(private readonly service: AdminService) {}
 
-  @Put('bank-info')
-  @UseGuards(AdminJwtGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'تحديث معلومات البنك للأدمن الحالي' })
-  @ApiBody({ type: AdminBankDto })
-  async updateBankInfo(
-    @Req() req: ExtendedAdminRequest,
-    @Body() dto: AdminBankDto
-  ): Promise<{ message: string }> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-    
-    await this.service.updateBankInfo(adminId, dto);
-    return { message: 'تم تحديث معلومات البنك بنجاح' };
-  }
-
-  @Put('bank-info/:adminId')
-  @UseGuards(AdminJwtGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'تحديث معلومات البنك لأي أدمن' })
-  @ApiParam({ name: 'adminId', description: 'معرف الأدمن' })
-  @ApiBody({ type: AdminBankDto })
-  async updateBankInfoForAdmin(
-    @Param('adminId') adminId: string,
-    @Body() dto: AdminBankDto
-  ): Promise<{ message: string }> {
-    await this.service.updateBankInfo(adminId, dto);
-    return { message: 'تم تحديث معلومات البنك بنجاح' };
-  }
-
-  @Get('bank-info/:adminId')
-  @ApiOperation({ summary: 'عرض معلومات البنك لأي أدمن (بدون حماية)' })
-  @ApiParam({ name: 'adminId', description: 'معرف الأدمن' })
-  async getBankInfo(@Param('adminId') adminId: string): Promise<AdminBankInfo> {
-    return this.service.getAdminBankInfo(adminId);
-  }
-
-  @Get('bank-info')
-  @UseGuards(AdminJwtGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'عرض معلومات البنك للأدمن الحالي' })
-  async getMyBankInfo(
-    @Req() req: ExtendedAdminRequest
-  ): Promise<AdminBankInfo> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-    
-    return this.service.getAdminBankInfo(adminId);
-  }
-
-  @Get('all-bank-info')
-  @ApiOperation({ summary: 'عرض معلومات البنك لجميع الأدمنز (بدون حماية)' })
-  async getAllBankInfo(): Promise<AdminFullBankInfo[]> {
-    return this.service.getAllAdminsBankInfo();
-  }
-
-  @Get('bank-info-public')
-  @ApiOperation({ summary: 'عرض معلومات البنك للأدمنز النشطين فقط (بدون حماية)' })
-  async getBankInfoPublic(): Promise<AdminFullBankInfo[]> {
-    return this.service.getBankInfoPublic();
-  }
-
-  @Get('supervisor/managers')
-  @UseGuards(AdminJwtGuard, SupervisorGuard)
-  @Permissions('view_managers')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'عرض البائعين (للمشرفين فقط)' })
-  getSupervisorManagers(@Req() req: ExtendedAdminRequest): Promise<ManagerWithoutPassword[]> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-    
-    return this.service.getSupervisorManagers(adminId);
-  }
-
-  @Post('supervisor/managers')
-  @UseGuards(AdminJwtGuard, SupervisorGuard)
-  @Permissions('create_managers')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'إنشاء بائع جديد (للمشرفين فقط)' })
-  createSupervisorManager(
-    @Req() req: ExtendedAdminRequest,
-    @Body() dto: { email: string; password: string }
-  ): Promise<ManagerWithoutPassword> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-    
-    return this.service.createManager(adminId, dto);
-  }
-
-  @Put('supervisor/managers/:id')
-  @UseGuards(AdminJwtGuard, SupervisorGuard)
-  @Permissions('edit_managers')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'تحديث بيانات بائع (للمشرفين فقط)' })
-  updateSupervisorManager(
-    @Param('id') id: string,
-    @Body() dto: Partial<Manager>
-  ): Promise<ManagerWithoutPassword> {
-    return this.service.updateManager(id, dto);
-  }
-
-  @Get('supervisor/companies')
-  @UseGuards(AdminJwtGuard, SupervisorGuard)
-  @Permissions('view_companies')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'عرض الشركات (للمشرفين فقط)' })
-  getSupervisorCompanies(@Req() req: ExtendedAdminRequest): Promise<CompanyWithActivator[]> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-    
-    return this.service.getSupervisorCompanies(adminId);
-  }
-
-  @Put('supervisor/companies/:id')
-  @UseGuards(AdminJwtGuard, SupervisorGuard)
-  @Permissions('edit_companies')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'تعديل بيانات شركة (للمشرفين فقط)' })
-  updateSupervisorCompany(
-    @Param('id') id: string,
-    @Body() dto: Partial<Company>
-  ): Promise<Company | null> {
-    return this.service.updateCompany(id, dto);
-  }
-
-  @Patch('supervisor/companies/:id/activate')
-  @UseGuards(AdminJwtGuard, SupervisorGuard)
-  @Permissions('edit_companies')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'تفعيل شركة (للمشرفين فقط)' })
-  activateSupervisorCompany(@Param('id') id: string): Promise<Company | null> {
-    return this.service.toggleCompany(id, true);
-  }
-
-  @Patch('supervisor/companies/:id/deactivate')
-  @UseGuards(AdminJwtGuard, SupervisorGuard)
-  @Permissions('edit_companies')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'إلغاء تفعيل شركة (للمشرفين فقط)' })
-  deactivateSupervisorCompany(@Param('id') id: string): Promise<Company | null> {
-    return this.service.toggleCompany(id, false);
-  }
-
-  @Patch('supervisor/subscriptions/:id/activate')
-  @UseGuards(AdminJwtGuard, SupervisorGuard)
-  @Permissions('activate_subscription')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'تفعيل اشتراك (للمشرفين فقط)' })
-  activateSupervisorSubscription(@Param('id') id: string): Promise<CompanySubscription | null> {
-    return this.service.activateSubscription(id);
-  }
-
-  @Get('supervisor/subscriptions')
-  @UseGuards(AdminJwtGuard, SupervisorGuard)
-  @Permissions('view_subscriptions')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'عرض الاشتراكات (للمشرفين فقط)' })
-  getSupervisorSubscriptions(): Promise<CompanySubscription[]> {
-    return this.service.getAllSubscriptions();
-  }
-
-  @Post('supervisor/subscriptions/:companyId/subscribe/:planId')
-  @UseGuards(AdminJwtGuard, SupervisorGuard)
-  @Permissions('activate_subscription')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'اشتراك شركة في خطة (للمشرفين فقط)' })
-  async subscribeSupervisorCompanyToPlan(
-    @Param('companyId') companyId: string,
-    @Param('planId') planId: string,
-    @Req() req: ExtendedAdminRequest
-  ): Promise<SubscriptionResult> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-
-    return this.service.subscribeCompanyToPlan(companyId, planId, adminId);
-  }
-
-  @Get('admins/roles')
-  @UseGuards(AdminJwtGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'عرض جميع الأدمنز مع أدوارهم (للسوبر أدمن فقط)' })
-  async getAllAdminsWithRoles(@Req() req: ExtendedAdminRequest): Promise<any> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-    
-    const admin = await this.service.getAdminById(adminId);
-    if (admin.role !== AdminRole.SUPER_ADMIN) {
-      throw new ForbiddenException('ليس لديك صلاحية الوصول');
-    }
-    
-    return this.service.getAllAdminsWithRoles();
-  }
-
-  @Patch('admins/:id/role')
-  @UseGuards(AdminJwtGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'تغيير دور الأدمن (للسوبر أدمن فقط)' })
-  async updateAdminRole(
-    @Param('id') id: string,
-    @Body() body: { role: AdminRole },
-    @Req() req: ExtendedAdminRequest
-  ): Promise<Admin> {
-    const currentAdminId = req.user?.adminId;
-    if (!currentAdminId) throw new UnauthorizedException('غير مصرح');
-    
-    const currentAdmin = await this.service.getAdminById(currentAdminId);
-    if (currentAdmin.role !== AdminRole.SUPER_ADMIN) {
-      throw new ForbiddenException('ليس لديك صلاحية تغيير الأدوار');
-    }
-    
-    return this.service.updateAdminRole(id, body.role);
-  }
-
-  @Post('create-supervisor')
-  @UseGuards(AdminJwtGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'إنشاء مشرف جديد (للسوبر أدمن فقط)' })
-  async createSupervisor(
-    @Body() dto: { email: string; password: string },
-    @Req() req: ExtendedAdminRequest
-  ): Promise<Admin> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-    
-    const admin = await this.service.getAdminById(adminId);
-    if (admin.role !== AdminRole.SUPER_ADMIN) {
-      throw new ForbiddenException('ليس لديك صلاحية إنشاء مشرفين');
-    }
-    
-    return this.service.createAdmin({ 
-      ...dto, 
-      role: AdminRole.SUPERVISOR 
-    });
-  }
-
-  @Get('my-role')
-  @UseGuards(AdminJwtGuard)
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'الحصول على دور الأدمن الحالي' })
-  async getMyRole(@Req() req: ExtendedAdminRequest): Promise<{ role: AdminRole }> {
-    const adminId = req.user?.adminId;
-    if (!adminId) throw new UnauthorizedException('غير مصرح');
-    
-    const admin = await this.service.getAdminById(adminId);
-    return { role: admin.role };
+  @Post('login')
+  @ApiOperation({ summary: 'تسجيل دخول الأدمن' })
+  @ApiResponse({ status: 200, description: 'تم تسجيل الدخول بنجاح' })
+  @ApiResponse({ status: 401, description: 'بيانات الدخول غير صحيحة' })
+  async login(@Body() body: { email: string; password: string }) {
+    return this.service.login(body.email, body.password);
   }
 
   @Post('refresh')
   @ApiOperation({ summary: 'تجديد توكن الأدمن مع البيانات' })
+  @ApiResponse({ status: 200, description: 'تم تجديد التوكن بنجاح' })
+  @ApiResponse({ status: 401, description: 'توكن غير صالح' })
   async refresh(@Body() body: { refreshToken: string }) {
     return this.service.refresh(body.refreshToken);
-  }
-
-  @Post('login')
-  @ApiOperation({ summary: 'تسجيل دخول الأدمن مع البيانات' })
-  async login(@Body() body: { email: string; password: string }) {
-    return this.service.login(body.email, body.password);
   }
 
   @Post('logout')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'تسجيل خروج الأدمن' })
+  @ApiResponse({ status: 200, description: 'تم تسجيل الخروج بنجاح' })
   logout(@Body() body: { refreshToken?: string }) {
     const refreshToken = body?.refreshToken;
-    if (!refreshToken) throw new UnauthorizedException('Missing refresh token');
+    if (!refreshToken) throw new UnauthorizedException('يجب توفير توكن التحديث');
     return this.service.logout(refreshToken);
   }
 
@@ -329,6 +79,8 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'الحصول على بريد الأدمن' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على البيانات بنجاح' })
+  @ApiResponse({ status: 401, description: 'غير مصرح' })
   async getProfile(@Req() req: ExtendedAdminRequest): Promise<AdminSimpleData> {
     const adminId = req.user?.adminId;
     if (!adminId) throw new UnauthorizedException('غير مصرح');
@@ -340,11 +92,94 @@ export class AdminController {
     };
   }
 
+  @Get('companies/me')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'الحصول على الشركات المرتبطة بالأدمن' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على الشركات بنجاح' })
+  async getAdminCompanies(@Req() req: ExtendedAdminRequest): Promise<CompanyWithActivator[]> {
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+
+    return this.service.getAdminCompanies(adminId);
+  }
+
+  // === مديري النظام (البائعين) ===
+  @Post('managers')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'إنشاء بائع جديد' })
+  @ApiResponse({ status: 201, description: 'تم إنشاء البائع بنجاح' })
+  @ApiResponse({ status: 400, description: 'البريد الإلكتروني مستخدم بالفعل' })
+  @ApiResponse({ status: 404, description: 'الأدمن غير موجود' })
+  createManager(
+    @Request() req: AdminRequest, 
+    @Body() dto: { email: string; password: string }
+  ): Promise<ManagerWithoutPassword> {
+    return this.service.createManager(req.user.adminId, dto);
+  }
+
+  @Get('managers')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'عرض جميع البائعين' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على البائعين بنجاح' })
+  getAllManagers(): Promise<ManagerWithoutPassword[]> {
+    return this.service.getAllManagers();
+  }
+
+  @Put('managers/:id')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تحديث بيانات البائع' })
+  @ApiResponse({ status: 200, description: 'تم تحديث البائع بنجاح' })
+  @ApiResponse({ status: 400, description: 'البريد الإلكتروني مستخدم بالفعل' })
+  @ApiResponse({ status: 404, description: 'البائع غير موجود' })
+  updateManager(
+    @Param('id') id: string, 
+    @Body() dto: Partial<Manager>
+  ): Promise<ManagerWithoutPassword> {
+    return this.service.updateManager(id, dto);
+  }
+
+  @Patch('managers/:id/activate')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تفعيل البائع' })
+  @ApiResponse({ status: 200, description: 'تم تفعيل البائع بنجاح' })
+  @ApiResponse({ status: 404, description: 'البائع غير موجود' })
+  activateManager(@Param('id') id: string): Promise<ManagerWithoutPassword> {
+    return this.service.toggleManagerStatus(id, true);
+  }
+
+  @Patch('managers/:id/deactivate')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'إلغاء تفعيل البائع' })
+  @ApiResponse({ status: 200, description: 'تم إلغاء تفعيل البائع بنجاح' })
+  @ApiResponse({ status: 404, description: 'البائع غير موجود' })
+  deactivateManager(@Param('id') id: string): Promise<ManagerWithoutPassword> {
+    return this.service.toggleManagerStatus(id, false);
+  }
+
+  @Delete('managers/:id')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'حذف البائع' })
+  @ApiResponse({ status: 200, description: 'تم حذف البائع بنجاح' })
+  @ApiResponse({ status: 404, description: 'البائع غير موجود' })
+  deleteManager(@Param('id') id: string): Promise<{ message: string }> {
+    return this.service.deleteManager(id);
+  }
+
+  // === إدارة الأدمن نفسة ===
   @Post('create-admin')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'إنشاء أدمن جديد' })
-  createAdmin(@Body() dto: CreateAdminDto): Promise<Admin> {
+  @ApiResponse({ status: 201, description: 'تم إنشاء الأدمن بنجاح' })
+  @ApiResponse({ status: 400, description: 'البريد الإلكتروني مستخدم بالفعل' })
+  createAdmin(@Body() dto: { email: string; password: string; bankInfo?: AdminBankDto }): Promise<Admin> {
     return this.service.createAdmin(dto);
   }
 
@@ -352,14 +187,64 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'تحديث بيانات الأدمن' })
+  @ApiResponse({ status: 200, description: 'تم تحديث الأدمن بنجاح' })
+  @ApiResponse({ status: 404, description: 'الأدمن غير موجود' })
   updateAdmin(@Param('id') id: string, @Body() dto: Partial<Admin>): Promise<Admin> {
     return this.service.updateAdmin(id, dto);
   }
 
+  // === دوال معلومات البنك ===
+  @Put('bank-info')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تحديث معلومات البنك للأدمن الحالي' })
+  @ApiResponse({ status: 200, description: 'تم تحديث معلومات البنك بنجاح' })
+  @ApiResponse({ status: 404, description: 'الأدمن غير موجود' })
+  async updateBankInfo(
+    @Req() req: ExtendedAdminRequest,
+    @Body() dto: AdminBankDto
+  ): Promise<Admin> {
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+
+    return this.service.updateBankInfo(adminId, dto);
+  }
+
+  @Get('bank-info')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'الحصول على معلومات البنك للأدمن الحالي' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على معلومات البنك بنجاح' })
+  @ApiResponse({ status: 404, description: 'الأدمن غير موجود' })
+  async getAdminBankInfo(@Req() req: ExtendedAdminRequest): Promise<AdminBankInfo> {
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+
+    return this.service.getAdminBankInfo(adminId);
+  }
+
+  @Get('bank-info/all')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'الحصول على معلومات البنك لجميع الأدمنز (محمي)' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على المعلومات بنجاح' })
+  async getAllAdminsBankInfo(): Promise<AdminFullBankInfo[]> {
+    return this.service.getAllAdminsBankInfo();
+  }
+
+  @Get('bank-info/public')
+  @ApiOperation({ summary: 'الحصول على معلومات البنك للأدمنز (عام)' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على المعلومات بنجاح' })
+  async getBankInfoPublic(): Promise<AdminFullBankInfo[]> {
+    return this.service.getBankInfoPublic();
+  }
+
+  // === الإحصائيات والبيانات ===
   @Get('download-database')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'تحميل قاعدة البيانات (للأدمن فقط)' })
+  @ApiResponse({ status: 200, description: 'تم تحميل البيانات بنجاح' })
   downloadDatabase(): Promise<DatabaseDownloadResponse> {
     return this.service.downloadDatabase();
   }
@@ -368,20 +253,17 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'إحصائيات النظام' })
-  getStats(): Promise<{ 
-    companies: number; 
-    employees: number; 
-    activeSubscriptions: number;
-    managers: number;
-    admins: number;
-  }> {
+  @ApiResponse({ status: 200, description: 'تم الحصول على الإحصائيات بنجاح' })
+  getStats(): Promise<{ companies: number; employees: number; activeSubscriptions: number }> {
     return this.service.getStats();
   }
 
+  // === إدارة الشركات ===
   @Get('companies')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'عرض جميع الشركات' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على الشركات بنجاح' })
   getCompanies(): Promise<Array<{
     id: string;
     name: string;
@@ -399,22 +281,58 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'عرض جميع الشركات مع معلومات المفعّل' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على الشركات بنجاح' })
   getAllCompaniesWithActivator(): Promise<CompanyWithActivator[]> {
     return this.service.getAllCompaniesWithActivator();
+  }
+
+  @Patch('companies/:id/activate')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تفعيل شركة' })
+  @ApiResponse({ status: 200, description: 'تم تفعيل الشركة بنجاح' })
+  @ApiResponse({ status: 404, description: 'الشركة غير موجودة' })
+  activateCompany(@Param('id') id: string): Promise<Company | null> {
+    return this.service.toggleCompany(id, true);
+  }
+
+  @Patch('companies/:id/deactivate')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'إلغاء تفعيل شركة' })
+  @ApiResponse({ status: 200, description: 'تم إلغاء تفعيل الشركة بنجاح' })
+  @ApiResponse({ status: 404, description: 'الشركة غير موجودة' })
+  deactivateCompany(@Param('id') id: string): Promise<Company | null> {
+    return this.service.toggleCompany(id, false);
+  }
+
+  @Put('companies/:id')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تحديث بيانات الشركة' })
+  @ApiResponse({ status: 200, description: 'تم تحديث الشركة بنجاح' })
+  @ApiResponse({ status: 404, description: 'الشركة غير موجودة' })
+  updateCompany(@Param('id') id: string, @Body() dto: Partial<Company>): Promise<Company | null> {
+    return this.service.updateCompany(id, dto);
   }
 
   @Delete('companies/:id')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'حذف شركة' })
+  @ApiResponse({ status: 200, description: 'تم حذف الشركة بنجاح' })
+  @ApiResponse({ status: 404, description: 'الشركة غير موجودة' })
+  @ApiResponse({ status: 500, description: 'فشل في حذف الشركة' })
   deleteCompany(@Param('id') id: string): Promise<void> {
     return this.service.deleteCompany(id);
   }
 
+  // === إدارة الموظفين ===
   @Get('employees/:companyId')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'عرض موظفي الشركة' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على الموظفين بنجاح' })
   getEmployees(@Param('companyId') companyId: string): Promise<Employee[]> {
     return this.service.getEmployeesByCompany(companyId);
   }
@@ -423,14 +341,54 @@ export class AdminController {
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'حذف موظف' })
+  @ApiResponse({ status: 200, description: 'تم حذف الموظف بنجاح' })
+  @ApiResponse({ status: 404, description: 'الموظف غير موجود' })
   deleteEmployee(@Param('id') id: number): Promise<void> {
     return this.service.deleteEmployee(id);
+  }
+
+  // === إدارة الاشتراكات ===
+  @Get('subscriptions')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'عرض جميع الاشتراكات' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على الاشتراكات بنجاح' })
+  getSubscriptions(): Promise<CompanySubscription[]> {
+    return this.service.getAllSubscriptions();
+  }
+
+  @Patch('subscriptions/:id/activate')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تفعيل اشتراك' })
+  @ApiResponse({ status: 200, description: 'تم تفعيل الاشتراك بنجاح' })
+  @ApiResponse({ status: 404, description: 'الاشتراك غير موجود' })
+  activateSubscription(@Param('id') id: string): Promise<CompanySubscription | null> {
+    return this.service.activateSubscription(id);
+  }
+
+  @Patch('subscriptions/:id/change-plan')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تغيير خطة الاشتراك' })
+  @ApiResponse({ status: 200, description: 'تم تغيير الخطة بنجاح' })
+  @ApiResponse({ status: 404, description: 'الاشتراك أو الخطة غير موجودة' })
+  changePlan(
+    @Param('id') id: string, 
+    @Body() body: { planId: string }
+  ): Promise<CompanySubscription | null> {
+    return this.service.changeSubscriptionPlan(id, body.planId);
   }
 
   @Post('subscriptions/:companyId/subscribe/:planId')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'اشتراك شركة في خطة جديدة بواسطة الأدمن' })
+  @ApiResponse({ status: 200, description: 'تمت عملية الاشتراك بنجاح' })
+  @ApiResponse({ status: 400, description: 'بيانات غير صحيحة' })
+  @ApiResponse({ status: 401, description: 'غير مصرح' })
+  @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
+  @ApiResponse({ status: 500, description: 'فشل في عملية الاشتراك' })
   async subscribeCompanyToPlan(
     @Param('companyId') companyId: string,
     @Param('planId') planId: string,

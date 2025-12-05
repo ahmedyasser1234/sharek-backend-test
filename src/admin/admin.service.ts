@@ -1,3 +1,4 @@
+// admin/admin.service.ts
 import {
   Injectable,
   NotFoundException,
@@ -7,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Not, IsNull } from 'typeorm';
-import { Admin, AdminRole } from './entities/admin.entity';
+import { Admin } from './entities/admin.entity';
 import { Manager, ManagerRole } from './entities/manager.entity';
 import { Company } from '../company/entities/company.entity';
 import { Employee } from '../employee/entities/employee.entity';
@@ -78,7 +79,7 @@ export interface DatabaseDownloadResponse {
     employees: Employee[];
     subscriptions: CompanySubscription[];
     plans: Plan[];
-    admins: Array<Pick<Admin, 'id' | 'email' | 'isActive' | 'createdAt'>>;
+    admins: Array<Pick<Admin, 'id' | 'email' | 'isActive' | 'createdAt' | 'bankName' | 'accountNumber' | 'ibanNumber'>>;
     managers: Array<{
       id: string;
       email: string;
@@ -135,162 +136,37 @@ export class AdminService {
     const admin = this.adminRepo.create({
       email: defaultEmail,
       password: hashedPassword,
-      role: AdminRole.SUPER_ADMIN,
     });
 
     await this.adminRepo.save(admin);
-    console.log(`تم إنشاء الأدمن الأساسي (سوبر أدمن): ${defaultEmail}`);
+    console.log(`تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
   }
 
-  async getAdminById(adminId: string): Promise<Admin> {
-    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
-    if (!admin) throw new NotFoundException('الأدمن غير موجود');
-    return admin;
+async login(email: string, password: string): Promise<{ 
+  accessToken: string; 
+  refreshToken: string;
+  admin: { email: string };
+}> {
+  const admin = await this.adminRepo.findOne({ 
+    where: { email, isActive: true } 
+  });
+  
+  if (!admin || !(await bcrypt.compare(password, admin.password))) {
+    throw new UnauthorizedException('بيانات الدخول غير صحيحة');
   }
 
-  async updateBankInfo(adminId: string, dto: AdminBankDto): Promise<Admin> {
-    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
-    if (!admin) throw new NotFoundException('الأدمن غير موجود');
+  const payload = { adminId: admin.id, role: 'admin' };
+  const accessToken = this.adminJwt.signAccess(payload);
+  const refreshToken = this.adminJwt.signRefresh(payload);
 
-    if (dto.bankName !== undefined) admin.bankName = dto.bankName;
-    if (dto.accountNumber !== undefined) admin.accountNumber = dto.accountNumber;
-    if (dto.ibanNumber !== undefined) admin.ibanNumber = dto.ibanNumber;
+  await this.tokenRepo.save({ admin, refreshToken });
 
-    return this.adminRepo.save(admin);
-  }
-
-  async getAdminBankInfo(adminId: string): Promise<AdminBankInfo> {
-    const admin = await this.adminRepo.findOne({
-      where: { id: adminId },
-      select: ['bankName', 'accountNumber', 'ibanNumber']
-    });
-
-    if (!admin) {
-      throw new NotFoundException('الأدمن غير موجود');
-    }
-
-    return {
-      bankName: admin.bankName,
-      accountNumber: admin.accountNumber,
-      ibanNumber: admin.ibanNumber
-    };
-  }
-
-  async getAllAdminsBankInfo(): Promise<AdminFullBankInfo[]> {
-    const admins = await this.adminRepo.find({
-      select: ['id', 'email', 'bankName', 'accountNumber', 'ibanNumber']
-    });
-
-    return admins.map(admin => ({
-      adminId: admin.id,
-      email: admin.email,
-      bankName: admin.bankName,
-      accountNumber: admin.accountNumber,
-      ibanNumber: admin.ibanNumber
-    }));
-  }
-
-  async getBankInfoPublic(): Promise<AdminFullBankInfo[]> {
-    const admins = await this.adminRepo.find({
-      where: { isActive: true },
-      select: ['id', 'email', 'bankName', 'accountNumber', 'ibanNumber']
-    });
-
-    return admins
-      .filter(admin => admin.bankName || admin.accountNumber || admin.ibanNumber)
-      .map(admin => ({
-        adminId: admin.id,
-        email: admin.email,
-        bankName: admin.bankName,
-        accountNumber: admin.accountNumber,
-        ibanNumber: admin.ibanNumber
-      }));
-  }
-
-  async updateAdminRole(adminId: string, role: AdminRole): Promise<Admin> {
-    const admin = await this.getAdminById(adminId);
-    admin.role = role;
-    return this.adminRepo.save(admin);
-  }
-
-  async getAllAdminsWithRoles(): Promise<Admin[]> {
-    return this.adminRepo.find({
-      select: ['id', 'email', 'role', 'isActive', 'createdAt'],
-    });
-  }
-
-  async createAdmin(dto: { 
-    email: string; 
-    password: string; 
-    role?: AdminRole;
-    bankInfo?: AdminBankDto;
-  }): Promise<Admin> {
-    const exists = await this.adminRepo.findOne({ where: { email: dto.email } });
-    if (exists) throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
-
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
-    const admin = this.adminRepo.create({
-      email: dto.email,
-      password: hashedPassword,
-      role: dto.role || AdminRole.SUPERVISOR,
-      bankName: dto.bankInfo?.bankName,
-      accountNumber: dto.bankInfo?.accountNumber,
-      ibanNumber: dto.bankInfo?.ibanNumber,
-    });
-
-    return this.adminRepo.save(admin);
-  }
-
-  async canSupervisorAccess(adminId: string, resource: string): Promise<boolean> {
-    const admin = await this.getAdminById(adminId);
-    return admin.canAccess(resource);
-  }
-
-  async getSupervisorCompanies(adminId: string): Promise<CompanyWithActivator[]> {
-    const admin = await this.getAdminById(adminId);
-    
-    if (admin.role === AdminRole.SUPER_ADMIN) {
-      return this.getAdminCompanies(adminId);
-    }
-    
-    return this.getAllCompaniesWithActivator();
-  }
-
-  async getSupervisorManagers(adminId: string): Promise<ManagerWithoutPassword[]> {
-    const admin = await this.getAdminById(adminId);
-    
-    if (admin.role === AdminRole.SUPER_ADMIN) {
-      return this.getAllManagers();
-    }
-    
-    return this.getAllManagers();
-  }
-
-  async login(email: string, password: string): Promise<{ 
-    accessToken: string; 
-    refreshToken: string;
-    admin: { email: string; role: AdminRole };
-  }> {
-    const admin = await this.adminRepo.findOne({ 
-      where: { email, isActive: true } 
-    });
-    
-    if (!admin || !(await bcrypt.compare(password, admin.password))) {
-      throw new UnauthorizedException('بيانات الدخول غير صحيحة');
-    }
-
-    const payload = { adminId: admin.id, role: admin.role };
-    const accessToken = this.adminJwt.signAccess(payload);
-    const refreshToken = this.adminJwt.signRefresh(payload);
-
-    await this.tokenRepo.save({ admin, refreshToken });
-
-    return { 
-      accessToken, 
-      refreshToken, 
-      admin: { email: admin.email, role: admin.role }
-    };
-  }
+  return { 
+    accessToken, 
+    refreshToken, 
+    admin: { email: admin.email }
+  };
+}
 
   async refresh(refreshToken: string): Promise<{ 
     accessToken: string;
@@ -310,6 +186,7 @@ export class AdminService {
 
     const accessToken = this.adminJwt.signAccess(payload);
     
+    // جلب بيانات الأدمن والشركات
     const companies = await this.getAdminCompanies(token.admin.id);
     
     const adminData: AdminWithCompanyData = {
@@ -401,6 +278,22 @@ export class AdminService {
     }
   }
 
+  async createAdmin(dto: { email: string; password: string; bankInfo?: AdminBankDto }): Promise<Admin> {
+    const exists = await this.adminRepo.findOne({ where: { email: dto.email } });
+    if (exists) throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const admin = this.adminRepo.create({
+      email: dto.email,
+      password: hashedPassword,
+      bankName: dto.bankInfo?.bankName,
+      accountNumber: dto.bankInfo?.accountNumber,
+      ibanNumber: dto.bankInfo?.ibanNumber,
+    });
+
+    return this.adminRepo.save(admin);
+  }
+
   async createManager(
     adminId: string, 
     dto: { email: string; password: string }
@@ -408,18 +301,12 @@ export class AdminService {
     const admin = await this.adminRepo.findOne({ where: { id: adminId } });
     if (!admin) throw new NotFoundException('الأدمن غير موجود');
 
-    const normalizedEmail = dto.email.toLowerCase().trim();
-    
-    const exists = await this.managerRepo.findOne({ 
-      where: { normalizedEmail: normalizedEmail } 
-    });
-    
+    const exists = await this.managerRepo.findOne({ where: { email: dto.email } });
     if (exists) throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const manager = this.managerRepo.create({
-      email: normalizedEmail,
-      normalizedEmail: normalizedEmail,
+      email: dto.email,
       password: hashedPassword,
       role: ManagerRole.SELLER,
       createdBy: admin,
@@ -437,11 +324,10 @@ export class AdminService {
 
   async getAllManagers(): Promise<ManagerWithoutPassword[]> {
     const managers = await this.managerRepo.find({
-      relations: ['createdBy', 'activatedSubscriptions'],
+      relations: ['createdBy'],
       select: {
         id: true,
         email: true,
-        normalizedEmail: true,
         role: true,
         isActive: true,
         createdAt: true,
@@ -460,41 +346,8 @@ export class AdminService {
         email: manager.createdBy.email 
       } as Admin : null,
       tokens: [],
-      activatedSubscriptions: manager.activatedSubscriptions || []
+      activatedSubscriptions: []
     })) as ManagerWithoutPassword[];
-  }
-
-  async getAllManagersWithStats(): Promise<any[]> {
-    const managers = await this.managerRepo.find({
-      relations: ['createdBy', 'activatedSubscriptions'],
-      select: {
-        id: true,
-        email: true,
-        normalizedEmail: true,
-        role: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-        createdBy: {
-          id: true,
-          email: true,
-        }
-      }
-    });
-
-    return managers.map(manager => ({
-      id: manager.id,
-      email: manager.email,
-      normalizedEmail: manager.normalizedEmail,
-      role: manager.role,
-      isActive: manager.isActive,
-      createdAt: manager.createdAt,
-      subscriptionCount: manager.activatedSubscriptions?.length || 0,
-      createdBy: manager.createdBy ? { 
-        id: manager.createdBy.id, 
-        email: manager.createdBy.email 
-      } : null
-    }));
   }
 
   async updateManager(id: string, dto: Partial<Manager>): Promise<ManagerWithoutPassword> {
@@ -502,15 +355,8 @@ export class AdminService {
     if (!manager) throw new NotFoundException('البائع غير موجود');
 
     if (dto.email && dto.email !== manager.email) {
-      const normalizedEmail = dto.email.toLowerCase().trim();
-      const emailExists = await this.managerRepo.findOne({ 
-        where: { normalizedEmail: normalizedEmail } 
-      });
-      if (emailExists && emailExists.id !== id) {
-        throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
-      }
-      dto.email = normalizedEmail;
-      dto.normalizedEmail = normalizedEmail;
+      const emailExists = await this.managerRepo.findOne({ where: { email: dto.email } });
+      if (emailExists) throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
     }
 
     if (dto.password) {
@@ -547,133 +393,19 @@ export class AdminService {
     } as ManagerWithoutPassword;
   }
 
-  async transferManagerSubscriptionsToAdmin(
-    managerId: string, 
-    adminId: string
-  ): Promise<{ message: string; transferredCount: number }> {
-    const manager = await this.managerRepo.findOne({ where: { id: managerId } });
-    if (!manager) throw new NotFoundException('البائع غير موجود');
-
-    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
-    if (!admin) throw new NotFoundException('الأدمن غير موجود');
-
-    const subscriptionCount = await this.subRepo.count({
-      where: { activatedBySeller: { id: managerId } }
-    });
-
-    if (subscriptionCount === 0) {
-      return {
-        message: 'لا توجد اشتراكات مرتبطة بالبائع',
-        transferredCount: 0
-      };
-    }
-
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-
-    try {
-      await queryRunner.query(
-        `UPDATE company_subscriptions 
-         SET "activatedBySellerId" = NULL, 
-             "activatedByAdminId" = $1
-         WHERE "activatedBySellerId" = $2`,
-        [adminId, managerId]
-      );
-
-      return {
-        message: `تم نقل ${subscriptionCount} اشتراك بنجاح إلى الأدمن ${admin.email}`,
-        transferredCount: subscriptionCount
-      };
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'خطأ غير معروف';
-      throw new InternalServerErrorException('فشل في نقل الاشتراكات: ' + errorMessage);
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
   async deleteManager(id: string): Promise<{ message: string }> {
     const manager = await this.managerRepo.findOne({ 
       where: { id },
-      relations: ['createdBy', 'activatedSubscriptions']
+      relations: ['tokens']
     });
     
     if (!manager) throw new NotFoundException('البائع غير موجود');
-
-    const subscriptionCount = await this.subRepo.count({
-      where: { activatedBySeller: { id } }
-    });
-
-    if (subscriptionCount > 0) {
-      if (!manager.createdBy) {
-        throw new BadRequestException(
-          `لا يمكن حذف البائع لأنه مرتبط بـ ${subscriptionCount} اشتراك/اشتراكات ولا يوجد أدمن مرتبط به لنقل الاشتراكات إليه.`
-        );
-      }
-
-      await this.transferManagerSubscriptionsToAdmin(id, manager.createdBy.id);
-    }
 
     await this.managerTokenRepo.delete({ manager: { id } });
     
     await this.managerRepo.delete(id);
     
-    return { 
-      message: subscriptionCount > 0 
-        ? `تم حذف البائع ونقل ${subscriptionCount} اشتراك إلى الأدمن ${manager.createdBy?.email || 'غير معروف'}`
-        : 'تم حذف البائع بنجاح'
-    };
-  }
-
-  async deleteManagerForce(id: string, adminId?: string): Promise<{ message: string }> {
-    const manager = await this.managerRepo.findOne({ 
-      where: { id },
-      relations: ['createdBy']
-    });
-    
-    if (!manager) throw new NotFoundException('البائع غير موجود');
-
-    const subscriptionCount = await this.subRepo.count({
-      where: { activatedBySeller: { id } }
-    });
-
-    if (subscriptionCount > 0) {
-      let targetAdminId = adminId;
-      
-      if (!targetAdminId && manager.createdBy) {
-        targetAdminId = manager.createdBy.id;
-      } else if (!targetAdminId) {
-        const defaultAdmin = await this.adminRepo.findOne({ 
-          where: { email: 'admin@system.local' } 
-        });
-        
-        if (!defaultAdmin) {
-          const anyAdmin = await this.adminRepo.findOne({
-            where: { isActive: true }
-          });          
-          if (!anyAdmin) {
-            throw new BadRequestException(
-              `لا يمكن حذف البائع لأنه مرتبط بـ ${subscriptionCount} اشتراك/اشتراكات ولا يوجد أدمن لنقل الاشتراكات إليه.`
-            );
-          }
-          targetAdminId = anyAdmin.id;
-        } else {
-          targetAdminId = defaultAdmin.id;
-        }
-      }
-
-      await this.transferManagerSubscriptionsToAdmin(id, targetAdminId);
-    }
-
-    await this.managerTokenRepo.delete({ manager: { id } });
-    
-    await this.managerRepo.delete(id);
-    
-    return { 
-      message: subscriptionCount > 0 
-        ? `تم حذف البائع ونقل ${subscriptionCount} اشتراك إلى الأدمن`
-        : 'تم حذف البائع بنجاح'
-    };
+    return { message: 'تم حذف البائع بنجاح' };
   }
 
   async updateAdmin(id: string, dto: Partial<Admin>): Promise<Admin> {
@@ -684,22 +416,75 @@ export class AdminService {
     return this.adminRepo.save(admin);
   }
 
-  async getStats(): Promise<{ 
-    companies: number; 
-    employees: number; 
-    activeSubscriptions: number;
-    managers: number;
-    admins: number;
-  }> {
+  // === دوال معلومات البنك الجديدة ===
+  async updateBankInfo(adminId: string, dto: AdminBankDto): Promise<Admin> {
+    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+    if (!admin) throw new NotFoundException('الأدمن غير موجود');
+
+    if (dto.bankName !== undefined) admin.bankName = dto.bankName;
+    if (dto.accountNumber !== undefined) admin.accountNumber = dto.accountNumber;
+    if (dto.ibanNumber !== undefined) admin.ibanNumber = dto.ibanNumber;
+
+    return this.adminRepo.save(admin);
+  }
+
+  async getAdminBankInfo(adminId: string): Promise<AdminBankInfo> {
+    const admin = await this.adminRepo.findOne({
+      where: { id: adminId },
+      select: ['bankName', 'accountNumber', 'ibanNumber']
+    });
+
+    if (!admin) {
+      throw new NotFoundException('الأدمن غير موجود');
+    }
+
+    return {
+      bankName: admin.bankName,
+      accountNumber: admin.accountNumber,
+      ibanNumber: admin.ibanNumber
+    };
+  }
+
+  async getAllAdminsBankInfo(): Promise<AdminFullBankInfo[]> {
+    const admins = await this.adminRepo.find({
+      select: ['id', 'email', 'bankName', 'accountNumber', 'ibanNumber']
+    });
+
+    return admins.map(admin => ({
+      adminId: admin.id,
+      email: admin.email,
+      bankName: admin.bankName,
+      accountNumber: admin.accountNumber,
+      ibanNumber: admin.ibanNumber
+    }));
+  }
+
+  async getBankInfoPublic(): Promise<AdminFullBankInfo[]> {
+    const admins = await this.adminRepo.find({
+      where: { isActive: true },
+      select: ['id', 'email', 'bankName', 'accountNumber', 'ibanNumber']
+    });
+
+    return admins
+      .filter(admin => admin.bankName || admin.accountNumber || admin.ibanNumber)
+      .map(admin => ({
+        adminId: admin.id,
+        email: admin.email,
+        bankName: admin.bankName,
+        accountNumber: admin.accountNumber,
+        ibanNumber: admin.ibanNumber
+      }));
+  }
+
+
+  async getStats(): Promise<{ companies: number; employees: number; activeSubscriptions: number }> {
     const companies = await this.companyRepo.count();
     const employees = await this.employeeRepo.count();
     const activeSubs = await this.subRepo.count({
       where: { status: SubscriptionStatus.ACTIVE },
     });
-    const managers = await this.managerRepo.count();
-    const admins = await this.adminRepo.count();
 
-    return { companies, employees, activeSubscriptions: activeSubs, managers, admins };
+    return { companies, employees, activeSubscriptions: activeSubs };
   }
 
   async getAllCompaniesWithEmployeeCount(): Promise<Array<{
@@ -833,9 +618,7 @@ export class AdminService {
   }
 
   async getAllSubscriptions(): Promise<CompanySubscription[]> {
-    return this.subRepo.find({ 
-      relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'] 
-    });
+    return this.subRepo.find({ relations: ['company', 'plan'] });
   }
 
   async activateSubscription(id: string): Promise<CompanySubscription | null> {
@@ -892,7 +675,6 @@ export class AdminService {
       select: {
         id: true,
         email: true,
-        normalizedEmail: true,
         role: true,
         isActive: true,
         createdAt: true,
@@ -912,7 +694,6 @@ export class AdminService {
       managers: managers.map(manager => ({
         id: manager.id,
         email: manager.email,
-        normalizedEmail: manager.normalizedEmail,
         role: manager.role,
         isActive: manager.isActive,
         createdAt: manager.createdAt,

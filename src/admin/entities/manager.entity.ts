@@ -1,3 +1,4 @@
+// src/admin/entities/manager.entity.ts
 import { 
   Entity, 
   PrimaryGeneratedColumn, 
@@ -10,12 +11,13 @@ import {
   BeforeInsert,
   BeforeUpdate 
 } from 'typeorm';
-import { Admin } from '../../admin/entities/admin.entity';
+import { Admin } from './admin.entity';
 import { ManagerToken } from './manager-token.entity';
 import { CompanySubscription } from '../../subscription/entities/company-subscription.entity';
 
 export enum ManagerRole {
-  SELLER = 'seller'  
+  SELLER = 'seller',
+  SELLERS_MANAGER = 'sellers_manager'
 }
 
 @Entity('managers')
