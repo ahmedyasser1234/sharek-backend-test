@@ -38,11 +38,13 @@ export class Manager {
   @Column({ default: true })
   isActive: boolean;
 
-  @ManyToOne(() => Admin, admin => admin.createdManagers)
+  @ManyToOne(() => Admin, admin => admin.createdManagers, { 
+    nullable: false 
+  })
   @JoinColumn({ name: 'createdById' })
   createdBy: Admin;
 
-  @Column()
+  @Column({ nullable: true })
   createdById: string;
 
   @OneToMany(() => ManagerToken, token => token.manager)
