@@ -45,5 +45,5 @@ type: 'postgres',
     ManagerToken, 
   ],
   migrations: ['dist/migrations/*.js'],
-  synchronize: true,
+  synchronize: false,
 });
