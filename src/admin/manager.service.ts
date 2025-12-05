@@ -115,14 +115,18 @@ export class SellerService {
 
   async ensureDefaultSeller(): Promise<void> {
     const defaultEmail = 'seller@system.local';
-    const defaultPassword = 'seller123';
-
-    const exists = await this.sellerRepo.findOne({ where: { email: defaultEmail } });
+    const normalizedEmail = defaultEmail.toLowerCase().trim();
+    
+    const exists = await this.sellerRepo.findOne({ 
+      where: { normalizedEmail: normalizedEmail } 
+    });
+    
     if (exists) return;
 
-    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+    const hashedPassword = await bcrypt.hash('seller123', 10);
     const seller = this.sellerRepo.create({
-      email: defaultEmail,
+      email: normalizedEmail,
+      normalizedEmail: normalizedEmail,
       password: hashedPassword,
       role: ManagerRole.SELLER,
     });
@@ -137,8 +141,14 @@ export class SellerService {
     role: ManagerRole;
     seller: SellerWithCompanyData;
   }> {
+    // تحويل البريد المدخل إلى lowercase للبحث
+    const normalizedEmail = email.toLowerCase().trim();
+    
     const seller = await this.sellerRepo.findOne({ 
-      where: { email, isActive: true } 
+      where: { 
+        normalizedEmail: normalizedEmail,
+        isActive: true 
+      } 
     });
     
     if (!seller || !(await bcrypt.compare(password, seller.password))) {

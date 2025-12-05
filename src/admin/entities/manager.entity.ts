@@ -6,7 +6,9 @@ import {
   UpdateDateColumn, 
   ManyToOne, 
   JoinColumn, 
-  OneToMany 
+  OneToMany,
+  BeforeInsert,
+  BeforeUpdate 
 } from 'typeorm';
 import { Admin } from '../../admin/entities/admin.entity';
 import { ManagerToken } from './manager-token.entity';
@@ -23,6 +25,9 @@ export class Manager {
 
   @Column({ unique: true })
   email: string;
+
+  @Column({ name: 'normalized_email', unique: true })
+  normalizedEmail: string;
 
   @Column()
   password: string;
@@ -51,4 +56,13 @@ export class Manager {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  normalizeEmail() {
+    if (this.email) {
+      this.normalizedEmail = this.email.toLowerCase().trim();
+      this.email = this.normalizedEmail;
+    }
+  }
 }

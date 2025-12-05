@@ -126,31 +126,31 @@ export class AdminService {
     console.log(`تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
   }
 
-async login(email: string, password: string): Promise<{ 
-  accessToken: string; 
-  refreshToken: string;
-  admin: { email: string };
-}> {
-  const admin = await this.adminRepo.findOne({ 
-    where: { email, isActive: true } 
-  });
-  
-  if (!admin || !(await bcrypt.compare(password, admin.password))) {
-    throw new UnauthorizedException('بيانات الدخول غير صحيحة');
+  async login(email: string, password: string): Promise<{ 
+    accessToken: string; 
+    refreshToken: string;
+    admin: { email: string };
+  }> {
+    const admin = await this.adminRepo.findOne({ 
+      where: { email, isActive: true } 
+    });
+    
+    if (!admin || !(await bcrypt.compare(password, admin.password))) {
+      throw new UnauthorizedException('بيانات الدخول غير صحيحة');
+    }
+
+    const payload = { adminId: admin.id, role: 'admin' };
+    const accessToken = this.adminJwt.signAccess(payload);
+    const refreshToken = this.adminJwt.signRefresh(payload);
+
+    await this.tokenRepo.save({ admin, refreshToken });
+
+    return { 
+      accessToken, 
+      refreshToken, 
+      admin: { email: admin.email }
+    };
   }
-
-  const payload = { adminId: admin.id, role: 'admin' };
-  const accessToken = this.adminJwt.signAccess(payload);
-  const refreshToken = this.adminJwt.signRefresh(payload);
-
-  await this.tokenRepo.save({ admin, refreshToken });
-
-  return { 
-    accessToken, 
-    refreshToken, 
-    admin: { email: admin.email }
-  };
-}
 
   async refresh(refreshToken: string): Promise<{ 
     accessToken: string;
@@ -170,7 +170,6 @@ async login(email: string, password: string): Promise<{
 
     const accessToken = this.adminJwt.signAccess(payload);
     
-    // جلب بيانات الأدمن والشركات
     const companies = await this.getAdminCompanies(token.admin.id);
     
     const adminData: AdminWithCompanyData = {
@@ -282,12 +281,18 @@ async login(email: string, password: string): Promise<{
     const admin = await this.adminRepo.findOne({ where: { id: adminId } });
     if (!admin) throw new NotFoundException('الأدمن غير موجود');
 
-    const exists = await this.managerRepo.findOne({ where: { email: dto.email } });
+    const normalizedEmail = dto.email.toLowerCase().trim();
+    
+    const exists = await this.managerRepo.findOne({ 
+      where: { normalizedEmail: normalizedEmail } 
+    });
+    
     if (exists) throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
     const manager = this.managerRepo.create({
-      email: dto.email,
+      email: normalizedEmail,
+      normalizedEmail: normalizedEmail,
       password: hashedPassword,
       role: ManagerRole.SELLER,
       createdBy: admin,
@@ -336,8 +341,15 @@ async login(email: string, password: string): Promise<{
     if (!manager) throw new NotFoundException('البائع غير موجود');
 
     if (dto.email && dto.email !== manager.email) {
-      const emailExists = await this.managerRepo.findOne({ where: { email: dto.email } });
-      if (emailExists) throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
+      const normalizedEmail = dto.email.toLowerCase().trim();
+      const emailExists = await this.managerRepo.findOne({ 
+        where: { normalizedEmail: normalizedEmail } 
+      });
+      if (emailExists && emailExists.id !== id) {
+        throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
+      }
+      dto.email = normalizedEmail;
+      dto.normalizedEmail = normalizedEmail;
     }
 
     if (dto.password) {
@@ -595,6 +607,7 @@ async login(email: string, password: string): Promise<{
       select: {
         id: true,
         email: true,
+        normalizedEmail: true,
         role: true,
         isActive: true,
         createdAt: true,
@@ -614,6 +627,7 @@ async login(email: string, password: string): Promise<{
       managers: managers.map(manager => ({
         id: manager.id,
         email: manager.email,
+        normalizedEmail: manager.normalizedEmail,
         role: manager.role,
         isActive: manager.isActive,
         createdAt: manager.createdAt,
