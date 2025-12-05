@@ -14,6 +14,11 @@ import { AdminToken } from '../auth/entities/admin-token.entity';
 import { Manager } from './manager.entity';
 import { CompanySubscription } from '../../subscription/entities/company-subscription.entity';
 
+export enum AdminRole {
+  SUPER_ADMIN = 'super_admin',      
+  SUPERVISOR = 'supervisor',       
+}
+
 @Entity('admins')
 export class Admin {
   @PrimaryGeneratedColumn('uuid')
@@ -28,8 +33,21 @@ export class Admin {
   @Column({ default: true })
   isActive: boolean;
 
-  @Column({ default: 'admin' })
-  role: string;
+  @Column({ 
+    type: 'enum',
+    enum: AdminRole,
+    default: AdminRole.SUPERVISOR   
+  })
+  role: AdminRole;
+
+  @Column({ nullable: true, length: 100, comment: 'اسم البنك' })
+  bankName: string;
+
+  @Column({ nullable: true, length: 50, comment: 'رقم الحساب البنكي' })
+  accountNumber: string;
+
+  @Column({ nullable: true, length: 34, comment: 'رقم الآيبان' })
+  ibanNumber: string;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -59,5 +77,23 @@ export class Admin {
 
   async comparePassword(plain: string): Promise<boolean> {
     return bcrypt.compare(plain, this.password);
+  }
+
+  canAccess(resource: string): boolean {
+    if (this.role === AdminRole.SUPER_ADMIN) {
+      return true; 
+    }
+
+    const supervisorPermissions = [
+      'view_managers',
+      'create_managers',
+      'edit_managers',
+      'view_companies',
+      'edit_companies',
+      'activate_subscription',
+      'view_subscriptions',
+    ];
+
+    return supervisorPermissions.includes(resource);
   }
 }

@@ -1,4 +1,3 @@
-// src/admin/auth/entities/admin-token.entity.ts
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, JoinColumn, CreateDateColumn } from 'typeorm';
 import { Admin } from './admin.entity';
 

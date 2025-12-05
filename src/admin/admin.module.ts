@@ -17,6 +17,7 @@ import { AdminJwtService } from './auth/admin-jwt.service';
 import { ManagerJwtService } from './auth/manager-jwt.service';
 import { AdminJwtGuard } from './auth/admin-jwt.guard';
 import { ManagerJwtGuard } from './auth/manager-jwt.guard';
+import { SupervisorGuard } from './auth/supervisor.guard'; 
 import { Reflector } from '@nestjs/core';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { PaymentModule } from '../payment/payment.module';
@@ -24,6 +25,7 @@ import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { CompanyToken } from '../company/auth/entities/company-token.entity';
 import { CompanyLoginLog } from '../company/auth/entities/company-login-log.entity';
 import { CompanyActivity } from '../company/entities/company-activity.entity';
+import { SubscriptionService } from '../subscription/subscription.service'; // <-- إضافة هنا
 
 @Module({
   imports: [
@@ -58,8 +60,10 @@ import { CompanyActivity } from '../company/entities/company-activity.entity';
     ManagerJwtService,
     AdminJwtGuard,
     ManagerJwtGuard,
+    SupervisorGuard, 
     Reflector,
+    SubscriptionService, 
   ],
-  exports: [AdminService, SellerService, ManagerJwtService, ManagerJwtGuard],
+  exports: [AdminService, SellerService, ManagerJwtService, ManagerJwtGuard, SupervisorGuard],
 })
 export class AdminModule {}
