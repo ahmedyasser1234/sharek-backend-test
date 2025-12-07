@@ -11,6 +11,7 @@ import {
   Post,
   BadRequestException,
   UseInterceptors,
+  ClassSerializerInterceptor,
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CompanyService } from '../company/company.service';
@@ -132,12 +133,18 @@ export class AdminSubscriptionController {
   }
 
   @Patch(':id/change-plan')
-  @UseInterceptors() // هذا سيتجاوز الـ ResponseInterceptor العام
+@UseInterceptors(ClassSerializerInterceptor)
 async changePlan(
   @Param('id') companyId: string,
   @Body() body: { newPlanId: string, adminOverride?: boolean },
 ) {
   try {
+    console.log('===========================================');
+    console.log('📢 [DEBUG] changePlan called!');
+    console.log('companyId:', companyId);
+    console.log('body:', body);
+    console.log('===========================================');
+    
     this.logger.log(`[changePlan] === بدء طلب تغيير الخطة ===`);
     this.logger.log(`[changePlan] companyId: ${companyId}`);
     this.logger.log(`[changePlan] body: ${JSON.stringify(body)}`);
@@ -151,25 +158,38 @@ async changePlan(
     
     this.logger.log(`[changePlan] استخدام adminOverride = ${adminOverride}`);
     
+    console.log('📢 [DEBUG] Calling changePlanDirectly...');
     const result = await this.subscriptionService.changePlanDirectly(
       companyId, 
       body.newPlanId, 
       adminOverride
     );
+    console.log('📢 [DEBUG] Result:', result);
     
     this.logger.log(`[changePlan] === نجاح تغيير الخطة ===`);
-    this.logger.log(`[changePlan] النتيجة: ${result.message}`);
+    this.logger.log(`[changePlan] النتيجة: ${JSON.stringify(result)}`);
     
-    return result;
+    return {
+      success: true,
+      message: 'تم تغيير الخطة بنجاح',
+      data: result,
+      timestamp: new Date().toISOString()
+    };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     
+    console.log('📢 [DEBUG] ERROR:', errorMessage);
     this.logger.error(`[changePlan] === فشل تغيير الخطة ===`);
     this.logger.error(`[changePlan] الشركة: ${companyId}`);
     this.logger.error(`[changePlan] الخطة الجديدة: ${body?.newPlanId}`);
     this.logger.error(`[changePlan] الخطأ: ${errorMessage}`);
     
-    throw error;
+    if (error instanceof BadRequestException || 
+        error instanceof NotFoundException) {
+      throw error;
+    }
+    
+    throw new InternalServerErrorException('فشل تغيير الخطة');
   }
 }
 
