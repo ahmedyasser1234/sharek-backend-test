@@ -201,7 +201,6 @@ export class SubscriptionService {
       const planPrice = parseFloat(String(newPlan.price));
       if (isNaN(planPrice)) throw new BadRequestException('السعر غير صالح للخطة');
 
-      // التحقق من الخطة التجريبية
       if (newPlan.isTrial) {
         const previousTrial = await this.subscriptionRepo.findOne({
           where: {
@@ -216,7 +215,6 @@ export class SubscriptionService {
         }
       }
 
-      // التحقق من الاشتراك النشط الحالي
       const existingActiveSubscription = await this.subscriptionRepo.findOne({
         where: {
           company: { id: companyId },
@@ -226,7 +224,6 @@ export class SubscriptionService {
         relations: ['plan']
       });
 
-      // ✅ التحقق المحسن: السماح دائمًا بالترقية أو نفس الخطة، منع النزول فقط
       if (existingActiveSubscription && existingActiveSubscription.plan && !isAdminOverride) {
         const currentPlan = existingActiveSubscription.plan;
         const currentPlanMax = currentPlan.maxEmployees;
@@ -234,7 +231,6 @@ export class SubscriptionService {
         const newPlanMax = newPlan.maxEmployees;
         const newPlanPrice = newPlan.price;
 
-        // ✅ منع النزول للخطة الأقل فقط (أقل في كلا الجانبين)
         const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
         const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice >= currentPlanPrice) ||
                                    (newPlanMax >= currentPlanMax && newPlanPrice < currentPlanPrice);
@@ -254,22 +250,18 @@ export class SubscriptionService {
           );
         }
         
-        // ✅ السماح إذا كانت نفس الخطة (للتجديد)
         if (newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice) {
           this.logger.log(`[subscribe] الشركة ${companyId} تطلب التجديد في نفس الخطة`);
         }
         
-        // ✅ السماح إذا كانت الخطة الجديدة أكبر
         if (newPlanMax > currentPlanMax || newPlanPrice > currentPlanPrice) {
           this.logger.log(`[subscribe] الشركة ${companyId} تطلب الترقية من ${currentPlan.name} إلى ${newPlan.name}`);
         }
       }
 
-      // إذا كان هناك اشتراك نشط موجود
       if (existingActiveSubscription) {
         this.logger.log(`[subscribe] يوجد اشتراك نشط بالفعل للشركة ${companyId}، سيتم تحديثه`);
         
-        // ✅ تحديث الخطة مع الحفاظ على تاريخ البدء الأصلي إذا كان نفس الاشتراك
         const isSamePlan = existingActiveSubscription.plan?.id === newPlan.id;
         
         if (!isSamePlan) {
@@ -277,15 +269,12 @@ export class SubscriptionService {
           existingActiveSubscription.customMaxEmployees = newPlan.maxEmployees;
         }
         
-        // تحديث السعر
         existingActiveSubscription.price = planPrice;
         
-        // ✅ تحديث تاريخ الانتهاء فقط (إضافة المدة الجديدة)
         const newEndDate = new Date(existingActiveSubscription.endDate);
         newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
         existingActiveSubscription.endDate = newEndDate;
         
-        // تسجيل من قام بالتحديث
         if (activatedBySellerId) {
           existingActiveSubscription.activatedBySellerId = activatedBySellerId;
           this.logger.log(`[subscribe] تم تسجيل البائع ${activatedBySellerId} كمفعل للاشتراك`);
@@ -298,7 +287,6 @@ export class SubscriptionService {
 
         const savedSubscription = await this.subscriptionRepo.save(existingActiveSubscription);
 
-        // تحديث معلومات الشركة
         await this.companyRepo
           .createQueryBuilder()
           .update(Company)
@@ -334,7 +322,6 @@ export class SubscriptionService {
           subscription: savedSubscription,
         };
       } else {
-        // إنشاء اشتراك جديد
         const startDate = new Date();
         const endDate = new Date();
         endDate.setDate(startDate.getDate() + newPlan.durationInDays);
@@ -359,7 +346,6 @@ export class SubscriptionService {
           this.logger.log(`[subscribe] تم تسجيل الأدمن ${activatedByAdminId} كمفعل للاشتراك`);
         }
 
-        // إذا كانت الخطة مجانية أو تجريبية أو من قبل الأدمن
         if (planPrice === 0 || newPlan.isTrial || isAdminOverride) {
           const subscription = this.subscriptionRepo.create(subscriptionData);
           const savedSubscription = await this.subscriptionRepo.save(subscription);
@@ -398,7 +384,6 @@ export class SubscriptionService {
           };
         }
 
-        // إذا كانت الخطة مدفوعة
         if (planPrice > 0) {
           const provider = newPlan.paymentProvider;
           if (!provider) {
@@ -465,8 +450,6 @@ export class SubscriptionService {
       this.logger.log(`[changeSubscriptionPlan] الخطة الحالية: ${currentSubscription.plan?.name} - الموظفين: ${currentPlanMax} - السعر: ${currentPlanPrice}`);
       this.logger.log(`[changeSubscriptionPlan] الخطة الجديدة: ${newPlan.name} - الموظفين: ${newPlanMax} - السعر: ${newPlanPrice}`);
       
-      // ✅ التحقق المحسن: السماح فقط إذا كانت الخطة الجديدة أكبر أو تساوي
-      // منع النزول إلى خطة أقل سواء في السعر أو عدد الموظفين
       if (newPlanMax < currentPlanMax || newPlanPrice < currentPlanPrice) {
         this.logger.warn(`[changeSubscriptionPlan] محاولة النزول إلى خطة أقل - مرفوض`);
         throw new BadRequestException(
@@ -477,14 +460,12 @@ export class SubscriptionService {
         );
       }
 
-      // ✅ إذا كانت نفس الخطة تماماً (نفس الاسم والسعر والموظفين)
       const isSamePlan = 
         currentSubscription.plan?.id === newPlan.id ||
         (newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice);
       
       this.logger.log(`[changeSubscriptionPlan] هل هي نفس الخطة؟ ${isSamePlan ? 'نعم' : 'لا'}`);
       
-      // ✅ تحديث الخطة
       this.logger.log(`[changeSubscriptionPlan] تحديث الخطة من ${currentSubscription.plan?.name} إلى ${newPlan.name}`);
       currentSubscription.plan = newPlan;
       currentSubscription.price = newPlan.price;
@@ -558,7 +539,6 @@ export class SubscriptionService {
         throw new NotFoundException('الخطة غير موجودة');
       }
       
-      // ✅ إذا لم يكن هناك اشتراك حالي، إنشاء اشتراك جديد
       if (!currentSubscription) {
         this.logger.log(`[changePlanDirectly] لا يوجد اشتراك حالي، إنشاء اشتراك جديد`);
         return await this.subscribe(companyId, newPlanId, adminOverride) as PlanChangeResult;
@@ -574,7 +554,6 @@ export class SubscriptionService {
       this.logger.log(`[changePlanDirectly] الخطة الحالية: ${currentPlan?.name} - الموظفين: ${currentPlanMax} - السعر: ${currentPlanPrice}`);
       this.logger.log(`[changePlanDirectly] الخطة الجديدة: ${newPlan.name} - الموظفين: ${newPlanMax} - السعر: ${newPlanPrice}`);
       
-      // ✅ التحقق الأساسي: منع النزول للخطة الأقل
       const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
       const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice >= currentPlanPrice) ||
                                  (newPlanMax >= currentPlanMax && newPlanPrice < currentPlanPrice);
@@ -590,7 +569,6 @@ export class SubscriptionService {
         );
       }
       
-      // ✅ التحقق من عدد الموظفين الحاليين
       const currentEmployees = await this.employeeRepo.count({
         where: { company: { id: companyId } }
       });
@@ -605,18 +583,15 @@ export class SubscriptionService {
         );
       }
       
-      // ✅ تحديث الاشتراك
       this.logger.log(`[changePlanDirectly] تحديث الخطة من ${currentPlan?.name} إلى ${newPlan.name}`);
       currentSubscription.plan = newPlan;
       currentSubscription.price = newPlan.price;
       currentSubscription.customMaxEmployees = newPlan.maxEmployees;
       
-      // ✅ إذا كانت نفس الخطة، إضافة المدة. إذا كانت خطة جديدة، بدء فترة جديدة
       const isSamePlan = newPlan.id === currentPlan?.id;
       this.logger.log(`[changePlanDirectly] هل هي نفس الخطة؟ ${isSamePlan ? 'نعم' : 'لا'}`);
       
       if (isSamePlan) {
-        // تجديد: إضافة المدة إلى تاريخ الانتهاء الحالي
         const newEndDate = new Date(currentSubscription.endDate);
         newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
         currentSubscription.endDate = newEndDate;
@@ -1001,7 +976,6 @@ export class SubscriptionService {
 
       this.logger.log(`[extendSubscription] عدد الموظفين: ${currentEmployeeCount}/${maxAllowed}`);
 
-      // ✅ التحقق المحسن: السماح بالتجديد إذا كانت الخطة تستوعب الموظفين الحاليين
       if (currentEmployeeCount > maxAllowed) {
         this.logger.warn(`[extendSubscription] عدد الموظفين ${currentEmployeeCount} يتجاوز الحد ${maxAllowed} - مرفوض`);
         throw new BadRequestException(
@@ -1010,24 +984,19 @@ export class SubscriptionService {
         );
       }
 
-      // ✅ حساب الأيام المتبقية من الاشتراك القديم
       const now = new Date();
       const endDate = new Date(activeSubscription.endDate);
       const daysRemainingBefore = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
       
-      // ✅ إضافة سنة كاملة (365 يوم) إلى تاريخ الانتهاء الحالي
       const newEndDate = new Date(activeSubscription.endDate);
-      newEndDate.setDate(newEndDate.getDate() + 365); // إضافة سنة كاملة
+      newEndDate.setDate(newEndDate.getDate() + 365); 
       
-      // ✅ حساب إجمالي الأيام المضافة
       const totalDaysAdded = 365;
       
-      // ✅ حساب الأيام المتبقية بعد التمديد
       const daysRemainingAfter = daysRemainingBefore + totalDaysAdded;
       
       this.logger.log(`[extendSubscription] الأيام المتبقية قبل: ${daysRemainingBefore}، بعد: ${daysRemainingAfter}، المضاف: ${totalDaysAdded}`);
       
-      // ✅ تحديث تاريخ الانتهاء فقط (بدون تعديل تاريخ البدء)
       activeSubscription.endDate = newEndDate;
       
       const updatedSubscription = await this.subscriptionRepo.save(activeSubscription);
@@ -1077,7 +1046,6 @@ export class SubscriptionService {
       const currentSubscription = await this.getCompanySubscription(companyId);
       this.logger.log(`[validatePlanChange] الاشتراك الحالي: ${currentSubscription ? `موجود` : 'غير موجود'}`);
       
-      // ✅ إذا لم يكن هناك اشتراك نشط، السماح بالاشتراك في أي خطة
       if (!currentSubscription) {
         this.logger.log(`[validatePlanChange] لا يوجد اشتراك حالي، السماح بالاشتراك الجديد`);
         
@@ -1090,7 +1058,6 @@ export class SubscriptionService {
           where: { company: { id: companyId } }
         });
         
-        // ✅ التحقق من أن الخطة الجديدة تستوعب الموظفين الحاليين
         const canChange = newPlan.maxEmployees >= currentEmployees;
         const action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID' = 'UPGRADE';
         
@@ -1113,7 +1080,6 @@ export class SubscriptionService {
         };
       }
       
-      // ✅ إذا كان هناك اشتراك نشط
       const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
       if (!newPlan) {
         throw new NotFoundException('الخطة الجديدة غير موجودة');
@@ -1136,14 +1102,11 @@ export class SubscriptionService {
       let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
       let message = '';
 
-      // ✅ تعريف واضح للخطة الأقل: أقل في عدد الموظفين وأقل في السعر
       const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
       
-      // ✅ إذا كانت الخطة الجديدة أقل في أحد الجانبين لكن ليست أقل في كليهما
       const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice >= currentPlanPrice) ||
-                                 (newPlanMax >= currentPlanMax && newPlanPrice < currentPlanPrice);
+      (newPlanMax >= currentPlanMax && newPlanPrice < currentPlanPrice);
       
-      // ✅ إذا كانت نفس الخطة تماماً
       const isSamePlan = newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice;
       
       this.logger.log(`[validatePlanChange] تحليل:`);
@@ -1184,7 +1147,6 @@ export class SubscriptionService {
         message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف بسعر ${newPlanPrice} ريال`;
         this.logger.log(`[validatePlanChange] نتيجة: UPGRADE - ${message}`);
       } else {
-        // ✅ حالة نادرة: الخطة الجديدة تساوي في الموظفين والسعر (ممكن خطة مختلفة بنفس المواصفات)
         action = 'RENEW';
         message = `يمكنك التغيير إلى الخطة ${newPlan.name}`;
         this.logger.log(`[validatePlanChange] نتيجة: RENEW (مماثلة) - ${message}`);
@@ -1209,7 +1171,6 @@ export class SubscriptionService {
     }
   }
 
-  // ✅ دالة جديدة للتحقق من إمكانية الترقية
   async canUpgradeToPlan(companyId: string, planId: string): Promise<UpgradeCheckResult> {
     try {
       this.logger.log(`[canUpgradeToPlan] التحقق من إمكانية الترقية: الشركة ${companyId} إلى ${planId}`);
@@ -1222,7 +1183,6 @@ export class SubscriptionService {
         return { canUpgrade: false, reason: 'الخطة غير موجودة' };
       }
 
-      // ✅ إذا لم يكن هناك اشتراك حالي، يمكن الاشتراك في أي خطة
       if (!currentSubscription) {
         this.logger.log(`[canUpgradeToPlan] لا يوجد اشتراك حالي، يمكن الاشتراك`);
         return { 
@@ -1234,7 +1194,6 @@ export class SubscriptionService {
 
       const currentPlan = currentSubscription.plan;
       
-      // ✅ إذا كانت نفس الخطة
       if (currentPlan.id === newPlan.id) {
         this.logger.log(`[canUpgradeToPlan] نفس الخطة، يمكن التجديد`);
         return { 
@@ -1246,9 +1205,8 @@ export class SubscriptionService {
         };
       }
 
-      // ✅ التحقق إذا كانت الخطة الجديدة أكبر أو تساوي
       const isUpgrade = newPlan.maxEmployees >= currentPlan.maxEmployees && 
-                       newPlan.price >= currentPlan.price;
+      newPlan.price >= currentPlan.price;
       
       if (!isUpgrade) {
         this.logger.log(`[canUpgradeToPlan] لا يمكن النزول إلى خطة أقل`);
@@ -1274,7 +1232,6 @@ export class SubscriptionService {
     }
   }
 
-  // ✅ دالة جديدة للحصول على الخطط المتاحة للترقية
   async getAvailableUpgrades(companyId: string): Promise<Plan[]> {
     try {
       this.logger.log(`[getAvailableUpgrades] جلب الخطط المتاحة للشركة ${companyId}`);
@@ -1282,7 +1239,6 @@ export class SubscriptionService {
       const allPlans = await this.planRepo.find();
       const currentSubscription = await this.getCompanySubscription(companyId);
       
-      // ✅ إذا لم يكن هناك اشتراك حالي، كل الخطط متاحة
       if (!currentSubscription) {
         this.logger.log(`[getAvailableUpgrades] لا يوجد اشتراك حالي، كل الخطط متاحة`);
         return allPlans.sort((a, b) => a.maxEmployees - b.maxEmployees);
@@ -1291,11 +1247,10 @@ export class SubscriptionService {
       const currentPlan = currentSubscription.plan;
       this.logger.log(`[getAvailableUpgrades] الخطة الحالية: ${currentPlan.name} (${currentPlan.maxEmployees} موظف - ${currentPlan.price} ريال)`);
       
-      // ✅ تصفية الخطط المسموح بها (أكبر أو تساوي)
       const availablePlans = allPlans.filter(plan => 
         (plan.maxEmployees >= currentPlan.maxEmployees && 
          plan.price >= currentPlan.price) ||
-        plan.id === currentPlan.id // ✅ تضمين الخطة الحالية للتجديد
+        plan.id === currentPlan.id    
       );
       
       this.logger.log(`[getAvailableUpgrades] عدد الخطط المتاحة: ${availablePlans.length} من ${allPlans.length}`);

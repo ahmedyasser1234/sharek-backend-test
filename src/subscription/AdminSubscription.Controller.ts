@@ -29,8 +29,16 @@ import { Repository } from 'typeorm';
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
 import { SubscriptionDebugInfo } from './interfaces/subscription-debug.interface';
+import { Plan } from '../plan/entities/plan.entity';
+import { PlanChangeValidation, UpgradeCheckResult } from './subscription.service';
 
-
+// تعريف interface للمصفوفة tests
+interface TestResult {
+  name: string;
+  success: boolean;
+  result?: any;
+  error?: string;
+}
 
 @ApiTags('Admin Subscription')
 @ApiBearerAuth()
@@ -45,6 +53,8 @@ export class AdminSubscriptionController {
     private readonly paymentService: PaymentService,
     @InjectRepository(PaymentProof)
     private readonly proofRepo: Repository<PaymentProof>,
+    @InjectRepository(Plan)
+    private readonly planRepo: Repository<Plan>,
   ) {}
 
   @Get('plans')
@@ -155,9 +165,17 @@ export class AdminSubscriptionController {
   ): Promise<any> {
     try {
       this.logger.log(`[changePlan] === بدء طلب تغيير الخطة ===`);
+      this.logger.log(`[changePlan] وصل الطلب لـ changePlan`);
       this.logger.log(`[changePlan] companyId: ${companyId}`);
+      this.logger.log(`[changePlan] body: ${JSON.stringify(body)}`);
       this.logger.log(`[changePlan] newPlanId: ${body.newPlanId}`);
       this.logger.log(`[changePlan] adminOverride: ${body.adminOverride || false}`);
+      
+      // التحقق من صحة البيانات
+      if (!body.newPlanId) {
+        this.logger.error(`[changePlan] newPlanId مفقود في body`);
+        throw new BadRequestException('معرف الخطة الجديدة مطلوب');
+      }
       
       const result = await this.subscriptionService.changePlanDirectly(
         companyId, 
@@ -171,10 +189,13 @@ export class AdminSubscriptionController {
       return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const stackTrace = error instanceof Error ? error.stack : 'No stack trace';
+      
       this.logger.error(`[changePlan] === فشل تغيير الخطة ===`);
       this.logger.error(`[changePlan] الشركة: ${companyId}`);
-      this.logger.error(`[changePlan] الخطة الجديدة: ${body.newPlanId}`);
+      this.logger.error(`[changePlan] الخطة الجديدة: ${body?.newPlanId}`);
       this.logger.error(`[changePlan] الخطأ: ${errorMessage}`);
+      this.logger.error(`[changePlan] Stack Trace: ${stackTrace}`);
       
       if (error instanceof NotFoundException) {
         throw new NotFoundException(error.message);
@@ -184,7 +205,7 @@ export class AdminSubscriptionController {
         throw new BadRequestException(error.message);
       }
       
-      throw new InternalServerErrorException('فشل تغيير الخطة');
+      throw new InternalServerErrorException('فشل تغيير الخطة: ' + errorMessage);
     }
   }
 
@@ -580,24 +601,343 @@ export class AdminSubscriptionController {
     }
   }
 
-@Get(':id/debug')
-@ApiOperation({ summary: 'تصحيح حالة اشتراك الشركة (للأدمن)' })
-@ApiParam({ name: 'id', description: 'معرف الشركة' })
-@ApiResponse({ status: 200, description: 'تم جلب معلومات التصحيح' })
-async debugSubscription(
-  @Param('id') companyId: string
-): Promise<SubscriptionDebugInfo> {
-  try {
-    this.logger.log(`[debugSubscription] تصحيح حالة اشتراك الشركة: ${companyId}`);
-    
-    const result = await this.subscriptionService.debugSubscriptionStatus(companyId);
-    
-    this.logger.log(`[debugSubscription] تم جلب معلومات التصحيح للشركة: ${companyId}`);
-    return result;
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    this.logger.error(`[debugSubscription] فشل تصحيح حالة اشتراك الشركة ${companyId}: ${errorMessage}`);
-    throw new InternalServerErrorException('فشل تصحيح حالة الاشتراك');
+  @Get(':id/debug')
+  @ApiOperation({ summary: 'تصحيح حالة اشتراك الشركة (للأدمن)' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiResponse({ status: 200, description: 'تم جلب معلومات التصحيح' })
+  async debugSubscription(
+    @Param('id') companyId: string
+  ): Promise<SubscriptionDebugInfo> {
+    try {
+      this.logger.log(`[debugSubscription] تصحيح حالة اشتراك الشركة: ${companyId}`);
+      
+      const result = await this.subscriptionService.debugSubscriptionStatus(companyId);
+      
+      this.logger.log(`[debugSubscription] تم جلب معلومات التصحيح للشركة: ${companyId}`);
+      return result;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[debugSubscription] فشل تصحيح حالة اشتراك الشركة ${companyId}: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل تصحيح حالة الاشتراك');
+    }
   }
-}
+
+  // ==== نقاط التفتيش الجديدة للتحقق من المشكلة ====
+
+  @Get(':id/current-status')
+  @ApiOperation({ summary: 'الحصول على حالة الاشتراك الحالية للشركة' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  async getCurrentStatus(@Param('id') companyId: string) {
+    try {
+      this.logger.log(`[getCurrentStatus] التحقق من حالة الشركة: ${companyId}`);
+      
+      // 1. التحقق من وجود الشركة
+      const company = await this.companyService.findById(companyId);
+      if (!company) {
+        throw new NotFoundException('الشركة غير موجودة');
+      }
+      
+      // 2. الحصول على الاشتراك الحالي
+      const subscription = await this.subscriptionService.getCompanySubscription(companyId);
+      
+      // 3. الحصول على عدد الموظفين الحاليين
+      const employeeCount = await this.subscriptionService.getCurrentEmployeeCount(companyId);
+      
+      // 4. الحصول على الخطط المتاحة
+      const allPlans = await this.subscriptionService.getPlans();
+      
+      return {
+        company: {
+          id: company.id,
+          name: company.name,
+          email: company.email,
+          subscriptionStatus: company.subscriptionStatus,
+          planId: company.planId,
+          subscribedAt: company.subscribedAt,
+          paymentProvider: company.paymentProvider
+        },
+        currentSubscription: subscription ? {
+          id: subscription.id,
+          planId: subscription.plan?.id,
+          planName: subscription.plan?.name,
+          maxEmployees: subscription.plan?.maxEmployees,
+          price: subscription.plan?.price,
+          customMaxEmployees: subscription.customMaxEmployees,
+          startDate: subscription.startDate,
+          endDate: subscription.endDate,
+          status: subscription.status,
+          subscriptionPrice: subscription.price
+        } : null,
+        employeeCount: employeeCount,
+        allPlans: allPlans.map(plan => ({
+          id: plan.id,
+          name: plan.name,
+          maxEmployees: plan.maxEmployees,
+          price: plan.price,
+          durationInDays: plan.durationInDays,
+          isTrial: plan.isTrial,
+          paymentProvider: plan.paymentProvider
+        })),
+        timestamp: new Date().toISOString(),
+        debugInfo: {
+          hasActiveSubscription: await this.subscriptionService.hasActiveSubscription(companyId),
+          canAddEmployee: await this.subscriptionService.canAddEmployee(companyId),
+          allowedEmployees: await this.subscriptionService.getAllowedEmployees(companyId)
+        }
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[getCurrentStatus] فشل التحقق من الحالة: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل التحقق من الحالة');
+    }
+  }
+
+  @Post(':id/test-change-plan')
+  @ApiOperation({ summary: 'اختبار تغيير الخطة (للتجربة فقط)' })
+  async testChangePlan(
+    @Param('id') companyId: string,
+    @Body() body: { newPlanId: string }
+  ) {
+    try {
+      this.logger.log(`[testChangePlan] === اختبار تغيير الخطة ===`);
+      this.logger.log(`[testChangePlan] companyId: ${companyId}`);
+      this.logger.log(`[testChangePlan] body: ${JSON.stringify(body)}`);
+      
+      // التحقق البسيط
+      if (!body.newPlanId) {
+        return { 
+          success: false, 
+          message: 'newPlanId مطلوب',
+          error: 'Missing newPlanId in request body'
+        };
+      }
+      
+      // محاولة مباشرة
+      const subscription = await this.subscriptionService.getCompanySubscription(companyId);
+      const newPlan = await this.planRepo.findOne({ where: { id: body.newPlanId } });
+      
+      this.logger.log(`[testChangePlan] subscription: ${subscription ? 'موجود' : 'غير موجود'}`);
+      this.logger.log(`[testChangePlan] newPlan: ${newPlan ? `موجود - ${newPlan.name}` : 'غير موجود'}`);
+      
+      if (!newPlan) {
+        return { 
+          success: false, 
+          message: 'الخطة الجديدة غير موجودة',
+          error: `Plan with id ${body.newPlanId} not found`
+        };
+      }
+      
+      let validationResult: PlanChangeValidation | null = null;
+      try {
+        validationResult = await this.subscriptionService.validatePlanChange(companyId, body.newPlanId);
+        this.logger.log(`[testChangePlan] validationResult: ${JSON.stringify(validationResult)}`);
+      } catch (validationError) {
+        this.logger.error(`[testChangePlan] فشل التحقق: ${validationError}`);
+      }
+      
+      let upgradeCheck: UpgradeCheckResult | null = null;
+      try {
+        upgradeCheck = await this.subscriptionService.canUpgradeToPlan(companyId, body.newPlanId);
+        this.logger.log(`[testChangePlan] upgradeCheck: ${JSON.stringify(upgradeCheck)}`);
+      } catch (upgradeError) {
+        this.logger.error(`[testChangePlan] فشل التحقق من الترقية: ${upgradeError}`);
+      }
+      
+      return {
+        success: true,
+        message: 'البيانات صالحة للاختبار',
+        data: {
+          hasCurrentSubscription: !!subscription,
+          currentPlan: subscription?.plan ? {
+            id: subscription.plan.id,
+            name: subscription.plan.name,
+            maxEmployees: subscription.plan.maxEmployees,
+            price: subscription.plan.price
+          } : null,
+          newPlan: {
+            id: newPlan.id,
+            name: newPlan.name,
+            maxEmployees: newPlan.maxEmployees,
+            price: newPlan.price,
+            durationInDays: newPlan.durationInDays
+          },
+          validation: validationResult,
+          upgradeCheck: upgradeCheck,
+          canChange: validationResult?.canChange || false,
+          isUpgrade: newPlan.maxEmployees > (subscription?.plan?.maxEmployees || 0) || 
+                    newPlan.price > (subscription?.plan?.price || 0),
+          isSamePlan: newPlan.id === subscription?.plan?.id
+        }
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const stackTrace = error instanceof Error ? error.stack : 'No stack trace';
+      this.logger.error(`[testChangePlan] خطأ في الاختبار: ${errorMessage}`);
+      this.logger.error(`[testChangePlan] Stack Trace: ${stackTrace}`);
+      return { 
+        success: false, 
+        error: errorMessage,
+        stackTrace: stackTrace
+      };
+    }
+  }
+
+  @Post(':id/force-change-plan')
+  @ApiOperation({ summary: 'تغيير الخطة بالقوة (للأدمن فقط)' })
+  async forceChangePlan(
+    @Param('id') companyId: string,
+    @Body() body: { newPlanId: string }
+  ) {
+    try {
+      this.logger.log(`[forceChangePlan] === تغيير الخطة بالقوة ===`);
+      this.logger.log(`[forceChangePlan] companyId: ${companyId}`);
+      this.logger.log(`[forceChangePlan] newPlanId: ${body.newPlanId}`);
+      
+      if (!body.newPlanId) {
+        throw new BadRequestException('معرف الخطة الجديدة مطلوب');
+      }
+      
+      // استخدام adminOverride = true لتجاوز جميع القيود
+      const result = await this.subscriptionService.changePlanDirectly(
+        companyId,
+        body.newPlanId,
+        true // adminOverride
+      );
+      
+      this.logger.log(`[forceChangePlan] تم تغيير الخطة بالقوة بنجاح`);
+      return {
+        success: true,
+        message: 'تم تغيير الخطة بالقوة بنجاح',
+        data: result
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[forceChangePlan] فشل تغيير الخطة بالقوة: ${errorMessage}`);
+      throw new InternalServerErrorException(`فشل تغيير الخطة بالقوة: ${errorMessage}`);
+    }
+  }
+
+  @Get(':id/test-subscription-service')
+  @ApiOperation({ summary: 'اختبار دوال خدمة الاشتراك' })
+  async testSubscriptionService(@Param('id') companyId: string) {
+    try {
+      this.logger.log(`[testSubscriptionService] اختبار دوال خدمة الاشتراك للشركة: ${companyId}`);
+      
+      const tests: TestResult[] = [];
+      
+      // اختبار 1: الحصول على الاشتراك الحالي
+      try {
+        const subscription = await this.subscriptionService.getCompanySubscription(companyId);
+        tests.push({
+          name: 'getCompanySubscription',
+          success: true,
+          result: subscription ? `موجود - ${subscription.plan?.name}` : 'غير موجود'
+        });
+      } catch (error) {
+        tests.push({
+          name: 'getCompanySubscription',
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      
+      // اختبار 2: التحقق من وجود اشتراك نشط
+      try {
+        const hasActive = await this.subscriptionService.hasActiveSubscription(companyId);
+        tests.push({
+          name: 'hasActiveSubscription',
+          success: true,
+          result: hasActive
+        });
+      } catch (error) {
+        tests.push({
+          name: 'hasActiveSubscription',
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      
+      // اختبار 3: عدد الموظفين الحاليين
+      try {
+        const employeeCount = await this.subscriptionService.getCurrentEmployeeCount(companyId);
+        tests.push({
+          name: 'getCurrentEmployeeCount',
+          success: true,
+          result: employeeCount
+        });
+      } catch (error) {
+        tests.push({
+          name: 'getCurrentEmployeeCount',
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      
+      // اختبار 4: الحدود المسموحة
+      try {
+        const allowed = await this.subscriptionService.getAllowedEmployees(companyId);
+        tests.push({
+          name: 'getAllowedEmployees',
+          success: true,
+          result: allowed
+        });
+      } catch (error) {
+        tests.push({
+          name: 'getAllowedEmployees',
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      
+      // اختبار 5: إمكانية إضافة موظف
+      try {
+        const canAdd = await this.subscriptionService.canAddEmployee(companyId);
+        tests.push({
+          name: 'canAddEmployee',
+          success: true,
+          result: canAdd
+        });
+      } catch (error) {
+        tests.push({
+          name: 'canAddEmployee',
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      
+      // اختبار 6: جلب جميع الخطط
+      try {
+        const plans = await this.subscriptionService.getPlans();
+        tests.push({
+          name: 'getPlans',
+          success: true,
+          result: `عدد الخطط: ${plans.length}`
+        });
+      } catch (error) {
+        tests.push({
+          name: 'getPlans',
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      
+      const passedTests = tests.filter(t => t.success).length;
+      const failedTests = tests.filter(t => !t.success).length;
+      
+      return {
+        companyId,
+        timestamp: new Date().toISOString(),
+        tests,
+        summary: {
+          totalTests: tests.length,
+          passedTests: passedTests,
+          failedTests: failedTests
+        }
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[testSubscriptionService] فشل اختبار الخدمة: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل اختبار الخدمة');
+    }
+  }
 }
