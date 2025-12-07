@@ -1,4 +1,3 @@
-
 import {
   Controller,
   Get,
@@ -132,50 +131,79 @@ export class AdminSubscriptionController {
   }
 
   @Patch(':id/change-plan')
-@ApiOperation({ summary: 'تغيير خطة اشتراك الشركة (مباشر - باستخدام body)' })
-@ApiParam({ name: 'id', description: 'معرف الشركة' })
-@ApiResponse({ status: 200, description: 'تم تغيير الخطة بنجاح' })
-@ApiResponse({ status: 400, description: 'بيانات غير صالحة' })
-@ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
-async changePlan(
-  @Param('id') companyId: string,
-  @Body() body: { newPlanId: string, adminOverride?: boolean },
-) {
-  try {
-    this.logger.log(`[changePlan] === بدء طلب تغيير الخطة ===`);
-    this.logger.log(`[changePlan] companyId: ${companyId}`);
-    this.logger.log(`[changePlan] body: ${JSON.stringify(body)}`);
-    
-    if (!body || !body.newPlanId) {
-      this.logger.error(`[changePlan] newPlanId مفقود في body`);
-      throw new BadRequestException('معرف الخطة الجديدة مطلوب في body');
+  @ApiOperation({ summary: 'تغيير خطة اشتراك الشركة (مباشر - باستخدام body)' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiResponse({ status: 200, description: 'تم تغيير الخطة بنجاح' })
+  @ApiResponse({ status: 400, description: 'بيانات غير صالحة' })
+  @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
+  async changePlan(
+    @Param('id') companyId: string,
+    @Body() body: { newPlanId: string, adminOverride?: boolean },
+  ) {
+    try {
+      this.logger.log(`[changePlan] === بدء طلب تغيير الخطة ===`);
+      this.logger.log(`[changePlan] companyId: ${companyId}`);
+      this.logger.log(`[changePlan] body: ${JSON.stringify(body)}`);
+      
+      if (!body || !body.newPlanId) {
+        this.logger.error(`[changePlan] newPlanId مفقود في body`);
+        throw new BadRequestException('معرف الخطة الجديدة مطلوب في body');
+      }
+      
+      const adminOverride = body.adminOverride !== undefined ? body.adminOverride : true;
+      
+      this.logger.log(`[changePlan] استخدام adminOverride = ${adminOverride}`);
+      
+      const result = await this.subscriptionService.changePlanDirectly(
+        companyId, 
+        body.newPlanId, 
+        adminOverride
+      );
+      
+      this.logger.log(`[changePlan] === نجاح تغيير الخطة ===`);
+      this.logger.log(`[changePlan] النتيجة: ${result.message}`);
+      
+      return result;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      this.logger.error(`[changePlan] === فشل تغيير الخطة ===`);
+      this.logger.error(`[changePlan] الشركة: ${companyId}`);
+      this.logger.error(`[changePlan] الخطة الجديدة: ${body?.newPlanId}`);
+      this.logger.error(`[changePlan] الخطأ: ${errorMessage}`);
+      
+      throw error;
     }
-    
-    const adminOverride = body.adminOverride !== undefined ? body.adminOverride : true;
-    
-    this.logger.log(`[changePlan] استخدام adminOverride = ${adminOverride}`);
-    
-    const result = await this.subscriptionService.changePlanDirectly(
-      companyId, 
-      body.newPlanId, 
-      adminOverride
-    );
-    
-    this.logger.log(`[changePlan] === نجاح تغيير الخطة ===`);
-    this.logger.log(`[changePlan] النتيجة: ${result.message}`);
-    
-    return result;
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    
-    this.logger.error(`[changePlan] === فشل تغيير الخطة ===`);
-    this.logger.error(`[changePlan] الشركة: ${companyId}`);
-    this.logger.error(`[changePlan] الخطة الجديدة: ${body?.newPlanId}`);
-    this.logger.error(`[changePlan] الخطأ: ${errorMessage}`);
-    
-    throw error;
   }
-}
+
+  // إضافة endpoint للتوافق مع الطريقة القديمة
+  @Patch(':id/change-plan/:newPlanId')
+  @ApiOperation({ summary: 'تغيير خطة اشتراك الشركة (طريقة قديمة - للتوافق)' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiParam({ name: 'newPlanId', description: 'معرف الخطة الجديدة' })
+  @ApiResponse({ status: 200, description: 'تم تغيير الخطة بنجاح' })
+  async changePlanOld(
+    @Param('id') companyId: string,
+    @Param('newPlanId') newPlanId: string,
+  ) {
+    try {
+      this.logger.log(`[changePlanOld] طلب تغيير خطة (طريقة قديمة): الشركة ${companyId} إلى ${newPlanId}`);
+      
+      // استخدام adminOverride = true للتوافق
+      const result = await this.subscriptionService.changePlanDirectly(
+        companyId,
+        newPlanId,
+        true
+      );
+      
+      this.logger.log(`[changePlanOld] تم تغيير الخطة بنجاح للشركة: ${companyId}`);
+      return result;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[changePlanOld] فشل تغيير الخطة للشركة ${companyId}: ${errorMessage}`);
+      throw error;
+    }
+  }
 
   @Get(':id/history')
   @ApiOperation({ summary: 'عرض سجل اشتراكات الشركة' })
