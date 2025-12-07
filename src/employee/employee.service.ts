@@ -374,6 +374,15 @@ export class EmployeeService {
     let backgroundImageUrl: string | null = null;
     let uploadedImagesCount = 0;
 
+    // ✅ التعديل: التحقق من الـ backgroundImage في الـ DTO أولاً (لو جاي كـ URL)
+    if (dto.backgroundImage && typeof dto.backgroundImage === 'string' && dto.backgroundImage.trim() !== '') {
+      const bgUrl = dto.backgroundImage.trim();
+      if (this.isValidUrl(bgUrl)) {
+        backgroundImageUrl = bgUrl;
+        this.logger.log(`✅ تم تعيين backgroundImage من الـ DTO: ${backgroundImageUrl}`);
+      }
+    }
+
     const baseUploadsDir: string = path.join(process.cwd(), 'uploads');
     const companyPdfsDir: string = path.join(baseUploadsDir, companyId, 'pdfs');
 
@@ -432,8 +441,9 @@ export class EmployeeService {
 
             if (field) {
               if (field === 'backgroundImage') {
+                // ✅ هنا بنحفظ الـ backgroundImage من الملف (يأخذ الأولوية على الـ DTO)
                 backgroundImageUrl = result.secure_url;
-                this.logger.log(` تم تعيين صورة الخلفية: ${backgroundImageUrl}`);
+                this.logger.log(`✅ تم تعيين صورة الخلفية من ملف: ${backgroundImageUrl}`);
               } else {
                 const updateData: Partial<Employee> = { [field]: result.secure_url };
                 await this.employeeRepo.update(saved.id, updateData);
@@ -475,6 +485,7 @@ export class EmployeeService {
   }
 
   this.logger.log(` بدء إنشاء بطاقة الموظف`);
+  this.logger.log(`✅ backgroundImage المرسل للكارد: ${backgroundImageUrl || 'null'}`);
   const cardResult = await this.cardService.generateCard(saved, dto.designId, dto.qrStyle, {
     fontColorHead: dto.fontColorHead,
     fontColorHead2: dto.fontColorHead2,
@@ -490,7 +501,7 @@ export class EmployeeService {
     shadowSpread: dto.shadowSpread,
     cardRadius: dto.cardRadius,
     cardStyleSection: dto.cardStyleSection,
-    backgroundImage: backgroundImageUrl,
+    backgroundImage: backgroundImageUrl, // ✅ هنا بنمرر الـ backgroundImage للكارد
   });
 
   saved.cardUrl = cardResult.cardUrl;

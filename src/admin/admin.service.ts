@@ -144,31 +144,32 @@ export class AdminService {
     console.log(`تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
   }
 
-async login(email: string, password: string): Promise<{ 
-  accessToken: string; 
-  refreshToken: string;
-  admin: { email: string };
-}> {
-  const admin = await this.adminRepo.findOne({ 
-    where: { email, isActive: true } 
-  });
+  async login(email: string, password: string): Promise<{ 
+    accessToken: string; 
+    refreshToken: string;
+    admin: { email: string };
+  }> 
+  {
+    const admin = await this.adminRepo.findOne({ 
+      where: { email, isActive: true } 
+    });
   
-  if (!admin || !(await bcrypt.compare(password, admin.password))) {
-    throw new UnauthorizedException('بيانات الدخول غير صحيحة');
+    if (!admin || !(await bcrypt.compare(password, admin.password))) {
+      throw new UnauthorizedException('بيانات الدخول غير صحيحة');
+    }
+
+    const payload = { adminId: admin.id, role: 'admin' };
+    const accessToken = this.adminJwt.signAccess(payload);
+    const refreshToken = this.adminJwt.signRefresh(payload);
+
+    await this.tokenRepo.save({ admin, refreshToken });
+
+    return { 
+      accessToken, 
+      refreshToken, 
+      admin: { email: admin.email }
+    };
   }
-
-  const payload = { adminId: admin.id, role: 'admin' };
-  const accessToken = this.adminJwt.signAccess(payload);
-  const refreshToken = this.adminJwt.signRefresh(payload);
-
-  await this.tokenRepo.save({ admin, refreshToken });
-
-  return { 
-    accessToken, 
-    refreshToken, 
-    admin: { email: admin.email }
-  };
-}
 
   async refresh(refreshToken: string): Promise<{ 
     accessToken: string;
@@ -319,6 +320,7 @@ async login(email: string, password: string): Promise<{
       activatedSubscriptions: []
     } as ManagerWithoutPassword;
   }
+
 
   async getAllManagers(): Promise<ManagerWithoutPassword[]> {
     const managers = await this.managerRepo.find({
