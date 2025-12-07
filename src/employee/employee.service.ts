@@ -236,8 +236,7 @@ export class EmployeeService {
         const normalizedUrl = normalizeUrl(value);
         if (normalizedUrl && isValidUrl(normalizedUrl)) {
           employeeData[field as keyof typeof employeeData] = normalizedUrl as any;
-          this.logger.log(`  تم تحويل ${field}: ${value
-          } → ${normalizedUrl}`);
+          this.logger.log(`  تم تحويل ${field}: ${value} → ${normalizedUrl}`);
         } else if (normalizedUrl) {
           this.logger.warn(`  الرابط غير صالح في ${field}: ${value}`);
           employeeData[field as keyof typeof employeeData] = null as any;
@@ -500,10 +499,17 @@ export class EmployeeService {
   
   saved = await this.employeeRepo.save(saved);
 
+  // التعديل: جلب الـ backgroundImage من الـ card
+  const card = await this.cardRepo.findOne({ where: { employeeId: saved.id } });
+
   return {
     statusCode: HttpStatus.CREATED,
     message: 'تم إنشاء الموظف بنجاح',
-    data: { ...saved, qrCode: cardResult.qrCode },
+    data: { 
+      ...saved, 
+      qrCode: cardResult.qrCode,
+      backgroundImage: card?.backgroundImage || null, // إضافة الـ backgroundImage في الـ response
+    },
   };
   }
 
@@ -524,11 +530,14 @@ export class EmployeeService {
     }
 
     const [employees, total] = await query.getManyAndCount();
+    
+    // التعديل: إضافة الـ backgroundImage لكل موظف
     const data = await Promise.all(
       employees.map(async (emp) => ({
         ...emp,
         qrCode: emp.cards?.[0]?.qrCode || '',
         visitsCount: await this.visitService.getVisitCount(emp.id),
+        backgroundImage: emp.cards?.[0]?.backgroundImage || null, // إضافة الـ backgroundImage
       })),
     );
     return {
@@ -554,10 +563,17 @@ export class EmployeeService {
       throw new NotFoundException('Employee not found');
     }
 
+    // التعديل: إضافة الـ backgroundImage في الـ response
+    const card = employee.cards?.[0];
+    const responseData = {
+      ...employee,
+      backgroundImage: card?.backgroundImage || null,
+    };
+
     return {
       statusCode: HttpStatus.OK,
-      message: 'تم جلب بيانات الموظف بنجاح',
-      data: employee,
+      message: 'Employee fetched successfully',
+      data: responseData,
     };
   }
 
@@ -946,10 +962,17 @@ async generateGoogleWalletLink(employeeId: number): Promise<{ url: string; saveL
       throw new NotFoundException('فشل في جلب بيانات الموظف بعد التحديث');
     }
 
+    // التعديل: إضافة الـ backgroundImage في الـ response
+    const card = finalEmployee.cards?.[0];
+    const responseData = {
+      ...finalEmployee,
+      backgroundImage: card?.backgroundImage || null,
+    };
+
     return {
       statusCode: HttpStatus.OK,
       message: 'تم تحديث الموظف بنجاح',
-      data: finalEmployee,
+      data: responseData,
     };
   }
 
@@ -1350,7 +1373,7 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
       cardInfo: {
         uniqueUrl: card.uniqueUrl,
         designId: card.designId,
-        backgroundImage: card.backgroundImage,
+        backgroundImage: card.backgroundImage, // إضافة الـ backgroundImage هنا أيضاً
       }
     };
 
@@ -1460,7 +1483,6 @@ async exportToExcel(companyId: string): Promise<Buffer> {
         let value: any;
 
         if (this.isCardColumn(col)) {
-          // ✅ استخدام any لتجنب type assertion
           value = card ? (card as any)[col] : '';
         } else {
           if (col === 'workingHours') {
@@ -1514,7 +1536,6 @@ private getColumnsWithData(
 
       if (this.isCardColumn(column)) {
         const card = emp.cards?.[0];
-        // ✅ استخدام any لتجنب type assertion
         value = card ? (card as any)[column] : null;
       } else {
         if (column === 'workingHours') {
