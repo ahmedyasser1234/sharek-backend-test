@@ -396,7 +396,7 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       this.logger.log(`تم إنشاء الموظف: ${result.data?.id}`);
       return {
         statusCode: HttpStatus.CREATED,
-        message: 'Employee created successfully',
+        message: 'تم إنشاء البطاقة بنجاح',
         data: result.data,
       };
     } catch (error: unknown) {
@@ -511,7 +511,7 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       const result = await this.employeeService.update(id, dto, req.user.companyId, files); 
       return {
         statusCode: HttpStatus.OK,
-        message: 'Employee updated successfully',
+        message: 'تم تحديث بيانات البطاقة بنجاح',
         data: result.data,
       };
     } catch (error: unknown) {
@@ -535,7 +535,7 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       await this.employeeService.remove(id);
       return {
         statusCode: HttpStatus.OK,
-        message: 'Employee deleted successfully',
+        message: 'تم حذف البطاقة بنجاح',
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
