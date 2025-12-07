@@ -95,6 +95,14 @@ export interface PlanChangeResult {
   };
 }
 
+export interface UpgradeCheckResult {
+  canUpgrade: boolean;
+  reason?: string;
+  currentPlan?: Plan;
+  newPlan?: Plan;
+  isSamePlan?: boolean;
+}
+
 @Injectable()
 export class SubscriptionService {
   private readonly logger = new Logger(SubscriptionService.name);
@@ -217,24 +225,38 @@ export class SubscriptionService {
         const newPlanMax = newPlan.maxEmployees;
         const newPlanPrice = newPlan.price;
 
-        if (newPlanMax < currentPlanMax || newPlanPrice < currentPlanPrice) {
+        if (newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice) {
           throw new BadRequestException(
             `لا يمكن الاشتراك في خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) ` +
             `لأنك مشترك حالياً في خطة ${currentPlan.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) - ` +
             `غير مسموح بالنزول لخطة أقل`
           );
         }
+        
+        if (newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice) {
+          this.logger.log(` الشركة ${companyId} تطلب التجديد في نفس الخطة`);
+        }
+        
+        if (newPlanMax > currentPlanMax || newPlanPrice > currentPlanPrice) {
+          this.logger.log(` الشركة ${companyId} تطلب الترقية من ${currentPlan.name} إلى ${newPlan.name}`);
+        }
       }
 
       if (existingActiveSubscription) {
         this.logger.log(` يوجد اشتراك نشط بالفعل للشركة ${companyId}، سيتم تحديثه`);
         
-        existingActiveSubscription.plan = newPlan;
-        existingActiveSubscription.startDate = new Date();
-        existingActiveSubscription.endDate = new Date();
-        existingActiveSubscription.endDate.setDate(existingActiveSubscription.startDate.getDate() + newPlan.durationInDays);
+        const isSamePlan = existingActiveSubscription.plan?.id === newPlan.id;
+        
+        if (!isSamePlan) {
+          existingActiveSubscription.plan = newPlan;
+          existingActiveSubscription.customMaxEmployees = newPlan.maxEmployees;
+        }
+        
         existingActiveSubscription.price = planPrice;
-        existingActiveSubscription.customMaxEmployees = newPlan.maxEmployees;
+        
+        const newEndDate = new Date(existingActiveSubscription.endDate);
+        newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
+        existingActiveSubscription.endDate = newEndDate;
         
         if (activatedBySellerId) {
           existingActiveSubscription.activatedBySellerId = activatedBySellerId;
@@ -272,7 +294,7 @@ export class SubscriptionService {
         } else if (isAdminOverride) {
           message = 'تم تحديث الاشتراك يدويًا بواسطة الأدمن';
         } else {
-          message = 'تم تحديث الاشتراك بنجاح';
+          message = isSamePlan ? 'تم تجديد الاشتراك بنجاح' : 'تم تحديث الاشتراك بنجاح';
         }
 
         this.logger.log(` تم تحديث الاشتراك بنجاح للشركة ${companyId} في الخطة ${newPlan.name}`);
@@ -412,9 +434,11 @@ export class SubscriptionService {
       }
 
       currentSubscription.plan = newPlan;
-      currentSubscription.startDate = new Date();
-      currentSubscription.endDate = new Date();
-      currentSubscription.endDate.setDate(currentSubscription.startDate.getDate() + newPlan.durationInDays);
+      
+      const newEndDate = new Date(currentSubscription.endDate);
+      newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
+      currentSubscription.endDate = newEndDate;
+      
       currentSubscription.price = newPlan.price;
       currentSubscription.customMaxEmployees = Math.max(newPlan.maxEmployees, validation.currentPlanMax);
 
@@ -752,19 +776,17 @@ export class SubscriptionService {
       const currentEmployeeCount = allowedEmployees.current;
       const maxAllowed = allowedEmployees.maxAllowed;
 
-      const currentPlanMax = activeSubscription.plan.maxEmployees;
-      if (maxAllowed < currentPlanMax) {
+      if (currentEmployeeCount > maxAllowed) {
         throw new BadRequestException(
-          `لا يمكن تمديد الاشتراك - الخطة الحالية تدعم ${maxAllowed} موظف بينما الخطة الأصلية كانت ${currentPlanMax} موظف.\n\n` +
-          `يجب الاشتراك في خطة تدعم ${currentEmployeeCount} موظف أو أكثر.`
+          `لا يمكن تمديد الاشتراك - عدد الموظفين الحاليين (${currentEmployeeCount}) ` +
+          `يتجاوز الحد المسموح (${maxAllowed})`
         );
       }
 
-      const newEndDate = new Date();
+      const newEndDate = new Date(activeSubscription.endDate);
       newEndDate.setDate(newEndDate.getDate() + activeSubscription.plan.durationInDays);
       
       activeSubscription.endDate = newEndDate;
-      activeSubscription.startDate = new Date(); 
       
       const updatedSubscription = await this.subscriptionRepo.save(activeSubscription);
 
@@ -805,13 +827,42 @@ export class SubscriptionService {
   async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChangeValidation> {
     try {
       const currentSubscription = await this.getCompanySubscription(companyId);
+      
       if (!currentSubscription) {
-        throw new NotFoundException('لا يوجد اشتراك حالي للشركة');
+        const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
+        if (!newPlan) {
+          throw new NotFoundException('الخطة الجديدة غير موجودة');
+        }
+        
+        const currentEmployees = await this.employeeRepo.count({
+          where: { company: { id: companyId } }
+        });
+        
+        const canChange = newPlan.maxEmployees >= currentEmployees;
+        const action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID' = canChange ? 'UPGRADE' : 'DOWNGRADE';
+        
+        let message = '';
+        if (canChange) {
+          message = `يمكنك الاشتراك في الخطة ${newPlan.name} التي تدعم ${newPlan.maxEmployees} موظف`;
+        } else {
+          message = `لا يمكن الاشتراك في الخطة ${newPlan.name} (${newPlan.maxEmployees} موظف) لأن لديك ${currentEmployees} موظف`;
+        }
+        
+        return {
+          canChange,
+          message,
+          currentPlanMax: 0,
+          newPlanMax: newPlan.maxEmployees,
+          currentEmployees,
+          action
+        };
       }
+      
       const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
       if (!newPlan) {
         throw new NotFoundException('الخطة الجديدة غير موجودة');
       }
+      
       const currentEmployees = await this.employeeRepo.count({
         where: { company: { id: companyId } }
       });
@@ -824,9 +875,10 @@ export class SubscriptionService {
       let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
       let message = '';
 
-      const isDowngrading = newPlanMax < currentPlanMax || newPlanPrice < currentPlanPrice;
+      const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
       const isSamePrice = newPlanPrice === currentPlanPrice;
       const isSameEmployees = newPlanMax === currentPlanMax;
+      
       if (isDowngrading) {
         action = 'DOWNGRADE';
         message = `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) - غير مسموح بالانتقال لخطة أقل`;
@@ -870,6 +922,83 @@ export class SubscriptionService {
     } catch (error: unknown) {
       this.logger.error(` فشل التحقق من تغيير الخطة: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
+    }
+  }
+
+  async canUpgradeToPlan(companyId: string, planId: string): Promise<UpgradeCheckResult> {
+    try {
+      const currentSubscription = await this.getCompanySubscription(companyId);
+      const newPlan = await this.planRepo.findOne({ where: { id: planId } });
+      
+      if (!newPlan) {
+        return { canUpgrade: false, reason: 'الخطة غير موجودة' };
+      }
+
+      if (!currentSubscription) {
+        return { 
+          canUpgrade: true, 
+          reason: 'يمكن الاشتراك في هذه الخطة',
+          newPlan 
+        };
+      }
+
+      const currentPlan = currentSubscription.plan;
+      
+      if (currentPlan.id === newPlan.id) {
+        return { 
+          canUpgrade: true, 
+          isSamePlan: true,
+          reason: 'نفس الخطة - يمكن التجديد',
+          currentPlan,
+          newPlan 
+        };
+      }
+
+      const isUpgrade = newPlan.maxEmployees >= currentPlan.maxEmployees && 
+                       newPlan.price >= currentPlan.price;
+      
+      if (!isUpgrade) {
+        return { 
+          canUpgrade: false, 
+          reason: `لا يمكن النزول إلى خطة أقل. الخطة الحالية: ${currentPlan.name} (${currentPlan.maxEmployees} موظف - ${currentPlan.price} ريال)`,
+          currentPlan,
+          newPlan
+        };
+      }
+
+      return { 
+        canUpgrade: true, 
+        reason: 'يمكن الترقية إلى هذه الخطة',
+        currentPlan,
+        newPlan
+      };
+    } catch (error) {
+      this.logger.error(`Failed to check upgrade: ${error}`);
+      return { canUpgrade: false, reason: 'خطأ في التحقق' };
+    }
+  }
+
+  async getAvailableUpgrades(companyId: string): Promise<Plan[]> {
+    try {
+      const allPlans = await this.planRepo.find();
+      const currentSubscription = await this.getCompanySubscription(companyId);
+      
+      if (!currentSubscription) {
+        return allPlans.sort((a, b) => a.maxEmployees - b.maxEmployees);
+      }
+      
+      const currentPlan = currentSubscription.plan;
+      
+      const availablePlans = allPlans.filter(plan => 
+        (plan.maxEmployees >= currentPlan.maxEmployees && 
+         plan.price >= currentPlan.price) ||
+        plan.id === currentPlan.id 
+      );
+      
+      return availablePlans.sort((a, b) => a.maxEmployees - b.maxEmployees);
+    } catch (error) {
+      this.logger.error(`Failed to get available upgrades: ${error}`);
+      throw new InternalServerErrorException('فشل جلب الخطط المتاحة');
     }
   }
 

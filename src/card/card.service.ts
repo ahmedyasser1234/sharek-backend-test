@@ -27,7 +27,7 @@ export class CardService {
     designId: string; 
     qrStyle: number 
   }> {
-    const finalDesignId = designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
+    const finalDesignId = designId || employee.designId || employee.company?.defaultDesignId || '1';
     const finalQrStyle = qrStyle ?? 1;
 
     let card = await this.cardRepo.findOne({

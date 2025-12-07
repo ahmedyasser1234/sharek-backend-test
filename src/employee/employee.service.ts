@@ -374,12 +374,11 @@ export class EmployeeService {
     let backgroundImageUrl: string | null = null;
     let uploadedImagesCount = 0;
 
-    // ✅ التعديل: التحقق من الـ backgroundImage في الـ DTO أولاً (لو جاي كـ URL)
     if (dto.backgroundImage && typeof dto.backgroundImage === 'string' && dto.backgroundImage.trim() !== '') {
       const bgUrl = dto.backgroundImage.trim();
       if (this.isValidUrl(bgUrl)) {
         backgroundImageUrl = bgUrl;
-        this.logger.log(`✅ تم تعيين backgroundImage من الـ DTO: ${backgroundImageUrl}`);
+        this.logger.log(` تم تعيين backgroundImage من الـ DTO: ${backgroundImageUrl}`);
       }
     }
 
@@ -441,9 +440,8 @@ export class EmployeeService {
 
             if (field) {
               if (field === 'backgroundImage') {
-                // ✅ هنا بنحفظ الـ backgroundImage من الملف (يأخذ الأولوية على الـ DTO)
                 backgroundImageUrl = result.secure_url;
-                this.logger.log(`✅ تم تعيين صورة الخلفية من ملف: ${backgroundImageUrl}`);
+                this.logger.log(` تم تعيين صورة الخلفية من ملف: ${backgroundImageUrl}`);
               } else {
                 const updateData: Partial<Employee> = { [field]: result.secure_url };
                 await this.employeeRepo.update(saved.id, updateData);
@@ -485,7 +483,7 @@ export class EmployeeService {
   }
 
   this.logger.log(` بدء إنشاء بطاقة الموظف`);
-  this.logger.log(`✅ backgroundImage المرسل للكارد: ${backgroundImageUrl || 'null'}`);
+  this.logger.log(` backgroundImage المرسل للكارد: ${backgroundImageUrl || 'null'}`);
   const cardResult = await this.cardService.generateCard(saved, dto.designId, dto.qrStyle, {
     fontColorHead: dto.fontColorHead,
     fontColorHead2: dto.fontColorHead2,
@@ -501,7 +499,7 @@ export class EmployeeService {
     shadowSpread: dto.shadowSpread,
     cardRadius: dto.cardRadius,
     cardStyleSection: dto.cardStyleSection,
-    backgroundImage: backgroundImageUrl, // ✅ هنا بنمرر الـ backgroundImage للكارد
+    backgroundImage: backgroundImageUrl,      
   });
 
   saved.cardUrl = cardResult.cardUrl;
@@ -510,7 +508,6 @@ export class EmployeeService {
   
   saved = await this.employeeRepo.save(saved);
 
-  // التعديل: جلب الـ backgroundImage من الـ card
   const card = await this.cardRepo.findOne({ where: { employeeId: saved.id } });
 
   return {
@@ -519,7 +516,7 @@ export class EmployeeService {
     data: { 
       ...saved, 
       qrCode: cardResult.qrCode,
-      backgroundImage: card?.backgroundImage || null, // إضافة الـ backgroundImage في الـ response
+      backgroundImage: card?.backgroundImage || null,  
     },
   };
   }
@@ -542,13 +539,12 @@ export class EmployeeService {
 
     const [employees, total] = await query.getManyAndCount();
     
-    // التعديل: إضافة الـ backgroundImage لكل موظف
     const data = await Promise.all(
       employees.map(async (emp) => ({
         ...emp,
         qrCode: emp.cards?.[0]?.qrCode || '',
         visitsCount: await this.visitService.getVisitCount(emp.id),
-        backgroundImage: emp.cards?.[0]?.backgroundImage || null, // إضافة الـ backgroundImage
+        backgroundImage: emp.cards?.[0]?.backgroundImage || null, 
       })),
     );
     return {
@@ -574,7 +570,6 @@ export class EmployeeService {
       throw new NotFoundException('Employee not found');
     }
 
-    // التعديل: إضافة الـ backgroundImage في الـ response
     const card = employee.cards?.[0];
     const responseData = {
       ...employee,
@@ -1743,22 +1738,22 @@ async importFromExcel(
     'imageurl': 'imageUrl',
     'profile image': 'profileImageUrl',
     'profileimageurl': 'profileImageUrl',
-    'لون عنوان رئيسي': 'fontColorHead',
-    'لون عنوان ثانوي': 'fontColorHead2', 
-    'لون الفقرات': 'fontColorParagraph',
-    'لون النص الإضافي': 'fontColorExtra',
-    'خلفية القسم الرئيسي': 'sectionBackground',
-    'خلفية البطاقة': 'Background',
-    'خلفية القسم الثانوي': 'sectionBackground2',
-    'لون الظل': 'dropShadow',
-    'إزاحة الظل (x)': 'shadowX',
-    'إزاحة الظل (y)': 'shadowY',
-    'تعتيم الظل (blur)': 'shadowBlur',
-    'انتشار الظل (spread)': 'shadowSpread',
-    'زوايا البطاقة': 'cardRadius',
-    'نمط قسم البطاقة': 'cardStyleSection',
-    'صورة الخلفية': 'backgroundImage',
-    'نمط qr': 'qrStyle'
+    'fontColorHead': 'fontColorHead',
+    'fontColorHead2': 'fontColorHead2', 
+    'fontColorParagraph': 'fontColorParagraph',
+    'fontColorExtra': 'fontColorExtra',
+    'sectionBackground': 'sectionBackground',
+    'Background': 'Background',
+    'sectionBackground2': 'sectionBackground2',
+    'dropShadow': 'dropShadow',
+    'shadowX': 'shadowX',
+    'shadowY': 'shadowY',
+    'shadowBlur': 'shadowBlur',
+    'shadowSpread': 'shadowSpread',
+    'cardRadius': 'cardRadius',
+    'cardStyleSection': 'cardStyleSection',
+    'backgroundImage': 'backgroundImage',
+    'qrStyle': 'qrStyle'
   };
 
   for (let i = 2; i <= sheet.rowCount; i++) {
