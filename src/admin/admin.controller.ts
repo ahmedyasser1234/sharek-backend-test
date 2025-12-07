@@ -103,7 +103,6 @@ export class AdminController {
     return this.service.getAdminCompanies(adminId);
   }
 
-  // === مديري النظام (البائعين) ===
   @Post('managers')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -171,7 +170,6 @@ export class AdminController {
     return this.service.deleteManager(id);
   }
 
-  // === إدارة الأدمن نفسة ===
   @Post('create-admin')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -192,7 +190,6 @@ export class AdminController {
     return this.service.updateAdmin(id, dto);
   }
 
-  // === دوال إدارة الحسابات البنكية المستقلة ===
   @Post('bank-accounts')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -259,7 +256,6 @@ export class AdminController {
     return this.service.deleteBankAccount(id);
   }
 
-  // === الإحصائيات والبيانات ===
   @Get('download-database')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -278,7 +274,6 @@ export class AdminController {
     return this.service.getStats();
   }
 
-  // === إدارة الشركات ===
   @Get('companies')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -347,7 +342,6 @@ export class AdminController {
     return this.service.deleteCompany(id);
   }
 
-  // === إدارة الموظفين ===
   @Get('employees/:companyId')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -367,7 +361,6 @@ export class AdminController {
     return this.service.deleteEmployee(id);
   }
 
-  // === إدارة الاشتراكات ===
   @Get('subscriptions')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -398,6 +391,19 @@ export class AdminController {
     @Body() body: { planId: string }
   ): Promise<CompanySubscription | null> {
     return this.service.changeSubscriptionPlan(id, body.planId);
+  }
+
+  @Patch('companies/:companyId/upgrade-plan/:planId')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'ترقية اشتراك شركة إلى خطة جديدة' })
+  @ApiResponse({ status: 200, description: 'تم ترقية الاشتراك بنجاح' })
+  @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
+  async upgradeCompanyPlan(
+    @Param('companyId') companyId: string,
+    @Param('planId') planId: string
+  ): Promise<CompanySubscription> {
+    return this.service.upgradeCompanySubscription(companyId, planId);
   }
 
   @Post('subscriptions/:companyId/subscribe/:planId')

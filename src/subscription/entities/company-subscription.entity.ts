@@ -99,4 +99,5 @@ export class CompanySubscription {
   })
   @JoinColumn({ name: 'activatedByAdminId' })
   activatedByAdmin: Admin | null;
+  maxEmployees: number;
 }
