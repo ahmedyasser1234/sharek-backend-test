@@ -32,7 +32,6 @@ import { SubscriptionDebugInfo } from './interfaces/subscription-debug.interface
 import { Plan } from '../plan/entities/plan.entity';
 import { PlanChangeValidation, UpgradeCheckResult } from './subscription.service';
 
-// تعريف interface للمصفوفة tests
 interface TestResult {
   name: string;
   success: boolean;
@@ -153,89 +152,100 @@ export class AdminSubscriptionController {
     }
   }
 
-@Patch(':id/change-plan')
-@ApiOperation({ summary: 'تغيير خطة اشتراك الشركة (مباشر - باستخدام body)' })
-@ApiParam({ name: 'id', description: 'معرف الشركة' })
-@ApiResponse({ status: 200, description: 'تم تغيير الخطة بنجاح' })
-@ApiResponse({ status: 400, description: 'بيانات غير صالحة' })
-@ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
-async changePlan(
-  @Param('id') companyId: string,
-  @Body() body: { newPlanId: string, adminOverride?: boolean },
-) {
-  try {
-    this.logger.log(`[changePlan] === بدء طلب تغيير الخطة ===`);
-    this.logger.log(`[changePlan] وصل الطلب لـ changePlan`);
-    this.logger.log(`[changePlan] companyId: ${companyId}`);
-    this.logger.log(`[changePlan] body: ${JSON.stringify(body)}`);
-    this.logger.log(`[changePlan] newPlanId: ${body.newPlanId}`);
-    this.logger.log(`[changePlan] adminOverride: ${body.adminOverride || false}`);
-    
-    // التحقق من صحة البيانات
-    if (!body.newPlanId) {
-      this.logger.error(`[changePlan] newPlanId مفقود في body`);
+  @Patch(':id/change-plan')
+  @ApiOperation({ summary: 'تغيير خطة اشتراك الشركة (مباشر - باستخدام body)' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiResponse({ status: 200, description: 'تم تغيير الخطة بنجاح' })
+  @ApiResponse({ status: 400, description: 'بيانات غير صالحة' })
+  @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
+  async changePlan(
+    @Param('id') companyId: string,
+    @Body() body: { newPlanId: string, adminOverride?: boolean },
+  ) {
+    try {
+      this.logger.log(`[changePlan] === بدء طلب تغيير الخطة ===`);
+      this.logger.log(`[changePlan] وصل الطلب لـ changePlan`);
+      this.logger.log(`[changePlan] companyId: ${companyId}`);
+      this.logger.log(`[changePlan] body: ${JSON.stringify(body)}`);
+      
+      // التحقق من صحة البيانات
+      if (!body.newPlanId) {
+        this.logger.error(`[changePlan] newPlanId مفقود في body`);
+        return {
+          success: false,
+          statusCode: 400,
+          message: 'معرف الخطة الجديدة مطلوب',
+          data: null
+        };
+      }
+      
+      // ======================= التعديل هنا =======================
+      // التأكد من استخدام adminOverride = true دائمًا للأدمن
+      const adminOverride = body.adminOverride !== undefined ? body.adminOverride : true;
+      
+      this.logger.log(`[changePlan] استخدام adminOverride = ${adminOverride}`);
+      // ======================= نهاية التعديل =======================
+      
+      const result = await this.subscriptionService.changePlanDirectly(
+        companyId, 
+        body.newPlanId, 
+        adminOverride // نستخدم القيمة المعدلة
+      );
+      
+      this.logger.log(`[changePlan] === نجاح تغيير الخطة ===`);
+      this.logger.log(`[changePlan] النتيجة: ${JSON.stringify(result, null, 2)}`);
+      
+      // إرجاع البيانات بشكل يتوافق مع الـ ResponseInterceptor
+      return {
+        success: true,
+        statusCode: 200,
+        message: result.message || 'تم تغيير الخطة بنجاح',
+        data: {
+          subscription: result.subscription,
+          details: result.details,
+          companyUpdated: true,
+          planActivated: true,
+          activationDate: new Date().toISOString()
+        }
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const stackTrace = error instanceof Error ? error.stack : 'No stack trace';
+      
+      this.logger.error(`[changePlan] === فشل تغيير الخطة ===`);
+      this.logger.error(`[changePlan] الشركة: ${companyId}`);
+      this.logger.error(`[changePlan] الخطة الجديدة: ${body?.newPlanId}`);
+      this.logger.error(`[changePlan] الخطأ: ${errorMessage}`);
+      this.logger.error(`[changePlan] Stack Trace: ${stackTrace}`);
+      
+      // معالجة الأخطاء المعروفة
+      if (error instanceof NotFoundException) {
+        return {
+          success: false,
+          statusCode: 404,
+          message: error.message,
+          data: null
+        };
+      }
+      
+      if (error instanceof BadRequestException) {
+        return {
+          success: false,
+          statusCode: 400,
+          message: error.message,
+          data: null
+        };
+      }
+      
+      // خطأ غير متوقع
       return {
         success: false,
-        statusCode: 400,
-        message: 'معرف الخطة الجديدة مطلوب',
+        statusCode: 500,
+        message: 'فشل تغيير الخطة: ' + errorMessage,
         data: null
       };
     }
-    
-    const result = await this.subscriptionService.changePlanDirectly(
-      companyId, 
-      body.newPlanId, 
-      body.adminOverride || false
-    );
-    
-    this.logger.log(`[changePlan] === نجاح تغيير الخطة ===`);
-    this.logger.log(`[changePlan] النتيجة: ${JSON.stringify(result, null, 2)}`);
-    
-    // إرجاع البيانات بشكل يتوافق مع الـ ResponseInterceptor
-    return {
-      success: true,
-      statusCode: 200,
-      message: result.message || 'تم تغيير الخطة بنجاح',
-      data: result
-    };
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const stackTrace = error instanceof Error ? error.stack : 'No stack trace';
-    
-    this.logger.error(`[changePlan] === فشل تغيير الخطة ===`);
-    this.logger.error(`[changePlan] الشركة: ${companyId}`);
-    this.logger.error(`[changePlan] الخطة الجديدة: ${body?.newPlanId}`);
-    this.logger.error(`[changePlan] الخطأ: ${errorMessage}`);
-    this.logger.error(`[changePlan] Stack Trace: ${stackTrace}`);
-    
-    // معالجة الأخطاء المعروفة
-    if (error instanceof NotFoundException) {
-      return {
-        success: false,
-        statusCode: 404,
-        message: error.message,
-        data: null
-      };
-    }
-    
-    if (error instanceof BadRequestException) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: error.message,
-        data: null
-      };
-    }
-    
-    // خطأ غير متوقع
-    return {
-      success: false,
-      statusCode: 500,
-      message: 'فشل تغيير الخطة: ' + errorMessage,
-      data: null
-    };
   }
-}
 
   // احتفظ بالدالة القديمة للتوافق
   @Patch(':id/change-plan-old/:newPlanId')
@@ -968,4 +978,8 @@ async changePlan(
       throw new InternalServerErrorException('فشل اختبار الخدمة');
     }
   }
+
+  // ======================= دالة جديدة =======================
+ 
+  // ======================= نهاية الدالة الجديدة =======================
 }

@@ -540,8 +540,38 @@ export class SubscriptionService {
       }
       
       if (!currentSubscription) {
-        this.logger.log(`[changePlanDirectly] لا يوجد اشتراك حالي، إنشاء اشتراك جديد`);
-        return await this.subscribe(companyId, newPlanId, adminOverride) as PlanChangeResult;
+        this.logger.log(`[changePlanDirectly] لا يوجد اشتراك حالي، إنشاء اشتراك جديد مع التفعيل الفوري`);
+        
+        const subscriptionResult = await this.subscribe(companyId, newPlanId, true);
+        
+        const newSubscription = subscriptionResult.subscription;
+        
+        if (!newSubscription) {
+          throw new BadRequestException('فشل إنشاء الاشتراك الجديد');
+        }
+        
+        this.logger.log(`[changePlanDirectly] تم إنشاء وتفعيل اشتراك جديد للشركة ${companyId} في الخطة ${newPlan.name}`);
+        
+        const currentEmployees = await this.employeeRepo.count({
+          where: { company: { id: companyId } }
+        });
+        
+        return {
+          message: 'تم إنشاء وتفعيل الاشتراك الجديد بنجاح',
+          subscription: newSubscription,
+          details: {
+            action: 'NEW_SUBSCRIPTION',
+            oldPlan: 'لا يوجد اشتراك سابق',
+            newPlan: newPlan.name,
+            currentEmployees,
+            oldMaxAllowed: 0,
+            newMaxAllowed: newPlan.maxEmployees,
+            daysRemaining: 0,
+            newDuration: newPlan.durationInDays,
+            newEndDate: newSubscription.endDate,
+            employeeLimitUpdated: true
+          }
+        };
       }
       
       const currentPlan = currentSubscription.plan;
@@ -587,6 +617,7 @@ export class SubscriptionService {
       currentSubscription.plan = newPlan;
       currentSubscription.price = newPlan.price;
       currentSubscription.customMaxEmployees = newPlan.maxEmployees;
+      currentSubscription.status = SubscriptionStatus.ACTIVE; 
       
       const isSamePlan = newPlan.id === currentPlan?.id;
       this.logger.log(`[changePlanDirectly] هل هي نفس الخطة؟ ${isSamePlan ? 'نعم' : 'لا'}`);
@@ -597,14 +628,11 @@ export class SubscriptionService {
         currentSubscription.endDate = newEndDate;
         this.logger.log(`[changePlanDirectly] نفس الخطة - إضافة ${newPlan.durationInDays} يوم إلى تاريخ الانتهاء`);
       } else {
-        const oldStartDate = currentSubscription.startDate;
-        const oldEndDate = currentSubscription.endDate;
         currentSubscription.startDate = new Date();
         const newEndDate = new Date();
         newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
         currentSubscription.endDate = newEndDate;
         this.logger.log(`[changePlanDirectly] خطة جديدة - بدء فترة جديدة: ${currentSubscription.startDate.toISOString()} إلى ${newEndDate.toISOString()}`);
-        this.logger.log(`[changePlanDirectly] الفترة القديمة: ${oldStartDate.toISOString()} إلى ${oldEndDate.toISOString()}`);
       }
       
       const updatedSubscription = await this.subscriptionRepo.save(currentSubscription);
@@ -614,12 +642,20 @@ export class SubscriptionService {
         .createQueryBuilder()
         .update(Company)
         .set({
-          planId: newPlan.id
+          planId: newPlan.id,
+          subscriptionStatus: 'active',
+          subscribedAt: () => 'CURRENT_TIMESTAMP',
+          paymentProvider: newPlan.paymentProvider?.toString() || 'manual'
         })
         .where('id = :id', { id: companyId })
         .execute();
       
       this.logger.log(`[changePlanDirectly] تم تحديث معلومات الشركة ${companyId}`);
+      
+      if (adminOverride) {
+        await this.updateRelatedPaymentProof(companyId, newPlanId);
+      }
+      
       this.logger.log(`[changePlanDirectly] تم تغيير خطة الشركة ${companyId} من ${currentPlan?.name} إلى ${newPlan.name}`);
       
       return {
