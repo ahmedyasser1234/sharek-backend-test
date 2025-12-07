@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
   Controller,
   Get,
@@ -26,6 +28,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
+import { SubscriptionDebugInfo } from './interfaces/subscription-debug.interface';
+
+
 
 @ApiTags('Admin Subscription')
 @ApiBearerAuth()
@@ -49,7 +54,8 @@ export class AdminSubscriptionController {
     try {
       return await this.subscriptionService.getPlans();
     } catch (error: unknown) {
-      this.logger.error('فشل جلب الخطط', error as any);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error('[getPlans] فشل جلب الخطط', errorMessage);
       throw new InternalServerErrorException('فشل جلب الخطط');
     }
   }
@@ -65,15 +71,16 @@ export class AdminSubscriptionController {
     @Param('companyId') companyId: string,
     @Param('planId') planId: string,
   ): Promise<ReturnType<SubscriptionService['subscribe']>> {
-    this.logger.log(` طلب اشتراك جديد من الأدمن: الشركة ${companyId} في الخطة ${planId}`);
+    this.logger.log(`[subscribeCompanyToPlan] طلب اشتراك جديد من الأدمن: الشركة ${companyId} في الخطة ${planId}`);
     
     try {
       const result = await this.subscriptionService.subscribe(companyId, planId, true);
       
-      this.logger.log(` تم الاشتراك بنجاح: الشركة ${companyId} في الخطة ${planId}`);
+      this.logger.log(`[subscribeCompanyToPlan] تم الاشتراك بنجاح: الشركة ${companyId} في الخطة ${planId}`);
       return result;
     } catch (error: unknown) {
-      this.logger.error(` فشل اشتراك الشركة ${companyId} في الخطة ${planId}`, error as any);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[subscribeCompanyToPlan] فشل اشتراك الشركة ${companyId} في الخطة ${planId}`, errorMessage);
       
       if (error instanceof NotFoundException) {
         throw new NotFoundException(error.message);
@@ -94,19 +101,20 @@ export class AdminSubscriptionController {
   async cancelSubscription(
     @Param('id') companyId: string
   ): Promise<ReturnType<SubscriptionService['cancelSubscription']>> {
-    this.logger.log(` استلام طلب إلغاء اشتراك للشركة: ${companyId}`);
+    this.logger.log(`[cancelSubscription] استلام طلب إلغاء اشتراك للشركة: ${companyId}`);
     
     try {
       const startTime = Date.now();
       const result = await this.subscriptionService.cancelSubscription(companyId);
       const endTime = Date.now();
       
-      this.logger.log(` وقت تنفيذ العملية: ${endTime - startTime}ms`);
-      this.logger.log(` تم معالجة طلب إلغاء الاشتراك بنجاح للشركة: ${companyId}`);
+      this.logger.log(`[cancelSubscription] وقت تنفيذ العملية: ${endTime - startTime}ms`);
+      this.logger.log(`[cancelSubscription] تم معالجة طلب إلغاء الاشتراك بنجاح للشركة: ${companyId}`);
       
       return result;
     } catch (error: unknown) {
-      this.logger.error(` فشل معالجة طلب إلغاء الاشتراك للشركة: ${companyId}`, error as any);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[cancelSubscription] فشل معالجة طلب إلغاء الاشتراك للشركة: ${companyId}`, errorMessage);
       
       if (error instanceof NotFoundException) {
         throw new NotFoundException(`الشركة ${companyId} ليس لديها اشتراكات نشطة`);
@@ -124,26 +132,80 @@ export class AdminSubscriptionController {
     @Param('id') companyId: string
   ): Promise<ReturnType<SubscriptionService['extendSubscription']>> {
     try {
-      return await this.subscriptionService.extendSubscription(companyId);
+      this.logger.log(`[extendSubscription] طلب تمديد اشتراك الشركة: ${companyId}`);
+      const result = await this.subscriptionService.extendSubscription(companyId);
+      this.logger.log(`[extendSubscription] تم تمديد الاشتراك بنجاح للشركة: ${companyId}`);
+      return result;
     } catch (error: unknown) {
-      this.logger.error(`فشل تمديد الاشتراك للشركة ${companyId}`, error as any);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[extendSubscription] فشل تمديد الاشتراك للشركة ${companyId}`, errorMessage);
       throw error;
     }
   }
 
-  @Patch(':id/change-plan/:newPlanId')
-  @ApiOperation({ summary: 'تغيير خطة اشتراك الشركة' })
+  @Patch(':id/change-plan')
+  @ApiOperation({ summary: 'تغيير خطة اشتراك الشركة (مباشر - باستخدام body)' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiResponse({ status: 200, description: 'تم تغيير الخطة بنجاح' })
+  @ApiResponse({ status: 400, description: 'بيانات غير صالحة' })
+  @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
+  async changePlan(
+    @Param('id') companyId: string,
+    @Body() body: { newPlanId: string, adminOverride?: boolean },
+  ): Promise<any> {
+    try {
+      this.logger.log(`[changePlan] === بدء طلب تغيير الخطة ===`);
+      this.logger.log(`[changePlan] companyId: ${companyId}`);
+      this.logger.log(`[changePlan] newPlanId: ${body.newPlanId}`);
+      this.logger.log(`[changePlan] adminOverride: ${body.adminOverride || false}`);
+      
+      const result = await this.subscriptionService.changePlanDirectly(
+        companyId, 
+        body.newPlanId, 
+        body.adminOverride || false
+      );
+      
+      this.logger.log(`[changePlan] === نجاح تغيير الخطة ===`);
+      this.logger.log(`[changePlan] النتيجة: ${JSON.stringify(result, null, 2)}`);
+      
+      return result;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[changePlan] === فشل تغيير الخطة ===`);
+      this.logger.error(`[changePlan] الشركة: ${companyId}`);
+      this.logger.error(`[changePlan] الخطة الجديدة: ${body.newPlanId}`);
+      this.logger.error(`[changePlan] الخطأ: ${errorMessage}`);
+      
+      if (error instanceof NotFoundException) {
+        throw new NotFoundException(error.message);
+      }
+      
+      if (error instanceof BadRequestException) {
+        throw new BadRequestException(error.message);
+      }
+      
+      throw new InternalServerErrorException('فشل تغيير الخطة');
+    }
+  }
+
+  // احتفظ بالدالة القديمة للتوافق
+  @Patch(':id/change-plan-old/:newPlanId')
+  @ApiOperation({ summary: 'تغيير خطة اشتراك الشركة (طريقة قديمة)' })
   @ApiParam({ name: 'id', description: 'معرف الشركة' })
   @ApiParam({ name: 'newPlanId', description: 'معرف الخطة الجديدة' })
   @ApiResponse({ status: 200, description: 'تم تغيير الخطة بنجاح' })
-  async changePlan(
+  async changePlanOld(
     @Param('id') companyId: string,
     @Param('newPlanId') newPlanId: string,
-  ): Promise<ReturnType<SubscriptionService['changeSubscriptionPlan']>> {
+  ): Promise<any> {
     try {
-      return await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId);
+      this.logger.log(`[changePlanOld] طلب تغيير خطة الشركة ${companyId} إلى ${newPlanId}`);
+      const result = await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId);
+      this.logger.log(`[changePlanOld] تم تغيير الخطة بنجاح للشركة: ${companyId}`);
+      return result;
     } catch (error: unknown) {
-      this.logger.error(`فشل تغيير الخطة للشركة ${companyId}`, error as any);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[changePlanOld] فشل تغيير الخطة للشركة ${companyId}: ${errorMessage}`);
       throw error;
     }
   }
@@ -156,9 +218,13 @@ export class AdminSubscriptionController {
     @Param('id') companyId: string
   ): Promise<ReturnType<SubscriptionService['getSubscriptionHistory']>> {
     try {
-      return await this.subscriptionService.getSubscriptionHistory(companyId);
+      this.logger.log(`[getSubscriptionHistory] جلب سجل اشتراكات الشركة: ${companyId}`);
+      const result = await this.subscriptionService.getSubscriptionHistory(companyId);
+      this.logger.log(`[getSubscriptionHistory] تم جلب ${result.length} اشتراك في السجل`);
+      return result;
     } catch (error: unknown) {
-      this.logger.error(`فشل جلب سجل الاشتراكات للشركة ${companyId}`, error as any);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[getSubscriptionHistory] فشل جلب سجل الاشتراكات للشركة ${companyId}`, errorMessage);
       throw new InternalServerErrorException('فشل جلب سجل الاشتراكات');
     }
   }
@@ -173,9 +239,13 @@ export class AdminSubscriptionController {
     @Param('planId') planId: string,
   ): Promise<ReturnType<SubscriptionService['subscribe']>> {
     try {
-      return await this.subscriptionService.subscribe(companyId, planId, true);
+      this.logger.log(`[activateSubscriptionManually] تفعيل يدوي للشركة ${companyId} في الخطة ${planId}`);
+      const result = await this.subscriptionService.subscribe(companyId, planId, true);
+      this.logger.log(`[activateSubscriptionManually] تم التفعيل اليدوي بنجاح`);
+      return result;
     } catch (error: unknown) {
-      this.logger.error(`فشل تفعيل الاشتراك يدويًا للشركة ${companyId}`, error as any);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[activateSubscriptionManually] فشل تفعيل الاشتراك يدويًا للشركة ${companyId}`, errorMessage);
       throw new InternalServerErrorException('فشل تفعيل الاشتراك');
     }
   }
@@ -190,9 +260,13 @@ export class AdminSubscriptionController {
     @Param('newPlanId') newPlanId: string,
   ): Promise<ReturnType<SubscriptionService['validatePlanChange']>> {
     try {
-      return await this.subscriptionService.validatePlanChange(companyId, newPlanId);
+      this.logger.log(`[validatePlanChange] التحقق من تغيير خطة الشركة ${companyId} إلى ${newPlanId}`);
+      const result = await this.subscriptionService.validatePlanChange(companyId, newPlanId);
+      this.logger.log(`[validatePlanChange] نتيجة التحقق: ${result.canChange ? 'يمكن التغيير' : 'لا يمكن التغيير'}`);
+      return result;
     } catch (error: unknown) {
-      this.logger.error(`فشل التحقق من تغيير الخطة للشركة ${companyId}`, error as any);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[validatePlanChange] فشل التحقق من تغيير الخطة للشركة ${companyId}`, errorMessage);
       throw error;
     }
   }
@@ -207,9 +281,13 @@ export class AdminSubscriptionController {
     @Param('newPlanId') newPlanId: string,
   ): Promise<ReturnType<SubscriptionService['requestPlanChange']>> {
     try {
-      return await this.subscriptionService.requestPlanChange(companyId, newPlanId);
+      this.logger.log(`[requestPlanChange] طلب تغيير خطة الشركة ${companyId} إلى ${newPlanId}`);
+      const result = await this.subscriptionService.requestPlanChange(companyId, newPlanId);
+      this.logger.log(`[requestPlanChange] تم إرسال الطلب بنجاح: ${result.success ? 'ناجح' : 'فاشل'}`);
+      return result;
     } catch (error: unknown) {
-      this.logger.error(`فشل طلب تغيير الخطة للشركة ${companyId}`, error as any);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[requestPlanChange] فشل طلب تغيير الخطة للشركة ${companyId}`, errorMessage);
       throw error;
     }
   }
@@ -219,6 +297,8 @@ export class AdminSubscriptionController {
   @ApiResponse({ status: 200, description: 'تم جلب الطلبات بنجاح' })
   async getManualTransferProofs() {
     try {
+      this.logger.log(`[getManualTransferProofs] جلب جميع طلبات التحويل البنكي`);
+      
       const proofs = await this.proofRepo.find({
         relations: ['company', 'plan'],
         order: { createdAt: 'DESC' },
@@ -239,10 +319,11 @@ export class AdminSubscriptionController {
         decisionNote: proof?.decisionNote || '',
       }));
 
-      this.logger.log(`تم جلب ${safeProofs.length} طلب تحويل بنكي`);
+      this.logger.log(`[getManualTransferProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي`);
       return safeProofs;
     } catch (err) {
-      this.logger.error(`فشل تحميل الطلبات: ${String(err)}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[getManualTransferProofs] فشل تحميل الطلبات: ${errorMessage}`);
       throw new InternalServerErrorException('فشل تحميل الطلبات');
     }
   }
@@ -252,6 +333,8 @@ export class AdminSubscriptionController {
   @ApiResponse({ status: 200, description: 'تم جلب الطلبات المعلقة بنجاح' })
   async getPendingManualTransferProofs() {
     try {
+      this.logger.log(`[getPendingManualTransferProofs] جلب طلبات التحويل البنكي المعلقة`);
+      
       const proofs = await this.proofRepo.find({
         where: { status: PaymentProofStatus.PENDING },
         relations: ['company', 'plan'],
@@ -273,10 +356,11 @@ export class AdminSubscriptionController {
         decisionNote: proof?.decisionNote || '',
       }));
 
-      this.logger.log(`تم جلب ${safeProofs.length} طلب تحويل بنكي معلق`);
+      this.logger.log(`[getPendingManualTransferProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي معلق`);
       return safeProofs;
     } catch (err) {
-      this.logger.error(`فشل تحميل الطلبات المعلقة: ${String(err)}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[getPendingManualTransferProofs] فشل تحميل الطلبات المعلقة: ${errorMessage}`);
       throw new InternalServerErrorException('فشل تحميل الطلبات المعلقة');
     }
   }
@@ -287,6 +371,8 @@ export class AdminSubscriptionController {
   @ApiResponse({ status: 200, description: 'تم جلب الطلبات بنجاح' })
   async getManualTransferProofsByStatus(@Param('status') status: string) {
     try {
+      this.logger.log(`[getManualTransferProofsByStatus] جلب طلبات التحويل بحالة: ${status}`);
+      
       let statusEnum: PaymentProofStatus;
       
       switch (status.toUpperCase()) {
@@ -324,13 +410,16 @@ export class AdminSubscriptionController {
         decisionNote: proof?.decisionNote || '',
       }));
 
-      this.logger.log(`تم جلب ${safeProofs.length} طلب تحويل بنكي بحالة ${status}`);
+      this.logger.log(`[getManualTransferProofsByStatus] تم جلب ${safeProofs.length} طلب تحويل بنكي بحالة ${status}`);
       return safeProofs;
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[getManualTransferProofsByStatus] فشل تحميل الطلبات بحالة ${status}: ${errorMessage}`);
+      
       if (err instanceof BadRequestException) {
         throw err;
       }
-      this.logger.error(`فشل تحميل الطلبات بحالة ${status}: ${String(err)}`);
+      
       throw new InternalServerErrorException('فشل تحميل الطلبات');
     }
   }
@@ -341,6 +430,8 @@ export class AdminSubscriptionController {
   @ApiResponse({ status: 200, description: 'تم جلب تفاصيل الطلب بنجاح' })
   async getManualProofDetails(@Param('proofId') proofId: string) {
     try {
+      this.logger.log(`[getManualProofDetails] جلب تفاصيل طلب التحويل: ${proofId}`);
+      
       const proof = await this.proofRepo.findOne({
         where: { id: proofId },
         relations: ['company', 'plan'],
@@ -365,9 +456,11 @@ export class AdminSubscriptionController {
         decisionNote: proof?.decisionNote || '',
       };
 
+      this.logger.log(`[getManualProofDetails] تم جلب تفاصيل الطلب: ${proofId}`);
       return safeProof;
     } catch (err) {
-      this.logger.error(`فشل تحميل تفاصيل الطلب ${proofId}: ${String(err)}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[getManualProofDetails] فشل تحميل تفاصيل الطلب ${proofId}: ${errorMessage}`);
       
       if (err instanceof NotFoundException) {
         throw err;
@@ -385,6 +478,8 @@ export class AdminSubscriptionController {
     @Param('proofId') proofId: string,
   ): Promise<{ message: string }> {
     try {
+      this.logger.log(`[approveProof] قبول طلب التحويل: ${proofId}`);
+      
       const proof = await this.proofRepo.findOne({
         where: { id: proofId },
         relations: ['company', 'plan'],
@@ -398,9 +493,12 @@ export class AdminSubscriptionController {
         throw new BadRequestException('بيانات الطلب غير مكتملة');
       }
 
-      return await this.paymentService.approveProof(proofId);
+      const result = await this.paymentService.approveProof(proofId);
+      this.logger.log(`[approveProof] تم قبول الطلب: ${proofId}`);
+      return result;
     } catch (error: unknown) {
-      this.logger.error(`فشل قبول الطلب ${proofId}`, error as any);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[approveProof] فشل قبول الطلب ${proofId}`, errorMessage);
       
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
@@ -419,6 +517,8 @@ export class AdminSubscriptionController {
     @Body() body: { reason: string }
   ): Promise<{ message: string }> {
     try {
+      this.logger.log(`[rejectProof] رفض طلب التحويل: ${proofId} - السبب: ${body.reason}`);
+      
       const proof = await this.proofRepo.findOne({
         where: { id: proofId },
         relations: ['company', 'plan'],
@@ -428,9 +528,12 @@ export class AdminSubscriptionController {
         throw new NotFoundException('الطلب غير موجود');
       }
 
-      return await this.paymentService.rejectProof(proofId, body.reason);
+      const result = await this.paymentService.rejectProof(proofId, body.reason);
+      this.logger.log(`[rejectProof] تم رفض الطلب: ${proofId}`);
+      return result;
     } catch (error: unknown) {
-      this.logger.error(`فشل رفض الطلب ${proofId}`, error as any);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[rejectProof] فشل رفض الطلب ${proofId}`, errorMessage);
       
       if (error instanceof NotFoundException) {
         throw error;
@@ -444,8 +547,17 @@ export class AdminSubscriptionController {
   @ApiOperation({ summary: 'عرض الاشتراكات القريبة من الانتهاء خلال عدد أيام معين' })
   @ApiParam({ name: 'days', description: 'عدد الأيام قبل الانتهاء' })
   async getExpiring(@Param('days') days: string) {
-    const threshold = parseInt(days);
-    return await this.subscriptionService.getExpiringSubscriptions(threshold);
+    try {
+      const threshold = parseInt(days);
+      this.logger.log(`[getExpiring] جلب اشتراكات تنتهي خلال ${threshold} يوم`);
+      const result = await this.subscriptionService.getExpiringSubscriptions(threshold);
+      this.logger.log(`[getExpiring] تم جلب ${result.length} اشتراك قريب من الانتهاء`);
+      return result;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[getExpiring] فشل جلب الاشتراكات القريبة من الانتهاء`, errorMessage);
+      throw error;
+    }
   }
 
   @Get('pending-proofs/count')
@@ -453,14 +565,39 @@ export class AdminSubscriptionController {
   @ApiResponse({ status: 200, description: 'تم جلب العدد بنجاح' })
   async getPendingProofsCount(): Promise<{ count: number }> {
     try {
+      this.logger.log(`[getPendingProofsCount] جلب عدد الطلبات المعلقة`);
+      
       const count = await this.proofRepo.count({
         where: { status: PaymentProofStatus.PENDING }
       });
       
+      this.logger.log(`[getPendingProofsCount] عدد الطلبات المعلقة: ${count}`);
       return { count };
     } catch (err) {
-      this.logger.error(`فشل جلب عدد الطلبات المعلقة: ${String(err)}`);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[getPendingProofsCount] فشل جلب عدد الطلبات المعلقة: ${errorMessage}`);
       throw new InternalServerErrorException('فشل جلب عدد الطلبات المعلقة');
     }
   }
+
+@Get(':id/debug')
+@ApiOperation({ summary: 'تصحيح حالة اشتراك الشركة (للأدمن)' })
+@ApiParam({ name: 'id', description: 'معرف الشركة' })
+@ApiResponse({ status: 200, description: 'تم جلب معلومات التصحيح' })
+async debugSubscription(
+  @Param('id') companyId: string
+): Promise<SubscriptionDebugInfo> {
+  try {
+    this.logger.log(`[debugSubscription] تصحيح حالة اشتراك الشركة: ${companyId}`);
+    
+    const result = await this.subscriptionService.debugSubscriptionStatus(companyId);
+    
+    this.logger.log(`[debugSubscription] تم جلب معلومات التصحيح للشركة: ${companyId}`);
+    return result;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    this.logger.error(`[debugSubscription] فشل تصحيح حالة اشتراك الشركة ${companyId}: ${errorMessage}`);
+    throw new InternalServerErrorException('فشل تصحيح حالة الاشتراك');
+  }
+}
 }

@@ -66,7 +66,7 @@ export class CompanyJwtService {
       } else if (jwtError.name === 'JsonWebTokenError') {
         throw new UnauthorizedException('Invalid token');
       } else {
-        throw new UnauthorizedException('Invalid or expired token');
+        throw new UnauthorizedException('الجلسة منتهية يرجى تسجبل الدخول');
       }
     }
   }
