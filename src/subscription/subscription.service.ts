@@ -21,8 +21,6 @@ import { Employee } from '../employee/entities/employee.entity';
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
 
-
-
 export interface SubscriptionResponse {
   message: string;
   redirectToDashboard?: boolean;
@@ -527,20 +525,27 @@ export class SubscriptionService {
 
   async changePlanDirectly(companyId: string, newPlanId: string, adminOverride = false): Promise<PlanChangeResult> {
     try {
-      this.logger.log(`[changePlanDirectly] تغيير الخطة مباشرة للشركة ${companyId} إلى ${newPlanId}`);
-      
+      this.logger.log(`[changePlanDirectly] === بدء تغيير الخطة ===`);
+      this.logger.log(`[changePlanDirectly] الشركة: ${companyId}`);
+      this.logger.log(`[changePlanDirectly] الخطة الجديدة: ${newPlanId}`);
+      this.logger.log(`[changePlanDirectly] adminOverride: ${adminOverride}`);
+
       const currentSubscription = await this.getCompanySubscription(companyId);
-      this.logger.log(`[changePlanDirectly] الاشتراك الحالي: ${currentSubscription ? `موجود - الخطة: ${currentSubscription.plan?.name}` : 'غير موجود'}`);
-      
+      this.logger.log(`[changePlanDirectly] الاشتراك الحالي: ${currentSubscription ? 'موجود' : 'غير موجود'}`);
+      if (currentSubscription) {
+        this.logger.log(`[changePlanDirectly] الخطة الحالية: ${currentSubscription.plan?.name}`);
+        this.logger.log(`[changePlanDirectly] حالة الاشتراك: ${currentSubscription.status}`);
+        this.logger.log(`[changePlanDirectly] تاريخ الانتهاء: ${currentSubscription.endDate.toISOString()}`);
+      }
+
       const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
-      this.logger.log(`[changePlanDirectly] الخطة الجديدة: ${newPlan ? `موجودة - ${newPlan.name}` : 'غير موجودة'}`);
-      
       if (!newPlan) {
         throw new NotFoundException('الخطة غير موجودة');
       }
-      
+      this.logger.log(`[changePlanDirectly] الخطة الجديدة موجودة: ${newPlan.name}`);
+
       if (!currentSubscription) {
-        this.logger.log(`[changePlanDirectly] لا يوجد اشتراك حالي، إنشاء اشتراك جديد مع التفعيل الفوري`);
+        this.logger.log(`[changePlanDirectly] لا يوجد اشتراك حالي، إنشاء اشتراك جديد`);
         
         const subscriptionResult = await this.subscribe(companyId, newPlanId, true);
         
@@ -550,12 +555,15 @@ export class SubscriptionService {
           throw new BadRequestException('فشل إنشاء الاشتراك الجديد');
         }
         
-        this.logger.log(`[changePlanDirectly] تم إنشاء وتفعيل اشتراك جديد للشركة ${companyId} في الخطة ${newPlan.name}`);
-        
         const currentEmployees = await this.employeeRepo.count({
           where: { company: { id: companyId } }
         });
         
+        this.logger.log(`[changePlanDirectly] === تم إنشاء اشتراك جديد بنجاح ===`);
+        this.logger.log(`[changePlanDirectly] الاشتراك الجديد ID: ${newSubscription.id}`);
+        this.logger.log(`[changePlanDirectly] الخطة: ${newPlan.name}`);
+        this.logger.log(`[changePlanDirectly] عدد الموظفين: ${currentEmployees}`);
+        this.logger.log(`[changePlanDirectly] تاريخ الانتهاء: ${newSubscription.endDate.toISOString()}`);        
         return {
           message: 'تم إنشاء وتفعيل الاشتراك الجديد بنجاح',
           subscription: newSubscription,
@@ -573,22 +581,22 @@ export class SubscriptionService {
           }
         };
       }
-      
+
+      // 4. إذا كان هناك اشتراك حالي
       const currentPlan = currentSubscription.plan;
       const currentPlanMax = currentPlan?.maxEmployees || 0;
       const currentPlanPrice = currentPlan?.price || 0;
       const newPlanMax = newPlan.maxEmployees;
       const newPlanPrice = newPlan.price;
 
-      this.logger.log(`[changePlanDirectly] مقارنة الخطط:`);
-      this.logger.log(`[changePlanDirectly] الخطة الحالية: ${currentPlan?.name} - الموظفين: ${currentPlanMax} - السعر: ${currentPlanPrice}`);
-      this.logger.log(`[changePlanDirectly] الخطة الجديدة: ${newPlan.name} - الموظفين: ${newPlanMax} - السعر: ${newPlanPrice}`);
-      
+      this.logger.log(`[changePlanDirectly] === مقارنة الخطط ===`);
+      this.logger.log(`[changePlanDirectly] الخطة الحالية: ${currentPlan?.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
+      this.logger.log(`[changePlanDirectly] الخطة الجديدة: ${newPlan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
+
+      // 5. التحقق من القيود (ماعدا لو adminOverride = true)
       const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
       const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice >= currentPlanPrice) ||
                                  (newPlanMax >= currentPlanMax && newPlanPrice < currentPlanPrice);
-      
-      this.logger.log(`[changePlanDirectly] هل هي ترقية؟ ${!(isDowngrading || isPartialDowngrade) ? 'نعم' : 'لا'}`);
       
       if ((isDowngrading || isPartialDowngrade) && !adminOverride) {
         this.logger.warn(`[changePlanDirectly] محاولة النزول إلى خطة أقل - مرفوض`);
@@ -598,7 +606,8 @@ export class SubscriptionService {
           `الخطة الجديدة: ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال)`
         );
       }
-      
+
+      // 6. التحقق من عدد الموظفين
       const currentEmployees = await this.employeeRepo.count({
         where: { company: { id: companyId } }
       });
@@ -612,31 +621,43 @@ export class SubscriptionService {
           `بينما لديك حالياً ${currentEmployees} موظف`
         );
       }
+
+      // 7. تحديث الاشتراك
+      this.logger.log(`[changePlanDirectly] === تحديث الاشتراك ===`);
       
-      this.logger.log(`[changePlanDirectly] تحديث الخطة من ${currentPlan?.name} إلى ${newPlan.name}`);
+      // حفظ البيانات القديمة للـ log
+      const oldStartDate = currentSubscription.startDate;
+      const oldEndDate = currentSubscription.endDate;
+      const oldStatus = currentSubscription.status;
+      
+      // تحديث الاشتراك
       currentSubscription.plan = newPlan;
       currentSubscription.price = newPlan.price;
       currentSubscription.customMaxEmployees = newPlan.maxEmployees;
-      currentSubscription.status = SubscriptionStatus.ACTIVE; 
+      currentSubscription.status = SubscriptionStatus.ACTIVE;
       
       const isSamePlan = newPlan.id === currentPlan?.id;
-      this.logger.log(`[changePlanDirectly] هل هي نفس الخطة؟ ${isSamePlan ? 'نعم' : 'لا'}`);
       
       if (isSamePlan) {
+        // إذا نفس الخطة، نزيد المدة فقط
         const newEndDate = new Date(currentSubscription.endDate);
         newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
         currentSubscription.endDate = newEndDate;
-        this.logger.log(`[changePlanDirectly] نفس الخطة - إضافة ${newPlan.durationInDays} يوم إلى تاريخ الانتهاء`);
+        this.logger.log(`[changePlanDirectly] نفس الخطة - إضافة ${newPlan.durationInDays} يوم`);
       } else {
         currentSubscription.startDate = new Date();
         const newEndDate = new Date();
         newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
         currentSubscription.endDate = newEndDate;
-        this.logger.log(`[changePlanDirectly] خطة جديدة - بدء فترة جديدة: ${currentSubscription.startDate.toISOString()} إلى ${newEndDate.toISOString()}`);
+        this.logger.log(`[changePlanDirectly] خطة جديدة - فترة جديدة`);
       }
       
+      this.logger.log(`[changePlanDirectly] قبل الحفظ - startDate: ${oldStartDate.toISOString()}, endDate: ${oldEndDate.toISOString()}, status: ${oldStatus}`);
+      this.logger.log(`[changePlanDirectly] بعد التحديث - startDate: ${currentSubscription.startDate.toISOString()}, endDate: ${currentSubscription.endDate.toISOString()}, status: ${currentSubscription.status}`);
       const updatedSubscription = await this.subscriptionRepo.save(currentSubscription);
       this.logger.log(`[changePlanDirectly] تم حفظ الاشتراك المحدث: ${updatedSubscription.id}`);
+
+      this.logger.log(`[changePlanDirectly] === تحديث بيانات الشركة ===`);
       
       await this.companyRepo
         .createQueryBuilder()
@@ -650,16 +671,18 @@ export class SubscriptionService {
         .where('id = :id', { id: companyId })
         .execute();
       
-      this.logger.log(`[changePlanDirectly] تم تحديث معلومات الشركة ${companyId}`);
-      
+      this.logger.log(`[changePlanDirectly] تم تحديث بيانات الشركة ${companyId}`);
+
       if (adminOverride) {
         await this.updateRelatedPaymentProof(companyId, newPlanId);
       }
+
+      this.logger.log(`[changePlanDirectly] === تم تغيير الخطة بنجاح ===`);
       
-      this.logger.log(`[changePlanDirectly] تم تغيير خطة الشركة ${companyId} من ${currentPlan?.name} إلى ${newPlan.name}`);
+      const message = isSamePlan ? 'تم تجديد الاشتراك بنجاح' : 'تم تغيير الخطة بنجاح';
       
       return {
-        message: isSamePlan ? 'تم تجديد الاشتراك بنجاح' : 'تم تغيير الخطة بنجاح',
+        message: message,
         subscription: updatedSubscription,
         details: {
           action: isSamePlan ? 'RENEW' : (newPlanMax > currentPlanMax || newPlanPrice > currentPlanPrice ? 'UPGRADE' : 'CHANGE'),
@@ -677,7 +700,12 @@ export class SubscriptionService {
       
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[changePlanDirectly] فشل تغيير الخطة مباشرة للشركة ${companyId}: ${errorMessage}`);
+      const stackTrace = error instanceof Error ? error.stack : 'No stack trace';
+      
+      this.logger.error(`[changePlanDirectly] === فشل تغيير الخطة ===`);
+      this.logger.error(`[changePlanDirectly] الخطأ: ${errorMessage}`);
+      this.logger.error(`[changePlanDirectly] Stack Trace: ${stackTrace}`);
+      
       throw error;
     }
   }
