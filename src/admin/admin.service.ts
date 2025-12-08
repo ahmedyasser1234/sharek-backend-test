@@ -808,17 +808,29 @@ export class AdminService {
     }
     
     // 2. التحقق من السعر - منع الانتقال من خطة أعلى سعراً إلى خطة أقل سعراً
-    const currentPlanPrice = currentSubscription.price || 0;
+    // الحصول على سعر الخطة الحالية من الاشتراك
+    let currentPlanPrice = currentSubscription.price || 0;
+    // إذا كان السعر 0، جرب الحصول من خطة الشركة
+    if (currentPlanPrice === 0 && currentSubscription.plan?.price) {
+      currentPlanPrice = currentSubscription.plan.price;
+    }
+    
     const newPlanPrice = newPlan.price || 0;
     
     console.log(`💰 سعر الخطة الحالية: ${currentPlanPrice} ريال`);
     console.log(`💰 سعر الخطة الجديدة: ${newPlanPrice} ريال`);
     
+    // منع الانتقال فقط عندما تكون الخطة الجديدة أرخص (سعر أقل)
+    // تصحيح: 2875 < 931 = false، لذا يجب السماح بالتغيير
     if (newPlanPrice < currentPlanPrice) {
-      console.log(`❌ لا يسمح بالانتقال من خطة بسعر ${currentPlanPrice} ريال إلى خطة بسعر ${newPlanPrice} ريال`);
+      console.log(`❌ لا يسمح بالانتقال: الخطة الجديدة أرخص سعراً (${newPlanPrice} < ${currentPlanPrice})`);
       throw new BadRequestException(
         `لا يسمح بالانتقال من خطة أعلى سعراً (${currentPlanPrice} ريال) إلى خطة أقل سعراً (${newPlanPrice} ريال). يسمح فقط بالانتقال إلى خطط مساوية أو أعلى سعراً.`
       );
+    } else if (newPlanPrice > currentPlanPrice) {
+      console.log(`✅ مسموح بالانتقال: الخطة الجديدة أعلى سعراً (${newPlanPrice} > ${currentPlanPrice})`);
+    } else {
+      console.log(`✅ مسموح بالانتقال: الأسعار متساوية (${newPlanPrice} = ${currentPlanPrice})`);
     }
     
     // 3. حساب الأيام المتبقية من الاشتراك القديم
@@ -931,6 +943,23 @@ export class AdminService {
       if (newPlan.maxEmployees && currentEmployeesCount > newPlan.maxEmployees) {
         throw new BadRequestException(
           `لا يمكن الانتقال إلى الخطة الجديدة لأن عدد الموظفين الحاليين (${currentEmployeesCount}) يتجاوز الحد المسموح به في هذه الخطة (${newPlan.maxEmployees})`
+        );
+      }
+
+      // التحقق من السعر
+      let currentPlanPrice = 0;
+      if (currentSubscription) {
+        currentPlanPrice = currentSubscription.price || 0;
+        if (currentPlanPrice === 0 && currentSubscription.plan?.price) {
+          currentPlanPrice = currentSubscription.plan.price;
+        }
+      }
+      
+      const newPlanPrice = newPlan.price || 0;
+      
+      if (newPlanPrice < currentPlanPrice) {
+        throw new BadRequestException(
+          `لا يسمح بالانتقال من خطة أعلى سعراً (${currentPlanPrice} ريال) إلى خطة أقل سعراً (${newPlanPrice} ريال)`
         );
       }
 
