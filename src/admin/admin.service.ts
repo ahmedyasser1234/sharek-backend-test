@@ -808,20 +808,23 @@ export class AdminService {
     }
     
     // 2. التحقق من السعر - منع الانتقال من خطة أعلى سعراً إلى خطة أقل سعراً
-    // الحصول على سعر الخطة الحالية من الاشتراك
-    let currentPlanPrice = currentSubscription.price || 0;
+    // الحصول على سعر الخطة الحالية من الاشتراك وتحويله إلى رقم
+    let currentPlanPrice = parseFloat(String(currentSubscription.price || 0));
     // إذا كان السعر 0، جرب الحصول من خطة الشركة
     if (currentPlanPrice === 0 && currentSubscription.plan?.price) {
-      currentPlanPrice = currentSubscription.plan.price;
+      currentPlanPrice = parseFloat(String(currentSubscription.plan.price));
     }
     
-    const newPlanPrice = newPlan.price || 0;
+    // تحويل سعر الخطة الجديدة إلى رقم
+    const newPlanPrice = parseFloat(String(newPlan.price || 0));
     
-    console.log(`💰 سعر الخطة الحالية: ${currentPlanPrice} ريال`);
-    console.log(`💰 سعر الخطة الجديدة: ${newPlanPrice} ريال`);
+    console.log(`💰 سعر الخطة الحالية (رقم): ${currentPlanPrice} ريال`);
+    console.log(`💰 سعر الخطة الجديدة (رقم): ${newPlanPrice} ريال`);
+    console.log(`🔍 نوع سعر الخطة الحالية: ${typeof currentPlanPrice}`);
+    console.log(`🔍 نوع سعر الخطة الجديدة: ${typeof newPlanPrice}`);
     
     // منع الانتقال فقط عندما تكون الخطة الجديدة أرخص (سعر أقل)
-    // تصحيح: 2875 < 931 = false، لذا يجب السماح بالتغيير
+    // التصحيح: تحويل الأسعار إلى أرقام قبل المقارنة
     if (newPlanPrice < currentPlanPrice) {
       console.log(`❌ لا يسمح بالانتقال: الخطة الجديدة أرخص سعراً (${newPlanPrice} < ${currentPlanPrice})`);
       throw new BadRequestException(
@@ -852,7 +855,7 @@ export class AdminService {
     try {
       // تحديث الاشتراك الحالي
       currentSubscription.plan = newPlan;
-      currentSubscription.price = newPlanPrice;
+      currentSubscription.price = newPlanPrice; // حفظ كرقم
       currentSubscription.currency = 'SAR';
       
       // الحفاظ على الحالة نشطة دائمًا
@@ -946,16 +949,16 @@ export class AdminService {
         );
       }
 
-      // التحقق من السعر
+      // التحقق من السعر - تحويل الأسعار إلى أرقام
       let currentPlanPrice = 0;
       if (currentSubscription) {
-        currentPlanPrice = currentSubscription.price || 0;
+        currentPlanPrice = parseFloat(String(currentSubscription.price || 0));
         if (currentPlanPrice === 0 && currentSubscription.plan?.price) {
-          currentPlanPrice = currentSubscription.plan.price;
+          currentPlanPrice = parseFloat(String(currentSubscription.plan.price));
         }
       }
       
-      const newPlanPrice = newPlan.price || 0;
+      const newPlanPrice = parseFloat(String(newPlan.price || 0));
       
       if (newPlanPrice < currentPlanPrice) {
         throw new BadRequestException(
@@ -966,7 +969,7 @@ export class AdminService {
       const newSubscription = this.subRepo.create({
         company,
         plan: newPlan,
-        price: newPlan.price,
+        price: newPlanPrice, // حفظ كرقم
         currency: 'SAR',
         startDate: new Date(),
         status: SubscriptionStatus.ACTIVE, // دائمًا active
