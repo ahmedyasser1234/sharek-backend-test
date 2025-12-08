@@ -1189,10 +1189,8 @@ export class SubscriptionService {
       let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
       let message = '';
 
-      // تصحيح منطق التحقق - هنا كان الخطأ
       const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
       
-      // تصحيح: يجب أن يكون السعر أقل فعلاً، ليس مجرد "أقل أو يساوي"
       const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
                                 (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
       
@@ -1239,7 +1237,6 @@ export class SubscriptionService {
         message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف بسعر ${newPlanPrice} ريال`;
         this.logger.log(`[validatePlanChange] نتيجة: UPGRADE - ${message}`);
       } else {
-        // حالة خاصة: إذا كان العدد والسعر أكبر أو يساوي (ولكن ليس أكبر بكلا المعيارين)
         action = 'RENEW';
         message = `يمكنك التغيير إلى الخطة ${newPlan.name}`;
         this.logger.log(`[validatePlanChange] نتيجة: RENEW (مماثلة) - ${message}`);

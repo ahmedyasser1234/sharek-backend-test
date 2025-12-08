@@ -1,4 +1,3 @@
-// admin/admin.service.ts
 import {
   Injectable,
   NotFoundException,
@@ -7,7 +6,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Not, IsNull } from 'typeorm';
+import { Repository, DataSource, Not, IsNull} from 'typeorm';
 import { Admin } from './entities/admin.entity';
 import { Manager, ManagerRole } from './entities/manager.entity';
 import { Company } from '../company/entities/company.entity';
@@ -24,6 +23,7 @@ import { CompanyToken } from '../company/auth/entities/company-token.entity';
 import { CompanyLoginLog } from '../company/auth/entities/company-login-log.entity';
 import { BankAccount } from './entities/bank-account.entity';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/admin-bank.dto';
+import * as nodemailer from 'nodemailer';
 
 export interface CompanyWithActivator {
   id: string;
@@ -109,6 +109,8 @@ export interface BankAccountResponse {
 
 @Injectable()
 export class AdminService {
+  private emailTransporter: nodemailer.Transporter;
+
   constructor(
     @InjectRepository(Admin) private readonly adminRepo: Repository<Admin>,
     @InjectRepository(Manager) private readonly managerRepo: Repository<Manager>,
@@ -125,7 +127,214 @@ export class AdminService {
     private readonly adminJwt: AdminJwtService,
     private readonly subscriptionService: SubscriptionService,
     private readonly dataSource: DataSource,
-  ) {}
+  ) {
+    this.initializeEmailTransporter();
+  }
+
+  private initializeEmailTransporter(): void {
+    this.emailTransporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.EMAIL_PORT || '587'),
+      secure: false,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+      tls: {
+        ciphers: 'SSLv3',
+        rejectUnauthorized: false,
+      },
+    });
+  }
+
+  private async sendEmail(to: string, subject: string, html: string): Promise<void> {
+    try {
+      await this.emailTransporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to,
+        subject,
+        html,
+      });
+      console.log(`✅ تم إرسال الإيميل إلى: ${to}`);
+    } catch (error) {
+      console.error('❌ فشل إرسال الإيميل:', error);
+      // لا نرمي الخطأ حتى لا يؤثر على العملية الرئيسية
+    }
+  }
+
+  private async sendSubscriptionActionEmail(
+    companyEmail: string,
+    companyName: string,
+    adminEmail: string,
+    planName: string,
+    action: 'renewed' | 'cancelled' | 'extended',
+    details: string
+  ): Promise<void> {
+    try {
+      const actionText = {
+        'renewed': 'تم تجديد الاشتراك',
+        'cancelled': 'تم إلغاء الاشتراك',
+        'extended': 'تم تمديد الاشتراك'
+      };
+
+      const actionColor = {
+        'renewed': '#28a745',
+        'cancelled': '#dc3545',
+        'extended': '#007bff'
+      };
+
+      const subject = `تحديث اشتراك - ${companyName}`;
+      
+      const html = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${subject}</title>
+          <style>
+            body {
+              font-family: 'Arial', 'Segoe UI', sans-serif;
+              line-height: 1.6;
+              color: #333;
+              margin: 0;
+              padding: 0;
+              background-color: #f5f5f5;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .header {
+              background-color: ${actionColor[action]};
+              color: white;
+              padding: 30px;
+              text-align: center;
+              border-radius: 10px 10px 0 0;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+            .content {
+              background-color: white;
+              padding: 30px;
+              border-radius: 0 0 10px 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .info-box {
+              background-color: #f8f9fa;
+              border-right: 4px solid ${actionColor[action]};
+              padding: 20px;
+              margin-bottom: 20px;
+              border-radius: 8px;
+            }
+            .info-box p {
+              margin: 10px 0;
+              font-size: 16px;
+            }
+            .info-box strong {
+              color: #333;
+              margin-left: 10px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #eee;
+              color: #777;
+              font-size: 14px;
+            }
+            .company-info {
+              background-color: #f0f7ff;
+              padding: 20px;
+              border-radius: 8px;
+              margin-top: 20px;
+              text-align: center;
+            }
+            .company-info h3 {
+              color: #007bff;
+              margin-bottom: 10px;
+            }
+            .action-details {
+              background-color: #fff3cd;
+              border: 1px solid #ffeaa7;
+              padding: 15px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .details-title {
+              color: #856404;
+              font-weight: bold;
+              margin-bottom: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>${actionText[action]}</h1>
+            </div>
+            
+            <div class="content">
+              <div class="info-box">
+                <p><strong>الشركة:</strong> ${companyName}</p>
+                <p><strong>البريد الإلكتروني:</strong> ${companyEmail}</p>
+                <p><strong>الخطة:</strong> ${planName}</p>
+                <p><strong>تاريخ الإجراء:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
+                <p><strong>بواسطة الأدمن:</strong> ${adminEmail}</p>
+              </div>
+              
+              <div class="action-details">
+                <div class="details-title">تفاصيل الإجراء:</div>
+                <p>${details}</p>
+              </div>
+              
+              <div class="company-info">
+                <h3>مرحبا بكم في منصة شارك</h3>
+                <p>أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
+                <p>نحن نسعى دائماً لتقديم أفضل الخدمات لدعم عملك ونمو شركتك</p>
+              </div>
+              
+              <div class="footer">
+                <p>تحت مع تحيات فريق شارك</p>
+                <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      // إرسال إيميل للشركة
+      await this.sendEmail(companyEmail, subject, html);
+
+      // إرسال إيميل إشعار للشركة الرئيسية (صاحبة النظام)
+      const companyAdminEmail = process.env.COMPANY_ADMIN_EMAIL || process.env.EMAIL_USER;
+      if (companyAdminEmail && companyAdminEmail !== companyEmail) {
+        const adminSubject = `إشعار - ${actionText[action]} - ${companyName}`;
+        const adminHtml = `
+          <div dir="rtl">
+            <h2>إشعار ${actionText[action]}</h2>
+            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <p><strong>الشركة:</strong> ${companyName}</p>
+              <p><strong>البريد:</strong> ${companyEmail}</p>
+              <p><strong>الخطة:</strong> ${planName}</p>
+              <p><strong>بواسطة الأدمن:</strong> ${adminEmail}</p>
+              <p><strong>تفاصيل الإجراء:</strong> ${details}</p>
+              <p><strong>التاريخ:</strong> ${new Date().toLocaleString('ar-SA')}</p>
+            </div>
+          </div>
+        `;
+        await this.sendEmail(companyAdminEmail, adminSubject, adminHtml);
+      }
+
+      console.log(`✅ تم إرسال إيميل ${actionText[action]} للشركة ${companyName}`);
+    } catch (error) {
+      console.error(`❌ فشل إرسال إيميل الإجراء ${action}:`, error);
+    }
+  }
 
   async ensureDefaultAdmin(): Promise<void> {
     const defaultEmail = 'admin@system.local';
@@ -667,10 +876,6 @@ export class AdminService {
     subscriptionId: string, 
     planId: string
   ): Promise<CompanySubscription | null> {
-    console.log(`=== محاولة تغيير خطة الاشتراك ===`);
-    console.log(`📋 الاشتراك: ${subscriptionId}`);
-    console.log(`🎯 الخطة الجديدة: ${planId}`);
-    
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -678,14 +883,10 @@ export class AdminService {
     try {
       const subscription = await queryRunner.manager.findOne(CompanySubscription, {
         where: { id: subscriptionId },
-        relations: ['company', 'plan']
+        relations: ['company', 'plan', 'activatedByAdmin']
       });
       
-      console.log(`🔍 البحث عن الاشتراك: ${subscriptionId}`);
-      console.log(`✅ الاشتراك الموجود: ${subscription ? `نعم (ID: ${subscription.id})` : 'لا'}`);
-      
       if (!subscription) {
-        console.log(`❌ الاشتراك غير موجود: ${subscriptionId}`);
         throw new NotFoundException('الاشتراك غير موجود');
       }
 
@@ -694,23 +895,17 @@ export class AdminService {
       });
       
       if (!newPlan) {
-        console.log(`❌ الخطة غير موجودة: ${planId}`);
         throw new NotFoundException('الخطة غير موجودة');
       }
 
-      console.log(`📈 تغيير الخطة من "${subscription.plan?.name}" إلى "${newPlan.name}"`);
-
-      // تحديث معلومات الخطة
+      const oldPlanName = subscription.plan?.name || 'غير معروف';
       subscription.plan = newPlan;
       subscription.price = newPlan.price;
       subscription.currency = 'SAR';
       
-      // الحفاظ على حالة الاشتراك كـ active دائمًا
       subscription.status = SubscriptionStatus.ACTIVE;
       
-      // الحفاظ على تاريخ الانتهاء الأصلي إذا كان موجودًا
       if (!subscription.endDate) {
-        // إذا لم يكن هناك تاريخ انتهاء، احسب بناءً على مدة الخطة الجديدة
         if (newPlan.durationInDays) {
           const endDate = new Date();
           endDate.setDate(endDate.getDate() + newPlan.durationInDays);
@@ -718,31 +913,35 @@ export class AdminService {
         }
       }
       
-      console.log(`🟢 حالة الاشتراك الجديدة: ${subscription.status}`);
-      
-      if (subscription.endDate) {
-        console.log(`📅 تاريخ الانتهاء الجديد: ${subscription.endDate.toISOString().split('T')[0]}`);
-      }
-      
       await queryRunner.manager.save(subscription);
 
-      // تحديث حالة الشركة دائمًا إلى active
-      console.log(`🏢 تحديث حالة الشركة ${subscription.company.id} إلى "active"`);
-      
       await queryRunner.manager.update(Company, subscription.company.id, {
         subscriptionStatus: 'active',
         isActive: true
       });
 
       await queryRunner.commitTransaction();
-      
-      console.log(`✅ تم تغيير الخطة بنجاح!`);
-      console.log('=================================');
+
+      try {
+        const adminEmail = subscription.activatedByAdmin?.email || 'النظام';
+        const details = `تم تغيير الخطة من "${oldPlanName}" إلى "${newPlan.name}". السعر الجديد: ${newPlan.price} ريال. المدة: ${newPlan.durationInDays || 30} يوم.`;
+        
+        await this.sendSubscriptionActionEmail(
+          subscription.company.email,
+          subscription.company.name,
+          adminEmail,
+          newPlan.name,
+          'renewed',
+          details
+        );
+      } catch (emailError) {
+        console.error(' فشل إرسال إيميل تغيير الخطة:', emailError);
+      }
       
       return subscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      console.error('❌ Error changing subscription plan:', error);
+      console.error('Error changing subscription plan:', error);
       
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في تغيير الخطة: ${error.message}`);
@@ -757,86 +956,47 @@ export class AdminService {
     companyId: string, 
     planId: string
   ): Promise<CompanySubscription> {
-    console.log(`=== بدء تغيير خطة الشركة ===`);
-    console.log(` الشركة: ${companyId}`);
-    console.log(` الخطة الجديدة: ${planId}`);
-    
-    // البحث عن الاشتراك الحالي للشركة
     const currentSubscription = await this.subRepo.findOne({
       where: { company: { id: companyId } },
       order: { createdAt: 'DESC' },
-      relations: ['company', 'plan']
+      relations: ['company', 'plan', 'activatedByAdmin']
     });
     
     if (!currentSubscription) {
-      console.log(` لا يوجد اشتراك حالي للشركة ${companyId}`);
       throw new NotFoundException('لا يوجد اشتراك حالي للشركة');
     }
     
-    console.log(` الاشتراك الحالي للشركة: ${currentSubscription.id}`);
-    console.log(` الشركة: ${currentSubscription.company?.name || 'غير معروف'} (${companyId})`);
-    console.log(` الخطة الحالية: ${currentSubscription.plan?.name || 'غير معروف'} (${currentSubscription.planId})`);
-    console.log(` الحالة الحالية: ${currentSubscription.status}`);
-    
-    // الحصول على الخطة الجديدة
     const newPlan = await this.planRepo.findOne({
       where: { id: planId }
     });
     
     if (!newPlan) {
-      console.log(` الخطة غير موجودة: ${planId}`);
       throw new NotFoundException('الخطة غير موجودة');
     }
     
-    console.log(` الخطة الجديدة: ${newPlan.name} (${newPlan.id})`);
-    console.log(` سعر الخطة الجديدة: ${newPlan.price} ريال`);
-    console.log(` عدد الموظفين المسموح به: ${newPlan.maxEmployees || 'غير محدد'}`);
-    
-    // 1. التحقق من عدد الموظفين الحاليين
     const currentEmployeesCount = await this.employeeRepo.count({
       where: { company: { id: companyId } }
     });
     
-    console.log(`👥 عدد الموظفين الحاليين: ${currentEmployeesCount}`);
-    
-    // إذا كانت الخطة الجديدة لها حد أقصى للموظفين وكان عدد الموظفين الحاليين يتجاوزه
     if (newPlan.maxEmployees && currentEmployeesCount > newPlan.maxEmployees) {
-      console.log(`❌ عدد الموظفين الحاليين (${currentEmployeesCount}) يتجاوز الحد الأقصى للخطة الجديدة (${newPlan.maxEmployees})`);
       throw new BadRequestException(
         `لا يمكن الانتقال إلى الخطة الجديدة لأن عدد الموظفين الحاليين (${currentEmployeesCount}) يتجاوز الحد المسموح به في هذه الخطة (${newPlan.maxEmployees}). يرجى تقليل عدد الموظفين أولاً.`
       );
     }
     
-    // 2. التحقق من السعر - منع الانتقال من خطة أعلى سعراً إلى خطة أقل سعراً
-    // الحصول على سعر الخطة الحالية من الاشتراك وتحويله إلى رقم
     let currentPlanPrice = parseFloat(String(currentSubscription.price || 0));
-    // إذا كان السعر 0، جرب الحصول من خطة الشركة
     if (currentPlanPrice === 0 && currentSubscription.plan?.price) {
       currentPlanPrice = parseFloat(String(currentSubscription.plan.price));
     }
     
-    // تحويل سعر الخطة الجديدة إلى رقم
     const newPlanPrice = parseFloat(String(newPlan.price || 0));
     
-    console.log(`💰 سعر الخطة الحالية (رقم): ${currentPlanPrice} ريال`);
-    console.log(`💰 سعر الخطة الجديدة (رقم): ${newPlanPrice} ريال`);
-    console.log(`🔍 نوع سعر الخطة الحالية: ${typeof currentPlanPrice}`);
-    console.log(`🔍 نوع سعر الخطة الجديدة: ${typeof newPlanPrice}`);
-    
-    // منع الانتقال فقط عندما تكون الخطة الجديدة أرخص (سعر أقل)
-    // التصحيح: تحويل الأسعار إلى أرقام قبل المقارنة
     if (newPlanPrice < currentPlanPrice) {
-      console.log(`❌ لا يسمح بالانتقال: الخطة الجديدة أرخص سعراً (${newPlanPrice} < ${currentPlanPrice})`);
       throw new BadRequestException(
         `لا يسمح بالانتقال من خطة أعلى سعراً (${currentPlanPrice} ريال) إلى خطة أقل سعراً (${newPlanPrice} ريال). يسمح فقط بالانتقال إلى خطط مساوية أو أعلى سعراً.`
       );
-    } else if (newPlanPrice > currentPlanPrice) {
-      console.log(`✅ مسموح بالانتقال: الخطة الجديدة أعلى سعراً (${newPlanPrice} > ${currentPlanPrice})`);
-    } else {
-      console.log(`✅ مسموح بالانتقال: الأسعار متساوية (${newPlanPrice} = ${currentPlanPrice})`);
     }
     
-    // 3. حساب الأيام المتبقية من الاشتراك القديم
     let remainingDays = 0;
     if (currentSubscription.endDate) {
       const now = new Date();
@@ -845,59 +1005,61 @@ export class AdminService {
       remainingDays = Math.max(0, Math.ceil(timeDiff / (1000 * 3600 * 24)));
     }
     
-    console.log(`📆 الأيام المتبقية من الاشتراك القديم: ${remainingDays} يوم`);
+    const oldPlanName = currentSubscription.plan?.name || 'غير معروف';
     
-    // 4. تغيير الخطة مع الحفاظ على الأيام المتبقية
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      // تحديث الاشتراك الحالي
       currentSubscription.plan = newPlan;
-      currentSubscription.price = newPlanPrice; // حفظ كرقم
+      currentSubscription.price = newPlanPrice;
       currentSubscription.currency = 'SAR';
       
-      // الحفاظ على الحالة نشطة دائمًا
       currentSubscription.status = SubscriptionStatus.ACTIVE;
       
-      // حساب تاريخ الانتهاء الجديد بناءً على الأيام المتبقية
       if (remainingDays > 0) {
         const newEndDate = new Date();
         newEndDate.setDate(newEndDate.getDate() + remainingDays);
         currentSubscription.endDate = newEndDate;
-        console.log(`📅 تاريخ الانتهاء الجديد (مع الحفاظ على الأيام المتبقية): ${newEndDate.toISOString().split('T')[0]}`);
       } else {
-        // إذا لم يكن هناك أيام متبقية، استخدم مدة الخطة الجديدة
         if (newPlan.durationInDays) {
           const endDate = new Date();
           endDate.setDate(endDate.getDate() + newPlan.durationInDays);
           currentSubscription.endDate = endDate;
-          console.log(`📅 تاريخ الانتهاء الجديد (بناءً على مدة الخطة الجديدة): ${endDate.toISOString().split('T')[0]}`);
         }
       }
       
-      // حفظ الاشتراك المحدث
       await queryRunner.manager.save(currentSubscription);
       
-      // تحديث حالة الشركة دائمًا إلى active
-      console.log(`🏢 تحديث حالة الشركة ${companyId} إلى "active"`);
       await queryRunner.manager.update(Company, companyId, {
         subscriptionStatus: 'active',
         isActive: true
       });
       
       await queryRunner.commitTransaction();
-      
-      console.log(`✅ تم تغيير خطة الشركة بنجاح!`);
-      console.log(` من "${currentSubscription.plan?.name}" إلى "${newPlan.name}"`);
-      console.log(` الحالة الجديدة: ${currentSubscription.status}`);
-      console.log('=================================');
+
+      try {
+        const adminEmail = currentSubscription.activatedByAdmin?.email || 'النظام';
+        const newEndDateStr = currentSubscription.endDate ? currentSubscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+        const details = `تم تغيير خطة الشركة من "${oldPlanName}" إلى "${newPlan.name}". السعر الجديد: ${newPlanPrice} ريال. المدة المتبقية: ${remainingDays} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+        
+        await this.sendSubscriptionActionEmail(
+          currentSubscription.company.email,
+          currentSubscription.company.name,
+          adminEmail,
+          newPlan.name,
+          'renewed',
+          details
+        );
+      } catch (emailError) {
+        console.error(' فشل إرسال إيميل تغيير خطة الشركة:', emailError);
+      }
       
       return currentSubscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      console.error('❌ Error changing company plan:', error);
+      console.error('Error changing company plan:', error);
       
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في تغيير خطة الشركة: ${error.message}`);
@@ -927,7 +1089,8 @@ export class AdminService {
 
       const currentSubscription = await queryRunner.manager.findOne(CompanySubscription, {
         where: { company: { id: companyId } },
-        order: { createdAt: 'DESC' }
+        order: { createdAt: 'DESC' },
+        relations: ['activatedByAdmin']
       });
 
       const newPlan = await queryRunner.manager.findOne(Plan, {
@@ -938,7 +1101,6 @@ export class AdminService {
         throw new NotFoundException('الخطة غير موجودة');
       }
 
-      // التحقق من عدد الموظفين
       const currentEmployeesCount = await this.employeeRepo.count({
         where: { company: { id: companyId } }
       });
@@ -949,7 +1111,6 @@ export class AdminService {
         );
       }
 
-      // التحقق من السعر - تحويل الأسعار إلى أرقام
       let currentPlanPrice = 0;
       if (currentSubscription) {
         currentPlanPrice = parseFloat(String(currentSubscription.price || 0));
@@ -966,18 +1127,19 @@ export class AdminService {
         );
       }
 
+      const adminEmail = currentSubscription?.activatedByAdmin?.email || 'النظام';
+
       const newSubscription = this.subRepo.create({
         company,
         plan: newPlan,
-        price: newPlanPrice, // حفظ كرقم
+        price: newPlanPrice,
         currency: 'SAR',
         startDate: new Date(),
-        status: SubscriptionStatus.ACTIVE, // دائمًا active
+        status: SubscriptionStatus.ACTIVE,
+        activatedByAdmin: currentSubscription?.activatedByAdmin || null,
       });
 
-      // حساب تاريخ الانتهاء
       if (currentSubscription?.endDate) {
-        // الحفاظ على تاريخ الانتهاء الحالي إذا كان موجودًا
         newSubscription.endDate = currentSubscription.endDate;
       } else if (newPlan.durationInDays) {
         const endDate = new Date();
@@ -987,18 +1149,34 @@ export class AdminService {
 
       await queryRunner.manager.save(CompanySubscription, newSubscription);
 
-      // تحديث الحالة السابقة إذا كانت موجودة
       if (currentSubscription) {
         currentSubscription.status = SubscriptionStatus.CANCELLED;
         await queryRunner.manager.save(CompanySubscription, currentSubscription);
       }
 
-      // تحديث حالة الشركة دائمًا إلى active
       company.subscriptionStatus = 'active';
       company.isActive = true;
       await queryRunner.manager.save(Company, company);
 
       await queryRunner.commitTransaction();
+
+      try {
+        const newEndDateStr = newSubscription.endDate ? newSubscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+        const oldPlanName = currentSubscription?.plan?.name || 'غير معروف';
+        const details = `تم ترقية الاشتراك من خطة "${oldPlanName}" إلى خطة "${newPlan.name}". السعر الجديد: ${newPlanPrice} ريال. المدة: ${newPlan.durationInDays || 30} يوم. تاريخ الانتهاء: ${newEndDateStr}.`;
+        
+        await this.sendSubscriptionActionEmail(
+          company.email,
+          company.name,
+          adminEmail,
+          newPlan.name,
+          'renewed',
+          details
+        );
+      } catch (emailError) {
+        console.error(' فشل إرسال إيميل ترقية الاشتراك:', emailError);
+      }
+
       return newSubscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
@@ -1013,6 +1191,14 @@ export class AdminService {
 
   async subscribeCompanyToPlan(companyId: string, planId: string, adminId: string): Promise<SubscriptionResult> {
     try {
+      const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+      if (!admin) {
+        throw new NotFoundException('الأدمن غير موجود');
+      }
+
+      const company = await this.companyRepo.findOne({ where: { id: companyId } });
+      const plan = await this.planRepo.findOne({ where: { id: planId } });
+
       const result = await this.subscriptionService.subscribe(
         companyId,       
         planId, 
@@ -1028,6 +1214,24 @@ export class AdminService {
         checkoutUrl: result.checkoutUrl,
         subscription: result.subscription,
       };
+
+      try {
+        if (company && plan && result.subscription) {
+          const newEndDateStr = result.subscription.endDate ? result.subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+          const details = `تم تفعيل اشتراك جديد في خطة "${plan.name}" بواسطة الأدمن. السعر: ${plan.price} ريال. المدة: ${plan.durationInDays || 30} يوم. تاريخ الانتهاء: ${newEndDateStr}.`;
+          
+          await this.sendSubscriptionActionEmail(
+            company.email,
+            company.name,
+            admin.email,
+            plan.name,
+            'renewed',
+            details
+          );
+        }
+      } catch (emailError) {
+        console.error(' فشل إرسال إيميل الاشتراك:', emailError);
+      }
     
       return subscriptionResult;
     } catch (error: unknown) {
@@ -1090,5 +1294,212 @@ export class AdminService {
       data,
       timestamp: new Date().toISOString(),
     };
+  }
+
+  async cancelSubscription(
+    subscriptionId: string, 
+    adminId: string,
+    reason?: string
+  ): Promise<CompanySubscription> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const subscription = await queryRunner.manager.findOne(CompanySubscription, {
+        where: { id: subscriptionId },
+        relations: ['company', 'plan', 'activatedByAdmin']
+      });
+
+      if (!subscription) {
+        throw new NotFoundException('الاشتراك غير موجود');
+      }
+
+      const admin = await queryRunner.manager.findOne(Admin, {
+        where: { id: adminId }
+      });
+
+      subscription.status = SubscriptionStatus.CANCELLED;
+    
+      await queryRunner.manager.save(subscription);
+      await queryRunner.manager.update(Company, subscription.company.id, {
+        subscriptionStatus: 'inactive',
+        isActive: false
+      });
+
+      await queryRunner.commitTransaction();
+
+      try {
+        const adminEmail = admin?.email || 'النظام';
+        const details = `تم إلغاء الاشتراك بالخطة "${subscription.plan?.name || 'غير معروف'}". ${reason ? `السبب: ${reason}` : 'بدون سبب محدد'}.`;
+      
+        await this.sendSubscriptionActionEmail(
+          subscription.company.email,
+          subscription.company.name,
+          adminEmail,
+          subscription.plan?.name || 'غير معروف',
+          'cancelled',
+          details
+        );
+      } catch (emailError) {
+        console.error(' فشل إرسال إيميل الإلغاء:', emailError);
+      }
+
+      return subscription;
+    } catch (error: unknown) {
+      await queryRunner.rollbackTransaction();
+      console.error('Error cancelling subscription:', error);
+    
+      if (error instanceof Error) {
+        throw new InternalServerErrorException(`فشل في إلغاء الاشتراك: ${error.message}`);
+      }
+      throw new InternalServerErrorException('فشل في إلغاء الاشتراك: خطأ غير معروف');
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async renewSubscription(
+    subscriptionId: string, 
+    adminId: string,
+    durationInDays?: number
+  ): Promise<CompanySubscription> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const subscription = await queryRunner.manager.findOne(CompanySubscription, {
+        where: { id: subscriptionId },
+        relations: ['company', 'plan', 'activatedByAdmin']
+      });
+      
+      if (!subscription) {
+        throw new NotFoundException('الاشتراك غير موجود');
+      }
+
+      const admin = await queryRunner.manager.findOne(Admin, {
+        where: { id: adminId }
+      });
+
+      const renewalDays = durationInDays || subscription.plan?.durationInDays || 30;
+      
+      const newEndDate = new Date();
+      newEndDate.setDate(newEndDate.getDate() + renewalDays);
+      
+      subscription.endDate = newEndDate;
+      subscription.status = SubscriptionStatus.ACTIVE;
+      
+      await queryRunner.manager.save(subscription);
+
+      await queryRunner.manager.update(Company, subscription.company.id, {
+        subscriptionStatus: 'active',
+        isActive: true
+      });
+
+      await queryRunner.commitTransaction();
+
+      try {
+        const adminEmail = admin?.email || 'النظام';
+        const newEndDateStr = newEndDate.toLocaleDateString('ar-SA');
+        const details = `تم تجديد الاشتراك بالخطة "${subscription.plan?.name || 'غير معروف'}" لمدة ${renewalDays} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+        
+        await this.sendSubscriptionActionEmail(
+          subscription.company.email,
+          subscription.company.name,
+          adminEmail,
+          subscription.plan?.name || 'غير معروف',
+          'renewed',
+          details
+        );
+      } catch (emailError) {
+        console.error(' فشل إرسال إيميل التجديد:', emailError);
+      }
+
+      return subscription;
+    } catch (error: unknown) {
+      await queryRunner.rollbackTransaction();
+      console.error('Error renewing subscription:', error);
+      
+      if (error instanceof Error) {
+        throw new InternalServerErrorException(`فشل في تجديد الاشتراك: ${error.message}`);
+      }
+      throw new InternalServerErrorException('فشل في تجديد الاشتراك: خطأ غير معروف');
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async extendSubscription(
+    subscriptionId: string, 
+    adminId: string,
+    extraDays: number
+  ): Promise<CompanySubscription> {
+    if (extraDays <= 0) {
+      throw new BadRequestException('عدد الأيام يجب أن يكون أكبر من صفر');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const subscription = await queryRunner.manager.findOne(CompanySubscription, {
+        where: { id: subscriptionId },
+        relations: ['company', 'plan', 'activatedByAdmin']
+      });
+      
+      if (!subscription) {
+        throw new NotFoundException('الاشتراك غير موجود');
+      }
+
+      if (subscription.status !== SubscriptionStatus.ACTIVE) {
+        throw new BadRequestException('لا يمكن تمديد اشتراك غير نشط');
+      }
+
+      const admin = await queryRunner.manager.findOne(Admin, {
+        where: { id: adminId }
+      });
+
+      const currentEndDate = subscription.endDate ? new Date(subscription.endDate) : new Date();
+      const newEndDate = new Date(currentEndDate);
+      newEndDate.setDate(newEndDate.getDate() + extraDays);
+      
+      subscription.endDate = newEndDate;
+      
+      await queryRunner.manager.save(subscription);
+
+      await queryRunner.commitTransaction();
+
+      try {
+        const adminEmail = admin?.email || 'النظام';
+        const currentEndDateStr = currentEndDate.toLocaleDateString('ar-SA');
+        const newEndDateStr = newEndDate.toLocaleDateString('ar-SA');
+        const details = `تم تمديد الاشتراك بالخطة "${subscription.plan?.name || 'غير معروف'}" لمدة ${extraDays} يوم إضافية. تاريخ الانتهاء السابق: ${currentEndDateStr}. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+        
+        await this.sendSubscriptionActionEmail(
+          subscription.company.email,
+          subscription.company.name,
+          adminEmail,
+          subscription.plan?.name || 'غير معروف',
+          'extended',
+          details
+        );
+      } catch (emailError) {
+        console.error(' فشل إرسال إيميل التمديد:', emailError);
+      }
+
+      return subscription;
+    } catch (error: unknown) {
+      await queryRunner.rollbackTransaction();
+      console.error('Error extending subscription:', error);
+      
+      if (error instanceof Error) {
+        throw new InternalServerErrorException(`فشل في تمديد الاشتراك: ${error.message}`);
+      }
+      throw new InternalServerErrorException('فشل في تمديد الاشتراك: خطأ غير معروف');
+    } finally {
+      await queryRunner.release();
+    }
   }
 }
