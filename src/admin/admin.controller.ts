@@ -383,7 +383,7 @@ export class AdminController {
   @Patch('subscriptions/:id/change-plan')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'تغيير خطة الاشتراك' })
+  @ApiOperation({ summary: 'تغيير خطة الاشتراك (باستخدام subscriptionId)' })
   @ApiResponse({ status: 200, description: 'تم تغيير الخطة بنجاح' })
   @ApiResponse({ status: 404, description: 'الاشتراك أو الخطة غير موجودة' })
   changePlan(
@@ -391,6 +391,20 @@ export class AdminController {
     @Body() body: { planId: string }
   ): Promise<CompanySubscription | null> {
     return this.service.changeSubscriptionPlan(id, body.planId);
+  }
+
+  // === ENDPOINT متوافق مع الـ UI القديم ===
+  @Patch('subscriptions/company/:companyId/change-plan')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تغيير خطة الشركة (متوافق مع UI القديم)' })
+  @ApiResponse({ status: 200, description: 'تم تغيير خطة الشركة بنجاح' })
+  @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
+  async changePlanForCompany(
+    @Param('companyId') companyId: string, 
+    @Body() body: { planId: string }
+  ): Promise<CompanySubscription> {
+    return this.service.changeCompanyPlan(companyId, body.planId);
   }
 
   @Patch('companies/:companyId/upgrade-plan/:planId')
@@ -406,7 +420,7 @@ export class AdminController {
     return this.service.upgradeCompanySubscription(companyId, planId);
   }
 
-  // === ENDPOINTS الجديدة ===
+  // === ENDPOINTS الجديدة والأسهل ===
   
   @Patch('companies/:companyId/change-plan/:planId')
   @UseGuards(AdminJwtGuard)
