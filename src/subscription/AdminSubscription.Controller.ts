@@ -12,6 +12,7 @@ import {
   BadRequestException,
   UseInterceptors,
   ClassSerializerInterceptor,
+  Query,
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CompanyService } from '../company/company.service';
@@ -22,7 +23,42 @@ import {
   ApiParam,
   ApiResponse,
   ApiBearerAuth,
+  ApiQuery,
 } from '@nestjs/swagger';
+import { PaymentService } from '../payment/payment.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, FindOptionsWhere } from 'typeorm';
+import { PaymentProof } from '../payment/entities/payment-proof.entity';
+import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
+
+interface ProofResponse {
+  id: string;
+  companyId: string;
+  companyName: string;
+  companyEmail: string;
+  planId: string;
+  planName: string;
+  imageUrl: string;
+  publicId: string | null;
+  createdAt: Date;
+  status: PaymentProofStatus;
+  reviewed: boolean;
+  rejected: boolean;
+  decisionNote: string;
+  approvedById: string | null;
+}
+
+interface ProofStats {
+  pending: number;
+  approved: number;
+  rejected: number;
+  total: number;
+  stats: {
+    pendingPercentage: number;
+    approvedPercentage: number;
+    rejectedPercentage: number;
+  };
+}
 
 @ApiTags('Admin Subscription')
 @ApiBearerAuth()
@@ -34,6 +70,9 @@ export class AdminSubscriptionController {
   constructor(
     private readonly subscriptionService: SubscriptionService,
     private readonly companyService: CompanyService,
+    private readonly paymentService: PaymentService,
+    @InjectRepository(PaymentProof)
+    private readonly proofRepo: Repository<PaymentProof>,
   ) {}
 
   @Get('plans')
@@ -133,65 +172,65 @@ export class AdminSubscriptionController {
   }
 
   @Patch(':id/change-plan')
-@UseInterceptors(ClassSerializerInterceptor)
-async changePlan(
-  @Param('id') companyId: string,
-  @Body() body: { newPlanId: string, adminOverride?: boolean },
-) {
-  try {
-    console.log('===========================================');
-    console.log('📢 [DEBUG] changePlan called!');
-    console.log('companyId:', companyId);
-    console.log('body:', body);
-    console.log('===========================================');
-    
-    this.logger.log(`[changePlan] === بدء طلب تغيير الخطة ===`);
-    this.logger.log(`[changePlan] companyId: ${companyId}`);
-    this.logger.log(`[changePlan] body: ${JSON.stringify(body)}`);
-    
-    if (!body || !body.newPlanId) {
-      this.logger.error(`[changePlan] newPlanId مفقود في body`);
-      throw new BadRequestException('معرف الخطة الجديدة مطلوب في body');
+  @UseInterceptors(ClassSerializerInterceptor)
+  async changePlan(
+    @Param('id') companyId: string,
+    @Body() body: { newPlanId: string, adminOverride?: boolean },
+  ) {
+    try {
+      console.log('===========================================');
+      console.log('📢 [DEBUG] changePlan called!');
+      console.log('companyId:', companyId);
+      console.log('body:', body);
+      console.log('===========================================');
+      
+      this.logger.log(`[changePlan] === بدء طلب تغيير الخطة ===`);
+      this.logger.log(`[changePlan] companyId: ${companyId}`);
+      this.logger.log(`[changePlan] body: ${JSON.stringify(body)}`);
+      
+      if (!body || !body.newPlanId) {
+        this.logger.error(`[changePlan] newPlanId مفقود في body`);
+        throw new BadRequestException('معرف الخطة الجديدة مطلوب في body');
+      }
+      
+      const adminOverride = body.adminOverride !== undefined ? body.adminOverride : true;
+      
+      this.logger.log(`[changePlan] استخدام adminOverride = ${adminOverride}`);
+      
+      console.log('📢 [DEBUG] Calling changePlanDirectly...');
+      const result = await this.subscriptionService.changePlanDirectly(
+        companyId, 
+        body.newPlanId, 
+        adminOverride
+      );
+      console.log('📢 [DEBUG] Result:', result);
+      
+      this.logger.log(`[changePlan] === نجاح تغيير الخطة ===`);
+      this.logger.log(`[changePlan] النتيجة: ${JSON.stringify(result)}`);
+      
+      return {
+        success: true,
+        message: 'تم تغيير الخطة بنجاح',
+        data: result,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      console.log('📢 [DEBUG] ERROR:', errorMessage);
+      this.logger.error(`[changePlan] === فشل تغيير الخطة ===`);
+      this.logger.error(`[changePlan] الشركة: ${companyId}`);
+      this.logger.error(`[changePlan] الخطة الجديدة: ${body?.newPlanId}`);
+      this.logger.error(`[changePlan] الخطأ: ${errorMessage}`);
+      
+      if (error instanceof BadRequestException || 
+          error instanceof NotFoundException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException('فشل تغيير الخطة');
     }
-    
-    const adminOverride = body.adminOverride !== undefined ? body.adminOverride : true;
-    
-    this.logger.log(`[changePlan] استخدام adminOverride = ${adminOverride}`);
-    
-    console.log('📢 [DEBUG] Calling changePlanDirectly...');
-    const result = await this.subscriptionService.changePlanDirectly(
-      companyId, 
-      body.newPlanId, 
-      adminOverride
-    );
-    console.log('📢 [DEBUG] Result:', result);
-    
-    this.logger.log(`[changePlan] === نجاح تغيير الخطة ===`);
-    this.logger.log(`[changePlan] النتيجة: ${JSON.stringify(result)}`);
-    
-    return {
-      success: true,
-      message: 'تم تغيير الخطة بنجاح',
-      data: result,
-      timestamp: new Date().toISOString()
-    };
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    
-    console.log('📢 [DEBUG] ERROR:', errorMessage);
-    this.logger.error(`[changePlan] === فشل تغيير الخطة ===`);
-    this.logger.error(`[changePlan] الشركة: ${companyId}`);
-    this.logger.error(`[changePlan] الخطة الجديدة: ${body?.newPlanId}`);
-    this.logger.error(`[changePlan] الخطأ: ${errorMessage}`);
-    
-    if (error instanceof BadRequestException || 
-        error instanceof NotFoundException) {
-      throw error;
-    }
-    
-    throw new InternalServerErrorException('فشل تغيير الخطة');
   }
-}
 
   @Patch(':id/change-plan/:newPlanId')
   @ApiOperation({ summary: 'تغيير خطة اشتراك الشركة (طريقة قديمة - للتوافق)' })
@@ -342,6 +381,240 @@ async changePlan(
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`[getCurrentStatus] فشل التحقق من الحالة: ${errorMessage}`);
       throw new InternalServerErrorException('فشل التحقق من الحالة');
+    }
+  }
+
+  // ==================== MANUAL PROOFS ENDPOINTS ====================
+
+  @Get('manual-proofs')
+  @ApiOperation({ summary: 'عرض جميع طلبات التحويل البنكي' })
+  @ApiQuery({ name: 'status', required: false, enum: PaymentProofStatus, description: 'فلتر حسب الحالة' })
+  @ApiResponse({ status: 200, description: 'تم جلب الطلبات بنجاح' })
+  async getManualTransferProofs(@Query('status') status?: PaymentProofStatus): Promise<ProofResponse[]> {
+    try {
+      const whereClause: FindOptionsWhere<PaymentProof> = {};
+      
+      if (status) {
+        whereClause.status = status;
+      } else {
+        whereClause.status = PaymentProofStatus.PENDING;
+      }
+
+      const proofs = await this.proofRepo.find({
+        where: whereClause,
+        relations: ['company', 'plan'],
+        order: { createdAt: 'DESC' },
+      });
+
+      const safeProofs: ProofResponse[] = proofs.map((proof) => ({
+        id: proof.id,
+        companyId: proof.company?.id || 'غير معروف',
+        companyName: proof.company?.name || 'شركة غير معروفة',
+        companyEmail: proof.company?.email || 'بريد غير معروف',
+        planId: proof.plan?.id || 'غير معروف',
+        planName: proof.plan?.name || 'خطة غير معروفة',
+        imageUrl: proof.imageUrl,
+        publicId: proof.publicId,
+        createdAt: proof.createdAt,
+        status: proof.status,
+        reviewed: proof.reviewed || false,
+        rejected: proof.rejected || false,
+        decisionNote: proof.decisionNote || '',
+        approvedById: proof.approvedById,
+      }));
+
+      this.logger.log(`[getManualTransferProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي`);
+      return safeProofs;
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[getManualTransferProofs] فشل تحميل الطلبات: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل تحميل الطلبات');
+    }
+  }
+
+  @Get('manual-proofs/:proofId')
+  @ApiOperation({ summary: 'عرض تفاصيل طلب تحويل بنكي' })
+  @ApiParam({ name: 'proofId', description: 'معرف الطلب' })
+  @ApiResponse({ status: 200, description: 'تم جلب تفاصيل الطلب بنجاح' })
+  async getManualProofDetails(@Param('proofId') proofId: string): Promise<ProofResponse> {
+    try {
+      const proof = await this.proofRepo.findOne({
+        where: { id: proofId },
+        relations: ['company', 'plan'],
+      });
+
+      if (!proof) {
+        throw new NotFoundException('الطلب غير موجود');
+      }
+
+      const safeProof: ProofResponse = {
+        id: proof.id,
+        companyId: proof.company?.id || 'غير معروف',
+        companyName: proof.company?.name || 'شركة غير معروفة',
+        companyEmail: proof.company?.email || 'بريد غير معروف',
+        planId: proof.plan?.id || 'غير معروف',
+        planName: proof.plan?.name || 'خطة غير معروفة',
+        imageUrl: proof.imageUrl,
+        publicId: proof.publicId,
+        createdAt: proof.createdAt,
+        status: proof.status,
+        reviewed: proof.reviewed || false,
+        rejected: proof.rejected || false,
+        decisionNote: proof.decisionNote || '',
+        approvedById: proof.approvedById,
+      };
+
+      this.logger.log(`[getManualProofDetails] تم جلب تفاصيل طلب التحويل: ${proofId}`);
+      return safeProof;
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[getManualProofDetails] فشل تحميل تفاصيل الطلب ${proofId}: ${errorMessage}`);
+      
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+      
+      throw new InternalServerErrorException('فشل تحميل تفاصيل الطلب');
+    }
+  }
+
+  @Patch('manual-proofs/:proofId/approve')
+  @ApiOperation({ summary: 'قبول طلب التحويل البنكي' })
+  @ApiParam({ name: 'proofId', description: 'معرف الطلب' })
+  @ApiResponse({ status: 200, description: 'تم قبول الطلب بنجاح' })
+  async approveProof(
+    @Param('proofId') proofId: string,
+    @Body() body?: { approvedById?: string }
+  ): Promise<{ message: string }> {
+    try {
+      this.logger.log(`[approveProof] محاولة قبول طلب التحويل: ${proofId}`);
+      
+      const proof = await this.proofRepo.findOne({
+        where: { id: proofId },
+        relations: ['company', 'plan'],
+      });
+
+      if (!proof) {
+        throw new NotFoundException('الطلب غير موجود');
+      }
+
+      if (!proof.company || !proof.plan) {
+        throw new BadRequestException('بيانات الطلب غير مكتملة');
+      }
+
+      const result = await this.paymentService.approveProof(
+        proofId, 
+        body?.approvedById
+      );
+      
+      this.logger.log(`[approveProof] تم قبول الطلب بنجاح: ${proofId}`);
+      return result;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[approveProof] فشل قبول الطلب ${proofId}: ${errorMessage}`);
+      
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException('فشل قبول الطلب');
+    }
+  }
+
+  @Patch('manual-proofs/:proofId/reject')
+  @ApiOperation({ summary: 'رفض طلب التحويل البنكي' })
+  @ApiParam({ name: 'proofId', description: 'معرف الطلب' })
+  @ApiResponse({ status: 200, description: 'تم رفض الطلب بنجاح' })
+  async rejectProof(
+    @Param('proofId') proofId: string,
+    @Body() body: { reason: string }
+  ): Promise<{ message: string }> {
+    try {
+      this.logger.log(`[rejectProof] محاولة رفض طلب التحويل: ${proofId}`);
+      
+      const proof = await this.proofRepo.findOne({
+        where: { id: proofId },
+        relations: ['company', 'plan'],
+      });
+
+      if (!proof) {
+        throw new NotFoundException('الطلب غير موجود');
+      }
+
+      if (!body.reason || body.reason.trim().length === 0) {
+        throw new BadRequestException('سبب الرفض مطلوب');
+      }
+
+      const result = await this.paymentService.rejectProof(proofId, body.reason);
+      
+      this.logger.log(`[rejectProof] تم رفض الطلب بنجاح: ${proofId}`);
+      return result;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[rejectProof] فشل رفض الطلب ${proofId}: ${errorMessage}`);
+      
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException('فشل رفض الطلب');
+    }
+  }
+
+  @Get('expiring/:days')
+  @ApiOperation({ summary: 'عرض الاشتراكات القريبة من الانتهاء خلال عدد أيام معين' })
+  @ApiParam({ name: 'days', description: 'عدد الأيام قبل الانتهاء' })
+  async getExpiring(@Param('days') days: string) {
+    const threshold = parseInt(days);
+    return await this.subscriptionService.getExpiringSubscriptions(threshold);
+  }
+
+  @Get('pending-proofs/count')
+  @ApiOperation({ summary: 'جلب عدد طلبات التحويل البنكي المعلقة' })
+  @ApiResponse({ status: 200, description: 'تم جلب العدد بنجاح' })
+  async getPendingProofsCount(): Promise<{ count: number }> {
+    try {
+      const count = await this.proofRepo.count({
+        where: { status: PaymentProofStatus.PENDING }
+      });
+      
+      this.logger.log(`[getPendingProofsCount] عدد الطلبات المعلقة: ${count}`);
+      return { count };
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[getPendingProofsCount] فشل جلب عدد الطلبات المعلقة: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل جلب عدد الطلبات المعلقة');
+    }
+  }
+
+  @Get('proofs/stats')
+  @ApiOperation({ summary: 'إحصائيات طلبات التحويل البنكي' })
+  @ApiResponse({ status: 200, description: 'تم جلب الإحصائيات بنجاح' })
+  async getProofsStats(): Promise<ProofStats> {
+    try {
+      const [pending, approved, rejected] = await Promise.all([
+        this.proofRepo.count({ where: { status: PaymentProofStatus.PENDING } }),
+        this.proofRepo.count({ where: { status: PaymentProofStatus.APPROVED } }),
+        this.proofRepo.count({ where: { status: PaymentProofStatus.REJECTED } }),
+      ]);
+
+      const total = pending + approved + rejected;
+
+      return {
+        pending,
+        approved,
+        rejected,
+        total,
+        stats: {
+          pendingPercentage: total > 0 ? Math.round((pending / total) * 100) : 0,
+          approvedPercentage: total > 0 ? Math.round((approved / total) * 100) : 0,
+          rejectedPercentage: total > 0 ? Math.round((rejected / total) * 100) : 0,
+        }
+      };
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[getProofsStats] فشل جلب إحصائيات الطلبات: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل جلب إحصائيات الطلبات');
     }
   }
 }

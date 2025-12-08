@@ -406,7 +406,35 @@ export class AdminController {
     return this.service.upgradeCompanySubscription(companyId, planId);
   }
 
-  @Post('subscriptions/:companyId/subscribe/:planId')
+  // === ENDPOINTS الجديدة ===
+  
+  @Patch('companies/:companyId/change-plan/:planId')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تغيير خطة شركة (الأسهل - باستخدام URL params)' })
+  @ApiResponse({ status: 200, description: 'تم تغيير خطة الشركة بنجاح' })
+  @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
+  async changeCompanyPlanWithParams(
+    @Param('companyId') companyId: string,
+    @Param('planId') planId: string
+  ): Promise<CompanySubscription> {
+    return this.service.changeCompanyPlan(companyId, planId);
+  }
+
+  @Patch('companies/:companyId/change-plan')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تغيير خطة شركة (باستخدام Body)' })
+  @ApiResponse({ status: 200, description: 'تم تغيير خطة الشركة بنجاح' })
+  @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
+  async changeCompanyPlanWithBody(
+    @Param('companyId') companyId: string,
+    @Body() body: { planId: string }
+  ): Promise<CompanySubscription> {
+    return this.service.changeCompanyPlan(companyId, body.planId);
+  }
+
+  @Post('companies/:companyId/subscribe/:planId')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'اشتراك شركة في خطة جديدة بواسطة الأدمن' })
