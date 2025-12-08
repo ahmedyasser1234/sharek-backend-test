@@ -27,7 +27,7 @@ import {
 } from '@nestjs/swagger';
 import { PaymentService } from '../payment/payment.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere } from 'typeorm';
+import { Repository } from 'typeorm';
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
 
@@ -386,22 +386,72 @@ export class AdminSubscriptionController {
 
   // ==================== MANUAL PROOFS ENDPOINTS ====================
 
-  @Get('manual-proofs')
-  @ApiOperation({ summary: 'عرض جميع طلبات التحويل البنكي' })
-  @ApiQuery({ name: 'status', required: false, enum: PaymentProofStatus, description: 'فلتر حسب الحالة' })
-  @ApiResponse({ status: 200, description: 'تم جلب الطلبات بنجاح' })
-  async getManualTransferProofs(@Query('status') status?: PaymentProofStatus): Promise<ProofResponse[]> {
-    try {
-      const whereClause: FindOptionsWhere<PaymentProof> = {};
-      
-      if (status) {
-        whereClause.status = status;
-      } else {
-        whereClause.status = PaymentProofStatus.PENDING;
-      }
+ @Get('manual-proofs')
+@ApiOperation({ summary: 'عرض جميع طلبات التحويل البنكي (بجميع الحالات)' })
+@ApiQuery({ name: 'status', required: false, enum: PaymentProofStatus, description: 'فلتر حسب الحالة' })
+@ApiQuery({ name: 'companyId', required: false, description: 'فلتر حسب الشركة' })
+@ApiQuery({ name: 'planId', required: false, description: 'فلتر حسب الخطة' })
+@ApiResponse({ status: 200, description: 'تم جلب جميع الطلبات بنجاح' })
+async getManualTransferProofs(
+  @Query('status') status?: PaymentProofStatus,
+  @Query('companyId') companyId?: string,
+  @Query('planId') planId?: string,
+): Promise<ProofResponse[]> {
+  try {
+    const queryBuilder = this.proofRepo
+      .createQueryBuilder('proof')
+      .leftJoinAndSelect('proof.company', 'company')
+      .leftJoinAndSelect('proof.plan', 'plan')
+      .orderBy('proof.createdAt', 'DESC');
 
+    // إضافة الفلاتر الشرطية
+    if (status) {
+      queryBuilder.andWhere('proof.status = :status', { status });
+    }
+    
+    if (companyId) {
+      queryBuilder.andWhere('company.id = :companyId', { companyId });
+    }
+    
+    if (planId) {
+      queryBuilder.andWhere('plan.id = :planId', { planId });
+    }
+
+    const proofs = await queryBuilder.getMany();
+
+    const safeProofs: ProofResponse[] = proofs.map((proof) => ({
+      id: proof.id,
+      companyId: proof.company?.id || 'غير معروف',
+      companyName: proof.company?.name || 'شركة غير معروفة',
+      companyEmail: proof.company?.email || 'بريد غير معروف',
+      planId: proof.plan?.id || 'غير معروف',
+      planName: proof.plan?.name || 'خطة غير معروفة',
+      imageUrl: proof.imageUrl,
+      publicId: proof.publicId,
+      createdAt: proof.createdAt,
+      status: proof.status,
+      reviewed: proof.reviewed || false,
+      rejected: proof.rejected || false,
+      decisionNote: proof.decisionNote || '',
+      approvedById: proof.approvedById,
+    }));
+
+    this.logger.log(`[getManualTransferProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي`);
+    return safeProofs;
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    this.logger.error(`[getManualTransferProofs] فشل تحميل الطلبات: ${errorMessage}`);
+    throw new InternalServerErrorException('فشل تحميل الطلبات');
+  }
+}
+
+  @Get('manual-proofs/pending')
+  @ApiOperation({ summary: 'عرض الطلبات المعلقة فقط' })
+  @ApiResponse({ status: 200, description: 'تم جلب الطلبات المعلقة بنجاح' })
+  async getPendingManualProofs(): Promise<ProofResponse[]> {
+    try {
       const proofs = await this.proofRepo.find({
-        where: whereClause,
+        where: { status: PaymentProofStatus.PENDING },
         relations: ['company', 'plan'],
         order: { createdAt: 'DESC' },
       });
@@ -423,12 +473,12 @@ export class AdminSubscriptionController {
         approvedById: proof.approvedById,
       }));
 
-      this.logger.log(`[getManualTransferProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي`);
+      this.logger.log(`[getPendingManualProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي معلق`);
       return safeProofs;
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      this.logger.error(`[getManualTransferProofs] فشل تحميل الطلبات: ${errorMessage}`);
-      throw new InternalServerErrorException('فشل تحميل الطلبات');
+      this.logger.error(`[getPendingManualProofs] فشل تحميل الطلبات المعلقة: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل تحميل الطلبات المعلقة');
     }
   }
 
@@ -615,6 +665,77 @@ export class AdminSubscriptionController {
       const errorMessage = err instanceof Error ? err.message : String(err);
       this.logger.error(`[getProofsStats] فشل جلب إحصائيات الطلبات: ${errorMessage}`);
       throw new InternalServerErrorException('فشل جلب إحصائيات الطلبات');
+    }
+  }
+
+  @Get('manual-proofs/filtered')
+  @ApiOperation({ summary: 'فلتر طلبات التحويل البنكي بمجموعة معايير' })
+  @ApiQuery({ name: 'status', required: false, enum: PaymentProofStatus, description: 'فلتر حسب الحالة' })
+  @ApiQuery({ name: 'companyId', required: false, description: 'فلتر حسب الشركة' })
+  @ApiQuery({ name: 'planId', required: false, description: 'فلتر حسب الخطة' })
+  @ApiQuery({ name: 'fromDate', required: false, description: 'من تاريخ (YYYY-MM-DD)' })
+  @ApiQuery({ name: 'toDate', required: false, description: 'إلى تاريخ (YYYY-MM-DD)' })
+  @ApiResponse({ status: 200, description: 'تم جلب الطلبات بنجاح' })
+  async getFilteredManualProofs(
+    @Query('status') status?: PaymentProofStatus,
+    @Query('companyId') companyId?: string,
+    @Query('planId') planId?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ): Promise<ProofResponse[]> {
+    try {
+      const queryBuilder = this.proofRepo
+        .createQueryBuilder('proof')
+        .leftJoinAndSelect('proof.company', 'company')
+        .leftJoinAndSelect('proof.plan', 'plan')
+        .orderBy('proof.createdAt', 'DESC');
+
+      // إضافة الفلاتر الشرطية
+      if (status) {
+        queryBuilder.andWhere('proof.status = :status', { status });
+      }
+      
+      if (companyId) {
+        queryBuilder.andWhere('company.id = :companyId', { companyId });
+      }
+      
+      if (planId) {
+        queryBuilder.andWhere('plan.id = :planId', { planId });
+      }
+      
+      if (fromDate) {
+        queryBuilder.andWhere('DATE(proof.createdAt) >= :fromDate', { fromDate });
+      }
+      
+      if (toDate) {
+        queryBuilder.andWhere('DATE(proof.createdAt) <= :toDate', { toDate });
+      }
+
+      const proofs = await queryBuilder.getMany();
+
+      const safeProofs: ProofResponse[] = proofs.map((proof) => ({
+        id: proof.id,
+        companyId: proof.company?.id || 'غير معروف',
+        companyName: proof.company?.name || 'شركة غير معروفة',
+        companyEmail: proof.company?.email || 'بريد غير معروف',
+        planId: proof.plan?.id || 'غير معروف',
+        planName: proof.plan?.name || 'خطة غير معروفة',
+        imageUrl: proof.imageUrl,
+        publicId: proof.publicId,
+        createdAt: proof.createdAt,
+        status: proof.status,
+        reviewed: proof.reviewed || false,
+        rejected: proof.rejected || false,
+        decisionNote: proof.decisionNote || '',
+        approvedById: proof.approvedById,
+      }));
+
+      this.logger.log(`[getFilteredManualProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي`);
+      return safeProofs;
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[getFilteredManualProofs] فشل تحميل الطلبات: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل تحميل الطلبات');
     }
   }
 }
