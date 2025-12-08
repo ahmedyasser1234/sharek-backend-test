@@ -663,110 +663,95 @@ export class AdminService {
     return this.subRepo.findOne({ where: { id } });
   }
 
- async changeSubscriptionPlan(
-  subscriptionId: string, 
-  planId: string
-): Promise<CompanySubscription | null> {
-  console.log(`=== محاولة تغيير خطة الاشتراك ===`);
-  console.log(`📋 الاشتراك: ${subscriptionId}`);
-  console.log(`🎯 الخطة الجديدة: ${planId}`);
-  
-  const queryRunner = this.dataSource.createQueryRunner();
-  await queryRunner.connect();
-  await queryRunner.startTransaction();
+  async changeSubscriptionPlan(
+    subscriptionId: string, 
+    planId: string
+  ): Promise<CompanySubscription | null> {
+    console.log(`=== محاولة تغيير خطة الاشتراك ===`);
+    console.log(`📋 الاشتراك: ${subscriptionId}`);
+    console.log(`🎯 الخطة الجديدة: ${planId}`);
+    
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-  try {
-    const subscription = await queryRunner.manager.findOne(CompanySubscription, {
-      where: { id: subscriptionId },
-      relations: ['company', 'plan']
-    });
-    
-    console.log(`🔍 البحث عن الاشتراك: ${subscriptionId}`);
-    console.log(`✅ الاشتراك الموجود: ${subscription ? `نعم (ID: ${subscription.id})` : 'لا'}`);
-    
-    if (!subscription) {
-      console.log(`❌ الاشتراك غير موجود: ${subscriptionId}`);
-      throw new NotFoundException('الاشتراك غير موجود');
-    }
-
-    const newPlan = await queryRunner.manager.findOne(Plan, {
-      where: { id: planId }
-    });
-    
-    if (!newPlan) {
-      console.log(`❌ الخطة غير موجودة: ${planId}`);
-      throw new NotFoundException('الخطة غير موجودة');
-    }
-
-    console.log(`📈 تغيير الخطة من "${subscription.plan?.name}" إلى "${newPlan.name}"`);
-
-    subscription.plan = newPlan;
-    subscription.price = newPlan.price;
-    subscription.currency = 'SAR';
-    
-    const isFreePlan = newPlan.price === 0;
-    
-    if (isFreePlan) {
-      subscription.status = SubscriptionStatus.ACTIVE;
-      const oneYearLater = new Date();
-      oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
-      subscription.endDate = oneYearLater;
-      console.log(`🆓 الخطة مجانية، تم التفعيل فوراً`);
-    } else {
-      subscription.status = SubscriptionStatus.PENDING;
-      if (newPlan.durationInDays) {
-        const endDate = new Date();
-        endDate.setDate(endDate.getDate() + newPlan.durationInDays);
-        subscription.endDate = endDate;
+    try {
+      const subscription = await queryRunner.manager.findOne(CompanySubscription, {
+        where: { id: subscriptionId },
+        relations: ['company', 'plan']
+      });
+      
+      console.log(`🔍 البحث عن الاشتراك: ${subscriptionId}`);
+      console.log(`✅ الاشتراك الموجود: ${subscription ? `نعم (ID: ${subscription.id})` : 'لا'}`);
+      
+      if (!subscription) {
+        console.log(`❌ الاشتراك غير موجود: ${subscriptionId}`);
+        throw new NotFoundException('الاشتراك غير موجود');
       }
-      console.log(`💰 الخطة مدفوعة، بحاجة للدفع`);
-    }
-    
-    // طباعة التاريخ بشكل صحيح
-    if (subscription.endDate) {
-      console.log(`📅 تاريخ الانتهاء الجديد: ${subscription.endDate.toISOString().split('T')[0]}`);
-    }
-    
-    console.log(`📊 حالة الاشتراك الجديدة: ${subscription.status}`);
-    
-    await queryRunner.manager.save(subscription);
 
-    // تحديث حالة الشركة بشكل آمن
-    const statusStr = subscription.status.toString();
-    let companyStatus: 'active' | 'inactive' | 'expired';
-    
-    if (statusStr === 'active') {
-      companyStatus = 'active';
-    } else if (statusStr === 'expired') {
-      companyStatus = 'expired';
-    } else {
-      companyStatus = 'inactive';
-    }
-    
-    console.log(`🏢 تحديث حالة الشركة ${subscription.company.id} إلى "${companyStatus}"`);
-    
-    await queryRunner.manager.update(Company, subscription.company.id, {
-      subscriptionStatus: companyStatus
-    });
+      const newPlan = await queryRunner.manager.findOne(Plan, {
+        where: { id: planId }
+      });
+      
+      if (!newPlan) {
+        console.log(`❌ الخطة غير موجودة: ${planId}`);
+        throw new NotFoundException('الخطة غير موجودة');
+      }
 
-    await queryRunner.commitTransaction();
-    
-    console.log(`✅ تم تغيير الخطة بنجاح!`);
-    console.log('=================================');
-    
-    return subscription;
-  } catch (error: unknown) {
-    await queryRunner.rollbackTransaction();
-    console.error('❌ Error changing subscription plan:', error);
-    
-    if (error instanceof Error) {
-      throw new InternalServerErrorException(`فشل في تغيير الخطة: ${error.message}`);
+      console.log(`📈 تغيير الخطة من "${subscription.plan?.name}" إلى "${newPlan.name}"`);
+
+      // تحديث معلومات الخطة
+      subscription.plan = newPlan;
+      subscription.price = newPlan.price;
+      subscription.currency = 'SAR';
+      
+      // الحفاظ على حالة الاشتراك كـ active دائمًا
+      subscription.status = SubscriptionStatus.ACTIVE;
+      
+      // الحفاظ على تاريخ الانتهاء الأصلي إذا كان موجودًا
+      if (!subscription.endDate) {
+        // إذا لم يكن هناك تاريخ انتهاء، احسب بناءً على مدة الخطة الجديدة
+        if (newPlan.durationInDays) {
+          const endDate = new Date();
+          endDate.setDate(endDate.getDate() + newPlan.durationInDays);
+          subscription.endDate = endDate;
+        }
+      }
+      
+      console.log(`🟢 حالة الاشتراك الجديدة: ${subscription.status}`);
+      
+      if (subscription.endDate) {
+        console.log(`📅 تاريخ الانتهاء الجديد: ${subscription.endDate.toISOString().split('T')[0]}`);
+      }
+      
+      await queryRunner.manager.save(subscription);
+
+      // تحديث حالة الشركة دائمًا إلى active
+      console.log(`🏢 تحديث حالة الشركة ${subscription.company.id} إلى "active"`);
+      
+      await queryRunner.manager.update(Company, subscription.company.id, {
+        subscriptionStatus: 'active',
+        isActive: true
+      });
+
+      await queryRunner.commitTransaction();
+      
+      console.log(`✅ تم تغيير الخطة بنجاح!`);
+      console.log('=================================');
+      
+      return subscription;
+    } catch (error: unknown) {
+      await queryRunner.rollbackTransaction();
+      console.error('❌ Error changing subscription plan:', error);
+      
+      if (error instanceof Error) {
+        throw new InternalServerErrorException(`فشل في تغيير الخطة: ${error.message}`);
+      }
+      throw new InternalServerErrorException('فشل في تغيير الخطة: خطأ غير معروف');
+    } finally {
+      await queryRunner.release();
     }
-    throw new InternalServerErrorException('فشل في تغيير الخطة: خطأ غير معروف');
-  } finally {
-    await queryRunner.release();
   }
-}
 
   async changeCompanyPlan(
     companyId: string, 
@@ -776,6 +761,7 @@ export class AdminService {
     console.log(` الشركة: ${companyId}`);
     console.log(` الخطة الجديدة: ${planId}`);
     
+    // البحث عن الاشتراك الحالي للشركة
     const currentSubscription = await this.subRepo.findOne({
       where: { company: { id: companyId } },
       order: { createdAt: 'DESC' },
@@ -792,6 +778,7 @@ export class AdminService {
     console.log(` الخطة الحالية: ${currentSubscription.plan?.name || 'غير معروف'} (${currentSubscription.planId})`);
     console.log(` الحالة الحالية: ${currentSubscription.status}`);
     
+    // الحصول على الخطة الجديدة
     const newPlan = await this.planRepo.findOne({
       where: { id: planId }
     });
@@ -803,20 +790,107 @@ export class AdminService {
     
     console.log(` الخطة الجديدة: ${newPlan.name} (${newPlan.id})`);
     console.log(` سعر الخطة الجديدة: ${newPlan.price} ريال`);
+    console.log(` عدد الموظفين المسموح به: ${newPlan.maxEmployees || 'غير محدد'}`);
     
-    const updatedSubscription = await this.changeSubscriptionPlan(currentSubscription.id, planId);
+    // 1. التحقق من عدد الموظفين الحاليين
+    const currentEmployeesCount = await this.employeeRepo.count({
+      where: { company: { id: companyId } }
+    });
     
-    if (!updatedSubscription) {
-      console.log(` فشل في تغيير خطة الشركة`);
-      throw new InternalServerErrorException('فشل في تغيير خطة الشركة');
+    console.log(`👥 عدد الموظفين الحاليين: ${currentEmployeesCount}`);
+    
+    // إذا كانت الخطة الجديدة لها حد أقصى للموظفين وكان عدد الموظفين الحاليين يتجاوزه
+    if (newPlan.maxEmployees && currentEmployeesCount > newPlan.maxEmployees) {
+      console.log(`❌ عدد الموظفين الحاليين (${currentEmployeesCount}) يتجاوز الحد الأقصى للخطة الجديدة (${newPlan.maxEmployees})`);
+      throw new BadRequestException(
+        `لا يمكن الانتقال إلى الخطة الجديدة لأن عدد الموظفين الحاليين (${currentEmployeesCount}) يتجاوز الحد المسموح به في هذه الخطة (${newPlan.maxEmployees}). يرجى تقليل عدد الموظفين أولاً.`
+      );
     }
     
-    console.log(` تم تغيير خطة الشركة بنجاح!`);
-    console.log(` من "${currentSubscription.plan?.name}" إلى "${updatedSubscription.plan?.name}"`);
-    console.log(` الحالة الجديدة: ${updatedSubscription.status}`);
-    console.log('=================================');
+    // 2. التحقق من السعر - منع الانتقال من خطة أعلى سعراً إلى خطة أقل سعراً
+    const currentPlanPrice = currentSubscription.price || 0;
+    const newPlanPrice = newPlan.price || 0;
     
-    return updatedSubscription;
+    console.log(`💰 سعر الخطة الحالية: ${currentPlanPrice} ريال`);
+    console.log(`💰 سعر الخطة الجديدة: ${newPlanPrice} ريال`);
+    
+    if (newPlanPrice < currentPlanPrice) {
+      console.log(`❌ لا يسمح بالانتقال من خطة بسعر ${currentPlanPrice} ريال إلى خطة بسعر ${newPlanPrice} ريال`);
+      throw new BadRequestException(
+        `لا يسمح بالانتقال من خطة أعلى سعراً (${currentPlanPrice} ريال) إلى خطة أقل سعراً (${newPlanPrice} ريال). يسمح فقط بالانتقال إلى خطط مساوية أو أعلى سعراً.`
+      );
+    }
+    
+    // 3. حساب الأيام المتبقية من الاشتراك القديم
+    let remainingDays = 0;
+    if (currentSubscription.endDate) {
+      const now = new Date();
+      const endDate = new Date(currentSubscription.endDate);
+      const timeDiff = endDate.getTime() - now.getTime();
+      remainingDays = Math.max(0, Math.ceil(timeDiff / (1000 * 3600 * 24)));
+    }
+    
+    console.log(`📆 الأيام المتبقية من الاشتراك القديم: ${remainingDays} يوم`);
+    
+    // 4. تغيير الخطة مع الحفاظ على الأيام المتبقية
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      // تحديث الاشتراك الحالي
+      currentSubscription.plan = newPlan;
+      currentSubscription.price = newPlanPrice;
+      currentSubscription.currency = 'SAR';
+      
+      // الحفاظ على الحالة نشطة دائمًا
+      currentSubscription.status = SubscriptionStatus.ACTIVE;
+      
+      // حساب تاريخ الانتهاء الجديد بناءً على الأيام المتبقية
+      if (remainingDays > 0) {
+        const newEndDate = new Date();
+        newEndDate.setDate(newEndDate.getDate() + remainingDays);
+        currentSubscription.endDate = newEndDate;
+        console.log(`📅 تاريخ الانتهاء الجديد (مع الحفاظ على الأيام المتبقية): ${newEndDate.toISOString().split('T')[0]}`);
+      } else {
+        // إذا لم يكن هناك أيام متبقية، استخدم مدة الخطة الجديدة
+        if (newPlan.durationInDays) {
+          const endDate = new Date();
+          endDate.setDate(endDate.getDate() + newPlan.durationInDays);
+          currentSubscription.endDate = endDate;
+          console.log(`📅 تاريخ الانتهاء الجديد (بناءً على مدة الخطة الجديدة): ${endDate.toISOString().split('T')[0]}`);
+        }
+      }
+      
+      // حفظ الاشتراك المحدث
+      await queryRunner.manager.save(currentSubscription);
+      
+      // تحديث حالة الشركة دائمًا إلى active
+      console.log(`🏢 تحديث حالة الشركة ${companyId} إلى "active"`);
+      await queryRunner.manager.update(Company, companyId, {
+        subscriptionStatus: 'active',
+        isActive: true
+      });
+      
+      await queryRunner.commitTransaction();
+      
+      console.log(`✅ تم تغيير خطة الشركة بنجاح!`);
+      console.log(` من "${currentSubscription.plan?.name}" إلى "${newPlan.name}"`);
+      console.log(` الحالة الجديدة: ${currentSubscription.status}`);
+      console.log('=================================');
+      
+      return currentSubscription;
+    } catch (error: unknown) {
+      await queryRunner.rollbackTransaction();
+      console.error('❌ Error changing company plan:', error);
+      
+      if (error instanceof Error) {
+        throw new InternalServerErrorException(`فشل في تغيير خطة الشركة: ${error.message}`);
+      }
+      throw new InternalServerErrorException('فشل في تغيير خطة الشركة: خطأ غير معروف');
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async upgradeCompanySubscription(
@@ -849,23 +923,30 @@ export class AdminService {
         throw new NotFoundException('الخطة غير موجودة');
       }
 
-      const isFreePlan = newPlan.price === 0;
+      // التحقق من عدد الموظفين
+      const currentEmployeesCount = await this.employeeRepo.count({
+        where: { company: { id: companyId } }
+      });
 
-      const newStatus = isFreePlan ? SubscriptionStatus.ACTIVE : SubscriptionStatus.PENDING;
-      
+      if (newPlan.maxEmployees && currentEmployeesCount > newPlan.maxEmployees) {
+        throw new BadRequestException(
+          `لا يمكن الانتقال إلى الخطة الجديدة لأن عدد الموظفين الحاليين (${currentEmployeesCount}) يتجاوز الحد المسموح به في هذه الخطة (${newPlan.maxEmployees})`
+        );
+      }
+
       const newSubscription = this.subRepo.create({
         company,
         plan: newPlan,
         price: newPlan.price,
         currency: 'SAR',
         startDate: new Date(),
-        status: newStatus,
+        status: SubscriptionStatus.ACTIVE, // دائمًا active
       });
 
-      if (isFreePlan) {
-        const oneYearLater = new Date();
-        oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
-        newSubscription.endDate = oneYearLater;
+      // حساب تاريخ الانتهاء
+      if (currentSubscription?.endDate) {
+        // الحفاظ على تاريخ الانتهاء الحالي إذا كان موجودًا
+        newSubscription.endDate = currentSubscription.endDate;
       } else if (newPlan.durationInDays) {
         const endDate = new Date();
         endDate.setDate(endDate.getDate() + newPlan.durationInDays);
@@ -874,20 +955,15 @@ export class AdminService {
 
       await queryRunner.manager.save(CompanySubscription, newSubscription);
 
+      // تحديث الحالة السابقة إذا كانت موجودة
       if (currentSubscription) {
         currentSubscription.status = SubscriptionStatus.CANCELLED;
         await queryRunner.manager.save(CompanySubscription, currentSubscription);
       }
 
-      let companyStatus: 'active' | 'inactive' | 'expired';
-      
-      if (newStatus === SubscriptionStatus.ACTIVE) {
-        companyStatus = 'active';
-      } else {
-        companyStatus = 'inactive';
-      }
-      
-      company.subscriptionStatus = companyStatus;
+      // تحديث حالة الشركة دائمًا إلى active
+      company.subscriptionStatus = 'active';
+      company.isActive = true;
       await queryRunner.manager.save(Company, company);
 
       await queryRunner.commitTransaction();

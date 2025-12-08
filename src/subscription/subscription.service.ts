@@ -224,27 +224,34 @@ export class SubscriptionService {
 
       if (existingActiveSubscription && existingActiveSubscription.plan && !isAdminOverride) {
         const currentPlan = existingActiveSubscription.plan;
-        const currentPlanMax = currentPlan.maxEmployees;
-        const currentPlanPrice = currentPlan.price;
-        const newPlanMax = newPlan.maxEmployees;
-        const newPlanPrice = newPlan.price;
+        const currentPlanMax = Number(currentPlan.maxEmployees) || 0;
+        const currentPlanPrice = Number(currentPlan.price) || 0;
+        const newPlanMax = Number(newPlan.maxEmployees) || 0;
+        const newPlanPrice = Number(newPlan.price) || 0;
 
+        this.logger.log(`[subscribe] مقارنة الخطط:`);
+        this.logger.log(`[subscribe] الحالية: ${currentPlan.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
+        this.logger.log(`[subscribe] الجديدة: ${newPlan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
+
+        // تصحيح منطق التحقق
         const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
-        const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice >= currentPlanPrice) ||
-                                   (newPlanMax >= currentPlanMax && newPlanPrice < currentPlanPrice);
+        const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
+                                  (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
         
         if (isDowngrading) {
           throw new BadRequestException(
             `لا يمكن الاشتراك في خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) ` +
             `لأنك مشترك حالياً في خطة ${currentPlan.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) - ` +
-            `غير مسموح بالنزول لخطة أقل`
+            `غير مسموح بالنزول لخطة أقل في كلا المعيارين`
           );
         }
         
         if (isPartialDowngrade) {
           const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
           throw new BadRequestException(
-            `لا يمكن الاشتراك في خطة ${newPlan.name} لأنها أقل في ${reason}`
+            `لا يمكن الاشتراك في خطة ${newPlan.name} لأنها أقل في ${reason}. ` +
+            `(الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال, ` +
+            `الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال)`
           );
         }
         
@@ -439,22 +446,37 @@ export class SubscriptionService {
         throw new NotFoundException('الاشتراك أو الخطة غير موجودة');
       }
 
-      const currentPlanPrice = currentSubscription.plan?.price || 0;
-      const newPlanPrice = newPlan.price;
-      const currentPlanMax = currentSubscription.plan?.maxEmployees || 0;
-      const newPlanMax = newPlan.maxEmployees;
+      const currentPlanPrice = Number(currentSubscription.plan?.price) || 0;
+      const newPlanPrice = Number(newPlan.price) || 0;
+      const currentPlanMax = Number(currentSubscription.plan?.maxEmployees) || 0;
+      const newPlanMax = Number(newPlan.maxEmployees) || 0;
 
       this.logger.log(`[changeSubscriptionPlan] مقارنة الخطط:`);
       this.logger.log(`[changeSubscriptionPlan] الخطة الحالية: ${currentSubscription.plan?.name} - الموظفين: ${currentPlanMax} - السعر: ${currentPlanPrice}`);
       this.logger.log(`[changeSubscriptionPlan] الخطة الجديدة: ${newPlan.name} - الموظفين: ${newPlanMax} - السعر: ${newPlanPrice}`);
       
-      if (newPlanMax < currentPlanMax || newPlanPrice < currentPlanPrice) {
+      // تصحيح منطق التحقق
+      const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
+      const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
+                                (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
+      
+      if (isDowngrading) {
         this.logger.warn(`[changeSubscriptionPlan] محاولة النزول إلى خطة أقل - مرفوض`);
         throw new BadRequestException(
           `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} ` +
           `(${currentPlanMax} موظف - ${currentPlanPrice} ريال) ` +
           `إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) ` +
           `- غير مسموح بالانتقال لخطة أقل`
+        );
+      }
+      
+      if (isPartialDowngrade) {
+        const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
+        this.logger.warn(`[changeSubscriptionPlan] محاولة النزول الجزئي - مرفوض`);
+        throw new BadRequestException(
+          `غير مسموح بالانتقال إلى خطة ${newPlan.name} لأنها أقل في ${reason}. ` +
+          `(الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال, ` +
+          `الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال)`
         );
       }
 
@@ -584,19 +606,20 @@ export class SubscriptionService {
 
       // 4. إذا كان هناك اشتراك حالي
       const currentPlan = currentSubscription.plan;
-      const currentPlanMax = currentPlan?.maxEmployees || 0;
-      const currentPlanPrice = currentPlan?.price || 0;
-      const newPlanMax = newPlan.maxEmployees;
-      const newPlanPrice = newPlan.price;
+      const currentPlanMax = Number(currentPlan?.maxEmployees) || 0;
+      const currentPlanPrice = Number(currentPlan?.price) || 0;
+      const newPlanMax = Number(newPlan.maxEmployees) || 0;
+      const newPlanPrice = Number(newPlan.price) || 0;
 
       this.logger.log(`[changePlanDirectly] === مقارنة الخطط ===`);
       this.logger.log(`[changePlanDirectly] الخطة الحالية: ${currentPlan?.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
       this.logger.log(`[changePlanDirectly] الخطة الجديدة: ${newPlan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
 
       // 5. التحقق من القيود (ماعدا لو adminOverride = true)
+      // تصحيح منطق التحقق
       const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
-      const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice >= currentPlanPrice) ||
-                                 (newPlanMax >= currentPlanMax && newPlanPrice < currentPlanPrice);
+      const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
+                                (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
       
       if ((isDowngrading || isPartialDowngrade) && !adminOverride) {
         this.logger.warn(`[changePlanDirectly] محاولة النزول إلى خطة أقل - مرفوض`);
@@ -1153,10 +1176,10 @@ export class SubscriptionService {
         where: { company: { id: companyId } }
       });
 
-      const currentPlanMax = currentSubscription.plan?.maxEmployees || 0;
-      const newPlanMax = newPlan.maxEmployees;
-      const currentPlanPrice = currentSubscription.plan?.price || 0;
-      const newPlanPrice = newPlan.price;
+      const currentPlanMax = Number(currentSubscription.plan?.maxEmployees) || 0;
+      const newPlanMax = Number(newPlan.maxEmployees) || 0;
+      const currentPlanPrice = Number(currentSubscription.plan?.price) || 0;
+      const newPlanPrice = Number(newPlan.price) || 0;
 
       this.logger.log(`[validatePlanChange] مقارنة:`);
       this.logger.log(`[validatePlanChange] الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
@@ -1166,21 +1189,23 @@ export class SubscriptionService {
       let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
       let message = '';
 
+      // تصحيح منطق التحقق - هنا كان الخطأ
       const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
       
-      const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice >= currentPlanPrice) ||
-      (newPlanMax >= currentPlanMax && newPlanPrice < currentPlanPrice);
+      // تصحيح: يجب أن يكون السعر أقل فعلاً، ليس مجرد "أقل أو يساوي"
+      const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
+                                (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
       
       const isSamePlan = newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice;
       
       this.logger.log(`[validatePlanChange] تحليل:`);
-      this.logger.log(`[validatePlanChange] هل هي تنزيل؟ ${isDowngrading}`);
+      this.logger.log(`[validatePlanChange] هل هي تنزيل كامل؟ ${isDowngrading}`);
       this.logger.log(`[validatePlanChange] هل هي تنزيل جزئي؟ ${isPartialDowngrade}`);
       this.logger.log(`[validatePlanChange] هل هي نفس الخطة؟ ${isSamePlan}`);
       
       if (isDowngrading) {
         action = 'DOWNGRADE';
-        message = `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) - غير مسموح بالانتقال لخطة أقل`;
+        message = `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) - غير مسموح بالانتقال لخطة أقل في كلا المعيارين`;
         this.logger.log(`[validatePlanChange] نتيجة: DOWNGRADE - ${message}`);
         return {
           canChange: false,
@@ -1192,7 +1217,10 @@ export class SubscriptionService {
         };
       } else if (isPartialDowngrade) {
         action = 'DOWNGRADE';
-        message = `غير مسموح بالانتقال إلى خطة ${newPlan.name} لأنها أقل في ${newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر'}`;
+        const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
+        message = `غير مسموح بالانتقال إلى خطة ${newPlan.name} لأنها أقل في ${reason}. ` +
+                 `(الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال, ` +
+                 `الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال)`;
         this.logger.log(`[validatePlanChange] نتيجة: DOWNGRADE - ${message}`);
         return {
           canChange: false,
@@ -1211,6 +1239,7 @@ export class SubscriptionService {
         message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف بسعر ${newPlanPrice} ريال`;
         this.logger.log(`[validatePlanChange] نتيجة: UPGRADE - ${message}`);
       } else {
+        // حالة خاصة: إذا كان العدد والسعر أكبر أو يساوي (ولكن ليس أكبر بكلا المعيارين)
         action = 'RENEW';
         message = `يمكنك التغيير إلى الخطة ${newPlan.name}`;
         this.logger.log(`[validatePlanChange] نتيجة: RENEW (مماثلة) - ${message}`);
@@ -1269,8 +1298,13 @@ export class SubscriptionService {
         };
       }
 
-      const isUpgrade = newPlan.maxEmployees >= currentPlan.maxEmployees && 
-      newPlan.price >= currentPlan.price;
+      const currentPlanMax = Number(currentPlan.maxEmployees) || 0;
+      const newPlanMax = Number(newPlan.maxEmployees) || 0;
+      const currentPlanPrice = Number(currentPlan.price) || 0;
+      const newPlanPrice = Number(newPlan.price) || 0;
+
+      const isUpgrade = newPlanMax >= currentPlanMax && 
+                       newPlanPrice >= currentPlanPrice;
       
       if (!isUpgrade) {
         this.logger.log(`[canUpgradeToPlan] لا يمكن النزول إلى خطة أقل`);
@@ -1309,13 +1343,18 @@ export class SubscriptionService {
       }
       
       const currentPlan = currentSubscription.plan;
+      const currentPlanMax = Number(currentPlan.maxEmployees) || 0;
+      const currentPlanPrice = Number(currentPlan.price) || 0;
+      
       this.logger.log(`[getAvailableUpgrades] الخطة الحالية: ${currentPlan.name} (${currentPlan.maxEmployees} موظف - ${currentPlan.price} ريال)`);
       
-      const availablePlans = allPlans.filter(plan => 
-        (plan.maxEmployees >= currentPlan.maxEmployees && 
-         plan.price >= currentPlan.price) ||
-        plan.id === currentPlan.id    
-      );
+      const availablePlans = allPlans.filter(plan => {
+        const planMax = Number(plan.maxEmployees) || 0;
+        const planPrice = Number(plan.price) || 0;
+        
+        return (planMax >= currentPlanMax && planPrice >= currentPlanPrice) ||
+               plan.id === currentPlan.id;
+      });
       
       this.logger.log(`[getAvailableUpgrades] عدد الخطط المتاحة: ${availablePlans.length} من ${allPlans.length}`);
       
