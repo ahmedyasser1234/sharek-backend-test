@@ -155,10 +155,9 @@ export class AdminService {
         subject,
         html,
       });
-      console.log(`✅ تم إرسال الإيميل إلى: ${to}`);
+      console.log(` تم إرسال الإيميل إلى: ${to}`);
     } catch (error) {
-      console.error('❌ فشل إرسال الإيميل:', error);
-      // لا نرمي الخطأ حتى لا يؤثر على العملية الرئيسية
+      console.error(' فشل إرسال الإيميل:', error);
     }
   }
 
@@ -167,20 +166,24 @@ export class AdminService {
     companyName: string,
     adminEmail: string,
     planName: string,
-    action: 'renewed' | 'cancelled' | 'extended',
+    action: 'created' | 'renewed' | 'cancelled' | 'extended' | 'changed',
     details: string
   ): Promise<void> {
     try {
       const actionText = {
+        'created': 'تم إنشاء اشتراك جديد',
         'renewed': 'تم تجديد الاشتراك',
         'cancelled': 'تم إلغاء الاشتراك',
-        'extended': 'تم تمديد الاشتراك'
+        'extended': 'تم تمديد الاشتراك',
+        'changed': 'تم تغيير الخطة'
       };
 
       const actionColor = {
-        'renewed': '#28a745',
+        'created': '#28a745',
+        'renewed': '#007bff',
         'cancelled': '#dc3545',
-        'extended': '#007bff'
+        'extended': '#ffc107',
+        'changed': '#17a2b8'
       };
 
       const subject = `تحديث اشتراك - ${companyName}`;
@@ -278,6 +281,13 @@ export class AdminService {
             </div>
             
             <div class="content">
+
+            <div class="company-info">
+                <h3>مرحبا بكم في منصة شارك</h3>
+                <p>أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
+                <p>نحن نسعى دائماً لتقديم أفضل الخدمات لدعم عملك ونمو شركتك</p>
+              </div>
+
               <div class="info-box">
                 <p><strong>الشركة:</strong> ${companyName}</p>
                 <p><strong>البريد الإلكتروني:</strong> ${companyEmail}</p>
@@ -290,15 +300,10 @@ export class AdminService {
                 <div class="details-title">تفاصيل الإجراء:</div>
                 <p>${details}</p>
               </div>
-              
-              <div class="company-info">
-                <h3>مرحبا بكم في منصة شارك</h3>
-                <p>أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
-                <p>نحن نسعى دائماً لتقديم أفضل الخدمات لدعم عملك ونمو شركتك</p>
-              </div>
-              
-              <div class="footer">
+            
+                <div class="footer">
                 <p>تحت مع تحيات فريق شارك</p>
+                <p>https://sharik-sa.com/</p>
                 <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
               </div>
             </div>
@@ -307,10 +312,8 @@ export class AdminService {
         </html>
       `;
 
-      // إرسال إيميل للشركة
       await this.sendEmail(companyEmail, subject, html);
 
-      // إرسال إيميل إشعار للشركة الرئيسية (صاحبة النظام)
       const companyAdminEmail = process.env.COMPANY_ADMIN_EMAIL || process.env.EMAIL_USER;
       if (companyAdminEmail && companyAdminEmail !== companyEmail) {
         const adminSubject = `إشعار - ${actionText[action]} - ${companyName}`;
@@ -330,9 +333,9 @@ export class AdminService {
         await this.sendEmail(companyAdminEmail, adminSubject, adminHtml);
       }
 
-      console.log(`✅ تم إرسال إيميل ${actionText[action]} للشركة ${companyName}`);
+      console.log(` تم إرسال إيميل ${actionText[action]} للشركة ${companyName}`);
     } catch (error) {
-      console.error(`❌ فشل إرسال إيميل الإجراء ${action}:`, error);
+      console.error(` فشل إرسال إيميل الإجراء ${action}:`, error);
     }
   }
 
@@ -874,7 +877,8 @@ export class AdminService {
 
   async changeSubscriptionPlan(
     subscriptionId: string, 
-    planId: string
+    planId: string,
+    adminId: string
   ): Promise<CompanySubscription | null> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -897,6 +901,10 @@ export class AdminService {
       if (!newPlan) {
         throw new NotFoundException('الخطة غير موجودة');
       }
+
+      const admin = await queryRunner.manager.findOne(Admin, {
+        where: { id: adminId }
+      });
 
       const oldPlanName = subscription.plan?.name || 'غير معروف';
       subscription.plan = newPlan;
@@ -922,21 +930,17 @@ export class AdminService {
 
       await queryRunner.commitTransaction();
 
-      try {
-        const adminEmail = subscription.activatedByAdmin?.email || 'النظام';
-        const details = `تم تغيير الخطة من "${oldPlanName}" إلى "${newPlan.name}". السعر الجديد: ${newPlan.price} ريال. المدة: ${newPlan.durationInDays || 30} يوم.`;
-        
-        await this.sendSubscriptionActionEmail(
-          subscription.company.email,
-          subscription.company.name,
-          adminEmail,
-          newPlan.name,
-          'renewed',
-          details
-        );
-      } catch (emailError) {
-        console.error(' فشل إرسال إيميل تغيير الخطة:', emailError);
-      }
+      const newEndDateStr = subscription.endDate ? subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+      const details = `تم تغيير الخطة من "${oldPlanName}" إلى "${newPlan.name}". السعر الجديد: ${newPlan.price} ريال. المدة: ${newPlan.durationInDays || 30} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+      
+      await this.sendSubscriptionActionEmail(
+        subscription.company.email,
+        subscription.company.name,
+        admin?.email || 'النظام',
+        newPlan.name,
+        'changed',
+        details
+      );
       
       return subscription;
     } catch (error: unknown) {
@@ -954,7 +958,8 @@ export class AdminService {
 
   async changeCompanyPlan(
     companyId: string, 
-    planId: string
+    planId: string,
+    adminId: string
   ): Promise<CompanySubscription> {
     const currentSubscription = await this.subRepo.findOne({
       where: { company: { id: companyId } },
@@ -1039,22 +1044,18 @@ export class AdminService {
       
       await queryRunner.commitTransaction();
 
-      try {
-        const adminEmail = currentSubscription.activatedByAdmin?.email || 'النظام';
-        const newEndDateStr = currentSubscription.endDate ? currentSubscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
-        const details = `تم تغيير خطة الشركة من "${oldPlanName}" إلى "${newPlan.name}". السعر الجديد: ${newPlanPrice} ريال. المدة المتبقية: ${remainingDays} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
-        
-        await this.sendSubscriptionActionEmail(
-          currentSubscription.company.email,
-          currentSubscription.company.name,
-          adminEmail,
-          newPlan.name,
-          'renewed',
-          details
-        );
-      } catch (emailError) {
-        console.error(' فشل إرسال إيميل تغيير خطة الشركة:', emailError);
-      }
+      const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+      const newEndDateStr = currentSubscription.endDate ? currentSubscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+      const details = `تم تغيير خطة الشركة من "${oldPlanName}" إلى "${newPlan.name}". السعر الجديد: ${newPlanPrice} ريال. المدة المتبقية: ${remainingDays} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+      
+      await this.sendSubscriptionActionEmail(
+        currentSubscription.company.email,
+        currentSubscription.company.name,
+        admin?.email || 'النظام',
+        newPlan.name,
+        'changed',
+        details
+      );
       
       return currentSubscription;
     } catch (error: unknown) {
@@ -1072,7 +1073,8 @@ export class AdminService {
 
   async upgradeCompanySubscription(
     companyId: string, 
-    planId: string
+    planId: string,
+    adminId: string
   ): Promise<CompanySubscription> {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -1127,7 +1129,9 @@ export class AdminService {
         );
       }
 
-      const adminEmail = currentSubscription?.activatedByAdmin?.email || 'النظام';
+      const admin = await queryRunner.manager.findOne(Admin, {
+        where: { id: adminId }
+      });
 
       const newSubscription = this.subRepo.create({
         company,
@@ -1160,22 +1164,18 @@ export class AdminService {
 
       await queryRunner.commitTransaction();
 
-      try {
-        const newEndDateStr = newSubscription.endDate ? newSubscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
-        const oldPlanName = currentSubscription?.plan?.name || 'غير معروف';
-        const details = `تم ترقية الاشتراك من خطة "${oldPlanName}" إلى خطة "${newPlan.name}". السعر الجديد: ${newPlanPrice} ريال. المدة: ${newPlan.durationInDays || 30} يوم. تاريخ الانتهاء: ${newEndDateStr}.`;
-        
-        await this.sendSubscriptionActionEmail(
-          company.email,
-          company.name,
-          adminEmail,
-          newPlan.name,
-          'renewed',
-          details
-        );
-      } catch (emailError) {
-        console.error(' فشل إرسال إيميل ترقية الاشتراك:', emailError);
-      }
+      const newEndDateStr = newSubscription.endDate ? newSubscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+      const oldPlanName = currentSubscription?.plan?.name || 'غير معروف';
+      const details = `تم ترقية الاشتراك من خطة "${oldPlanName}" إلى خطة "${newPlan.name}". السعر الجديد: ${newPlanPrice} ريال. المدة: ${newPlan.durationInDays || 30} يوم. تاريخ الانتهاء: ${newEndDateStr}.`;
+      
+      await this.sendSubscriptionActionEmail(
+        company.email,
+        company.name,
+        admin?.email || 'النظام',
+        newPlan.name,
+        'changed',
+        details
+      );
 
       return newSubscription;
     } catch (error: unknown) {
@@ -1204,7 +1204,8 @@ export class AdminService {
         planId, 
         true, 
         undefined,
-        adminId
+        adminId,
+        admin.email 
       );
     
       const subscriptionResult: SubscriptionResult = {
@@ -1215,22 +1216,18 @@ export class AdminService {
         subscription: result.subscription,
       };
 
-      try {
-        if (company && plan && result.subscription) {
-          const newEndDateStr = result.subscription.endDate ? result.subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
-          const details = `تم تفعيل اشتراك جديد في خطة "${plan.name}" بواسطة الأدمن. السعر: ${plan.price} ريال. المدة: ${plan.durationInDays || 30} يوم. تاريخ الانتهاء: ${newEndDateStr}.`;
-          
-          await this.sendSubscriptionActionEmail(
-            company.email,
-            company.name,
-            admin.email,
-            plan.name,
-            'renewed',
-            details
-          );
-        }
-      } catch (emailError) {
-        console.error(' فشل إرسال إيميل الاشتراك:', emailError);
+      if (company && plan && result.subscription) {
+        const newEndDateStr = result.subscription.endDate ? result.subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+        const details = `تم تفعيل اشتراك جديد في خطة "${plan.name}" بواسطة الأدمن. السعر: ${plan.price} ريال. المدة: ${plan.durationInDays || 30} يوم. تاريخ الانتهاء: ${newEndDateStr}.`;
+        
+        await this.sendSubscriptionActionEmail(
+          company.email,
+          company.name,
+          admin.email,
+          plan.name,
+          'created',
+          details
+        );
       }
     
       return subscriptionResult;
@@ -1329,21 +1326,16 @@ export class AdminService {
 
       await queryRunner.commitTransaction();
 
-      try {
-        const adminEmail = admin?.email || 'النظام';
-        const details = `تم إلغاء الاشتراك بالخطة "${subscription.plan?.name || 'غير معروف'}". ${reason ? `السبب: ${reason}` : 'بدون سبب محدد'}.`;
-      
-        await this.sendSubscriptionActionEmail(
-          subscription.company.email,
-          subscription.company.name,
-          adminEmail,
-          subscription.plan?.name || 'غير معروف',
-          'cancelled',
-          details
-        );
-      } catch (emailError) {
-        console.error(' فشل إرسال إيميل الإلغاء:', emailError);
-      }
+      const details = `تم إلغاء الاشتراك بالخطة "${subscription.plan?.name || 'غير معروف'}". ${reason ? `السبب: ${reason}` : 'بدون سبب محدد'}.`;
+    
+      await this.sendSubscriptionActionEmail(
+        subscription.company.email,
+        subscription.company.name,
+        admin?.email || 'النظام',
+        subscription.plan?.name || 'غير معروف',
+        'cancelled',
+        details
+      );
 
       return subscription;
     } catch (error: unknown) {
@@ -1399,22 +1391,17 @@ export class AdminService {
 
       await queryRunner.commitTransaction();
 
-      try {
-        const adminEmail = admin?.email || 'النظام';
-        const newEndDateStr = newEndDate.toLocaleDateString('ar-SA');
-        const details = `تم تجديد الاشتراك بالخطة "${subscription.plan?.name || 'غير معروف'}" لمدة ${renewalDays} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
-        
-        await this.sendSubscriptionActionEmail(
-          subscription.company.email,
-          subscription.company.name,
-          adminEmail,
-          subscription.plan?.name || 'غير معروف',
-          'renewed',
-          details
-        );
-      } catch (emailError) {
-        console.error(' فشل إرسال إيميل التجديد:', emailError);
-      }
+      const newEndDateStr = newEndDate.toLocaleDateString('ar-SA');
+      const details = `تم تجديد الاشتراك بالخطة "${subscription.plan?.name || 'غير معروف'}" لمدة ${renewalDays} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+      
+      await this.sendSubscriptionActionEmail(
+        subscription.company.email,
+        subscription.company.name,
+        admin?.email || 'النظام',
+        subscription.plan?.name || 'غير معروف',
+        'renewed',
+        details
+      );
 
       return subscription;
     } catch (error: unknown) {
@@ -1471,23 +1458,18 @@ export class AdminService {
 
       await queryRunner.commitTransaction();
 
-      try {
-        const adminEmail = admin?.email || 'النظام';
-        const currentEndDateStr = currentEndDate.toLocaleDateString('ar-SA');
-        const newEndDateStr = newEndDate.toLocaleDateString('ar-SA');
-        const details = `تم تمديد الاشتراك بالخطة "${subscription.plan?.name || 'غير معروف'}" لمدة ${extraDays} يوم إضافية. تاريخ الانتهاء السابق: ${currentEndDateStr}. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
-        
-        await this.sendSubscriptionActionEmail(
-          subscription.company.email,
-          subscription.company.name,
-          adminEmail,
-          subscription.plan?.name || 'غير معروف',
-          'extended',
-          details
-        );
-      } catch (emailError) {
-        console.error(' فشل إرسال إيميل التمديد:', emailError);
-      }
+      const currentEndDateStr = currentEndDate.toLocaleDateString('ar-SA');
+      const newEndDateStr = newEndDate.toLocaleDateString('ar-SA');
+      const details = `تم تمديد الاشتراك بالخطة "${subscription.plan?.name || 'غير معروف'}" لمدة ${extraDays} يوم إضافية. تاريخ الانتهاء السابق: ${currentEndDateStr}. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+      
+      await this.sendSubscriptionActionEmail(
+        subscription.company.email,
+        subscription.company.name,
+        admin?.email || 'النظام',
+        subscription.plan?.name || 'غير معروف',
+        'extended',
+        details
+      );
 
       return subscription;
     } catch (error: unknown) {
@@ -1503,3 +1485,4 @@ export class AdminService {
     }
   }
 }
+

@@ -109,6 +109,7 @@ export interface UpgradeCheckResult {
 @Injectable()
 export class SubscriptionService {
   private readonly logger = new Logger(SubscriptionService.name);
+  private emailTransporter: nodemailer.Transporter;
 
   constructor(
     @InjectRepository(CompanySubscription)
@@ -128,7 +129,198 @@ export class SubscriptionService {
     
     private readonly companyService: CompanyService,
     private readonly paymentService: PaymentService,
-  ) {}
+  ) {
+    this.initializeEmailTransporter();
+  }
+
+  private initializeEmailTransporter(): void {
+    this.emailTransporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.EMAIL_PORT || '587'),
+      secure: false,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+      tls: {
+        ciphers: 'SSLv3',
+        rejectUnauthorized: false,
+      },
+    });
+  }
+
+  private async sendEmail(to: string, subject: string, html: string): Promise<void> {
+    try {
+      await this.emailTransporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to,
+        subject,
+        html,
+      });
+      this.logger.log(` تم إرسال الإيميل إلى: ${to}`);
+    } catch (error) {
+      this.logger.error(` فشل إرسال الإيميل:`, error);
+    }
+  }
+
+  private async sendSubscriptionActionEmail(
+    companyEmail: string,
+    companyName: string,
+    adminEmail: string,
+    planName: string,
+    action: 'created' | 'renewed' | 'cancelled' | 'extended' | 'changed',
+    details: string
+  ): Promise<void> {
+    try {
+      const actionText = {
+        'created': 'تم إنشاء اشتراك جديد',
+        'renewed': 'تم تجديد الاشتراك',
+        'cancelled': 'تم إلغاء الاشتراك',
+        'extended': 'تم تمديد الاشتراك',
+        'changed': 'تم تغيير الخطة'
+      };
+
+      const actionColor = {
+        'created': '#28a745',
+        'renewed': '#007bff',
+        'cancelled': '#dc3545',
+        'extended': '#ffc107',
+        'changed': '#17a2b8'
+      };
+
+      const subject = `تحديث اشتراك - ${companyName}`;
+      
+      const html = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${subject}</title>
+          <style>
+            body {
+              font-family: 'Arial', 'Segoe UI', sans-serif;
+              line-height: 1.6;
+              color: #333;
+              margin: 0;
+              padding: 0;
+              background-color: #f5f5f5;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .header {
+              background-color: ${actionColor[action]};
+              color: white;
+              padding: 30px;
+              text-align: center;
+              border-radius: 10px 10px 0 0;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+            .content {
+              background-color: white;
+              padding: 30px;
+              border-radius: 0 0 10px 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .info-box {
+              background-color: #f8f9fa;
+              border-right: 4px solid ${actionColor[action]};
+              padding: 20px;
+              margin-bottom: 20px;
+              border-radius: 8px;
+            }
+            .info-box p {
+              margin: 10px 0;
+              font-size: 16px;
+            }
+            .info-box strong {
+              color: #333;
+              margin-left: 10px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #eee;
+              color: #777;
+              font-size: 14px;
+            }
+            .company-info {
+              background-color: #f0f7ff;
+              padding: 20px;
+              border-radius: 8px;
+              margin-top: 20px;
+              text-align: center;
+            }
+            .company-info h3 {
+              color: #007bff;
+              margin-bottom: 10px;
+            }
+            .action-details {
+              background-color: #fff3cd;
+              border: 1px solid #ffeaa7;
+              padding: 15px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .details-title {
+              color: #856404;
+              font-weight: bold;
+              margin-bottom: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>${actionText[action]}</h1>
+            </div>
+            
+            <div class="content">
+              <div class="info-box">
+
+              <div class="company-info">
+                <h3>مرحبا بكم في منصة شارك</h3>
+                <p>أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
+                <p>نحن نسعى دائماً لتقديم أفضل الخدمات لدعم عملك ونمو شركتك</p>
+              </div>
+
+                <p><strong>الشركة:</strong> ${companyName}</p>
+                <p><strong>البريد الإلكتروني:</strong> ${companyEmail}</p>
+                <p><strong>الخطة:</strong> ${planName}</p>
+                <p><strong>تاريخ الإجراء:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
+                <p><strong>بواسطة الأدمن:</strong> ${adminEmail}</p>
+              </div>
+              
+              <div class="action-details">
+                <div class="details-title">تفاصيل الإجراء:</div>
+                <p>${details}</p>
+              </div>
+              
+              
+              <div class="footer">
+                <p>تحت مع تحيات فريق شارك</p>
+                <p>https://sharik-sa.com/</p>
+                <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await this.sendEmail(companyEmail, subject, html);
+      this.logger.log(` تم إرسال إيميل ${actionText[action]} للشركة ${companyName}`);
+    } catch (error) {
+      this.logger.error(` فشل إرسال إيميل الإجراء ${action}:`, error);
+    }
+  }
 
   private async deactivateOldSubscriptions(companyId: string): Promise<{ deactivatedCount: number }> {
     try {
@@ -182,7 +374,8 @@ export class SubscriptionService {
     planId: string, 
     isAdminOverride = false,
     activatedBySellerId?: string,
-    activatedByAdminId?: string
+    activatedByAdminId?: string,
+    adminEmail?: string
   ): Promise<SubscriptionResponse> {
     try {
       this.logger.log(`[subscribe] بدء الاشتراك: الشركة ${companyId} في الخطة ${planId}`);
@@ -233,7 +426,6 @@ export class SubscriptionService {
         this.logger.log(`[subscribe] الحالية: ${currentPlan.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
         this.logger.log(`[subscribe] الجديدة: ${newPlan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
 
-        // تصحيح منطق التحقق
         const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
         const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
                                   (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
@@ -321,6 +513,22 @@ export class SubscriptionService {
 
         this.logger.log(`[subscribe] تم تحديث الاشتراك بنجاح للشركة ${companyId} في الخطة ${newPlan.name}`);
 
+        if (isAdminOverride && adminEmail) {
+          const newEndDateStr = savedSubscription.endDate.toLocaleDateString('ar-SA');
+          const details = isSamePlan 
+            ? `تم تجديد اشتراكك في خطة "${newPlan.name}" لمدة ${newPlan.durationInDays} يوم إضافية. تاريخ الانتهاء الجديد: ${newEndDateStr}.`
+            : `تم تحديث اشتراكك من خطة "${existingActiveSubscription.plan?.name}" إلى خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+          
+          await this.sendSubscriptionActionEmail(
+            company.email,
+            company.name,
+            adminEmail,
+            newPlan.name,
+            isSamePlan ? 'renewed' : 'changed',
+            details
+          );
+        }
+
         return {
           message: message,
           redirectToDashboard: true,
@@ -382,6 +590,20 @@ export class SubscriptionService {
 
           this.logger.log(`[subscribe] تم إنشاء اشتراك جديد للشركة ${companyId} في الخطة ${newPlan.name}`);
 
+          if (isAdminOverride && adminEmail) {
+            const endDateStr = savedSubscription.endDate.toLocaleDateString('ar-SA');
+            const details = `تم إنشاء اشتراك جديد في خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء: ${endDateStr}.`;
+            
+            await this.sendSubscriptionActionEmail(
+              company.email,
+              company.name,
+              adminEmail,
+              newPlan.name,
+              'created',
+              details
+            );
+          }
+
           return {
             message: message,
             redirectToDashboard: true,
@@ -425,7 +647,7 @@ export class SubscriptionService {
     }
   }
 
-  async changeSubscriptionPlan(companyId: string, newPlanId: string): Promise<PlanChangeResult> {
+  async changeSubscriptionPlan(companyId: string, newPlanId: string, adminEmail?: string): Promise<PlanChangeResult> {
     try {
       this.logger.log(`[changeSubscriptionPlan] بدء تغيير الخطة: الشركة ${companyId} إلى الخطة ${newPlanId}`);
 
@@ -455,7 +677,6 @@ export class SubscriptionService {
       this.logger.log(`[changeSubscriptionPlan] الخطة الحالية: ${currentSubscription.plan?.name} - الموظفين: ${currentPlanMax} - السعر: ${currentPlanPrice}`);
       this.logger.log(`[changeSubscriptionPlan] الخطة الجديدة: ${newPlan.name} - الموظفين: ${newPlanMax} - السعر: ${newPlanPrice}`);
       
-      // تصحيح منطق التحقق
       const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
       const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
                                 (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
@@ -521,6 +742,23 @@ export class SubscriptionService {
 
       this.logger.log(`[changeSubscriptionPlan] تم تحديث معلومات الشركة ${companyId}`);
 
+      const company = await this.companyRepo.findOne({ where: { id: companyId } });
+      if (company && adminEmail) {
+        const newEndDateStr = updatedSubscription.endDate.toLocaleDateString('ar-SA');
+        const details = isSamePlan 
+          ? `تم تجديد اشتراكك في خطة "${newPlan.name}" لمدة ${newPlan.durationInDays} يوم إضافية. تاريخ الانتهاء الجديد: ${newEndDateStr}.`
+          : `تم تغيير اشتراكك من خطة "${currentSubscription.plan?.name}" إلى خطة "${newPlan.name}". السعر: ${newPlanPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+        
+        await this.sendSubscriptionActionEmail(
+          company.email,
+          company.name,
+          adminEmail,
+          newPlan.name,
+          isSamePlan ? 'renewed' : 'changed',
+          details
+        );
+      }
+
       return { 
         message: isSamePlan ? 'تم تجديد الاشتراك بنجاح' : 'تم تغيير الخطة بنجاح', 
         subscription: updatedSubscription,
@@ -545,7 +783,7 @@ export class SubscriptionService {
     }
   }
 
-  async changePlanDirectly(companyId: string, newPlanId: string, adminOverride = false): Promise<PlanChangeResult> {
+  async changePlanDirectly(companyId: string, newPlanId: string, adminOverride = false, adminEmail?: string): Promise<PlanChangeResult> {
     try {
       this.logger.log(`[changePlanDirectly] === بدء تغيير الخطة ===`);
       this.logger.log(`[changePlanDirectly] الشركة: ${companyId}`);
@@ -569,7 +807,7 @@ export class SubscriptionService {
       if (!currentSubscription) {
         this.logger.log(`[changePlanDirectly] لا يوجد اشتراك حالي، إنشاء اشتراك جديد`);
         
-        const subscriptionResult = await this.subscribe(companyId, newPlanId, true);
+        const subscriptionResult = await this.subscribe(companyId, newPlanId, true, undefined, undefined, adminEmail);
         
         const newSubscription = subscriptionResult.subscription;
         
@@ -586,6 +824,7 @@ export class SubscriptionService {
         this.logger.log(`[changePlanDirectly] الخطة: ${newPlan.name}`);
         this.logger.log(`[changePlanDirectly] عدد الموظفين: ${currentEmployees}`);
         this.logger.log(`[changePlanDirectly] تاريخ الانتهاء: ${newSubscription.endDate.toISOString()}`);        
+        
         return {
           message: 'تم إنشاء وتفعيل الاشتراك الجديد بنجاح',
           subscription: newSubscription,
@@ -604,7 +843,6 @@ export class SubscriptionService {
         };
       }
 
-      // 4. إذا كان هناك اشتراك حالي
       const currentPlan = currentSubscription.plan;
       const currentPlanMax = Number(currentPlan?.maxEmployees) || 0;
       const currentPlanPrice = Number(currentPlan?.price) || 0;
@@ -615,8 +853,7 @@ export class SubscriptionService {
       this.logger.log(`[changePlanDirectly] الخطة الحالية: ${currentPlan?.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
       this.logger.log(`[changePlanDirectly] الخطة الجديدة: ${newPlan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
 
-      // 5. التحقق من القيود (ماعدا لو adminOverride = true)
-      // تصحيح منطق التحقق
+      
       const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
       const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
                                 (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
@@ -630,7 +867,6 @@ export class SubscriptionService {
         );
       }
 
-      // 6. التحقق من عدد الموظفين
       const currentEmployees = await this.employeeRepo.count({
         where: { company: { id: companyId } }
       });
@@ -645,15 +881,12 @@ export class SubscriptionService {
         );
       }
 
-      // 7. تحديث الاشتراك
       this.logger.log(`[changePlanDirectly] === تحديث الاشتراك ===`);
       
-      // حفظ البيانات القديمة للـ log
       const oldStartDate = currentSubscription.startDate;
       const oldEndDate = currentSubscription.endDate;
       const oldStatus = currentSubscription.status;
       
-      // تحديث الاشتراك
       currentSubscription.plan = newPlan;
       currentSubscription.price = newPlan.price;
       currentSubscription.customMaxEmployees = newPlan.maxEmployees;
@@ -662,7 +895,6 @@ export class SubscriptionService {
       const isSamePlan = newPlan.id === currentPlan?.id;
       
       if (isSamePlan) {
-        // إذا نفس الخطة، نزيد المدة فقط
         const newEndDate = new Date(currentSubscription.endDate);
         newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
         currentSubscription.endDate = newEndDate;
@@ -703,6 +935,23 @@ export class SubscriptionService {
       this.logger.log(`[changePlanDirectly] === تم تغيير الخطة بنجاح ===`);
       
       const message = isSamePlan ? 'تم تجديد الاشتراك بنجاح' : 'تم تغيير الخطة بنجاح';
+      
+      const company = await this.companyRepo.findOne({ where: { id: companyId } });
+      if (company && adminEmail) {
+        const newEndDateStr = updatedSubscription.endDate.toLocaleDateString('ar-SA');
+        const details = isSamePlan 
+          ? `تم تجديد اشتراكك في خطة "${newPlan.name}" لمدة ${newPlan.durationInDays} يوم إضافية. تاريخ الانتهاء الجديد: ${newEndDateStr}.`
+          : `تم تغيير اشتراكك من خطة "${currentPlan?.name}" إلى خطة "${newPlan.name}". السعر: ${newPlanPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+        
+        await this.sendSubscriptionActionEmail(
+          company.email,
+          company.name,
+          adminEmail,
+          newPlan.name,
+          isSamePlan ? 'renewed' : 'changed',
+          details
+        );
+      }
       
       return {
         message: message,
@@ -1012,7 +1261,7 @@ export class SubscriptionService {
     }
   }
 
-  async cancelSubscription(companyId: string): Promise<CancelSubscriptionResult> {
+  async cancelSubscription(companyId: string, adminEmail?: string): Promise<CancelSubscriptionResult> {
     try {
       this.logger.log(`[cancelSubscription] إلغاء اشتراك الشركة ${companyId}`);
       
@@ -1029,6 +1278,20 @@ export class SubscriptionService {
         })
         .where('id = :id', { id: companyId })
         .execute();
+
+      const company = await this.companyRepo.findOne({ where: { id: companyId } });
+      if (company && adminEmail) {
+        const details = 'تم إلغاء اشتراك الشركة من قبل الإدارة. لن تتمكن الشركة من إضافة موظفين جدد حتى تشترك في خطة جديدة.';
+        
+        await this.sendSubscriptionActionEmail(
+          company.email,
+          company.name,
+          adminEmail,
+          'لا يوجد',
+          'cancelled',
+          details
+        );
+      }
 
       const result: CancelSubscriptionResult = { 
         message: 'تم إلغاء جميع اشتراكات الشركة بنجاح', 
@@ -1047,7 +1310,7 @@ export class SubscriptionService {
     }
   }
 
-  async extendSubscription(companyId: string): Promise<ExtendSubscriptionResult> {
+  async extendSubscription(companyId: string, adminEmail?: string): Promise<ExtendSubscriptionResult> {
     try {
       this.logger.log(`[extendSubscription] تمديد اشتراك الشركة ${companyId}`);
       
@@ -1100,6 +1363,21 @@ export class SubscriptionService {
         .execute();
 
       this.logger.log(`[extendSubscription] تم تمديد اشتراك الشركة ${companyId} حتى ${newEndDate.toDateString()} (تمت إضافة سنة كاملة)`);
+
+      const company = await this.companyRepo.findOne({ where: { id: companyId } });
+      if (company && adminEmail) {
+        const newEndDateStr = newEndDate.toLocaleDateString('ar-SA');
+        const details = `تم تمديد اشتراكك في خطة "${activeSubscription.plan.name}" لمدة سنة إضافية (365 يوم). الأيام المتبقية السابقة: ${daysRemainingBefore} يوم. الأيام المتبقية الجديدة: ${daysRemainingAfter} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+        
+        await this.sendSubscriptionActionEmail(
+          company.email,
+          company.name,
+          adminEmail,
+          activeSubscription.plan.name,
+          'extended',
+          details
+        );
+      }
 
       const result: ExtendSubscriptionResult = { 
         message: 'تم تمديد الاشتراك بنجاح لمدة سنة إضافية', 
@@ -1490,12 +1768,7 @@ export class SubscriptionService {
         const message = `مرحبًا ${companyName}, اشتراكك في خطة "${planName}" سينتهي في ${endDate.toDateString()}.\n\nيمكنك التجديد الآن عبر الرابط التالي:\n${renewalUrl}`;
 
         try {
-          const transporter = nodemailer.createTransport({
-            service: 'gmail',
-            auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
-          });
-
-          await transporter.sendMail({ from: process.env.EMAIL_USER, to: companyEmail, subject, text: message });
+          await this.sendEmail(companyEmail, subject, message);
           this.logger.log(`[notifyExpiringSubscriptions] تم إرسال تنبيه إلى ${companyEmail}`);
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : 'Unknown error';
