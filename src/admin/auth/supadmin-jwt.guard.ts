@@ -12,6 +12,13 @@ import { SupadminJwtService } from './supadmin-jwt.service';
 
 interface AuthenticatedRequest extends Request {
   supadmin?: Supadmin;
+  supadminPayload?: {  
+    supadminId: string;
+    role: string;
+    permissions: Record<string, boolean>;
+    iat?: number;
+    exp?: number;
+  };
   managerPayload?: {
     supadminId: string;
     role: string;
@@ -31,7 +38,7 @@ export class SupadminJwtGuard implements CanActivate {
   constructor(
     private readonly supadminJwtService: SupadminJwtService,
     @InjectRepository(Supadmin)
-    private readonly managerRepo: Repository<Supadmin>,
+    private readonly supadminRepo: Repository<Supadmin>, 
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -54,7 +61,7 @@ export class SupadminJwtGuard implements CanActivate {
     });
 
     if (!supadmin) {
-      throw new UnauthorizedException('supadmin not found or inactive');
+      throw new UnauthorizedException('Supadmin not found or inactive');
     }
 
     request.supadmin = supadmin;
