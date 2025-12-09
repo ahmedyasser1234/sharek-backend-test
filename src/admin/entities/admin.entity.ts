@@ -223,22 +223,18 @@ export class Admin {
     });
   }
 
-  // دالة للحصول على جميع المسؤولين الأعلى الذين قام بإنشائهم
   getCreatedSupadminsInfo() {
     if (!this.createdSupadmins) return [];
     
     return this.createdSupadmins.map(supadmin => ({
       id: supadmin.id,
       email: supadmin.email,
-      fullName: supadmin.fullName,
-      role: supadmin.role,
+       role: supadmin.role,
       isActive: supadmin.isActive,
       createdAt: supadmin.createdAt,
-      lastLoginAt: supadmin.lastLoginAt,
     }));
   }
 
-  // دالة للحصول على جميع البائعين الذين قام بإنشائهم
   getCreatedManagersInfo() {
     if (!this.createdManagers) return [];
     
@@ -258,7 +254,6 @@ export class Admin {
       id: subscription.id,
       companyId: subscription.companyId,
       planId: subscription.planId,
-      // استخدام String() لتحويل القيمة إلى string بشكل آمن
       status: subscription.status ? String(subscription.status) : 'unknown',
       startDate: subscription.startDate,
       endDate: subscription.endDate,

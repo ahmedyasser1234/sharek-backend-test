@@ -8,7 +8,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Not, IsNull} from 'typeorm';
+import { Repository, DataSource, Not, IsNull } from 'typeorm';
 import { Admin } from './entities/admin.entity';
 import { Manager, ManagerRole } from './entities/manager.entity';
 import { Company } from '../company/entities/company.entity';
@@ -80,12 +80,9 @@ export interface ManagerWithoutPassword {
 export interface SupadminWithoutPassword {
   id: string;
   email: string;
-  fullName?: string | null;
-  phone?: string | null;
   role: SupadminRole;
   isActive: boolean;
   createdAt: Date;
-  lastLoginAt?: Date | null;
   createdBy: Admin | null;
 }
 
@@ -108,11 +105,9 @@ export interface DatabaseDownloadResponse {
     supadmins: Array<{
       id: string;
       email: string;
-      fullName?: string | null;
       role: SupadminRole;
       isActive: boolean;
       createdAt: Date;
-      lastLoginAt?: Date | null;
       createdBy: { id: string; email: string } | null;
     }>;
     bankAccounts: BankAccount[];
@@ -136,30 +131,12 @@ export interface BankAccountResponse {
 interface CreateSupadminDto {
   email: string;
   password: string;
-  fullName?: string;
-  phone?: string;
   role?: SupadminRole;
-  canManagePlans?: boolean;
-  canManageSellers?: boolean;
-  canManageCompanies?: boolean;
-  canManageSubscriptions?: boolean;
-  canManagePayments?: boolean;
-  canViewReports?: boolean;
-  canDownloadDatabase?: boolean;
 }
 
 interface UpdateSupadminDto {
-  fullName?: string;
-  phone?: string;
   role?: SupadminRole;
   isActive?: boolean;
-  canManagePlans?: boolean;
-  canManageSellers?: boolean;
-  canManageCompanies?: boolean;
-  canManageSubscriptions?: boolean;
-  canManagePayments?: boolean;
-  canViewReports?: boolean;
-  canDownloadDatabase?: boolean;
 }
 
 @Injectable()
@@ -221,7 +198,6 @@ export class AdminService {
 
   private async sendSupadminCreatedEmail(
     supadminEmail: string,
-    supadminFullName: string,
     adminEmail: string,
     password: string
   ): Promise<void> {
@@ -321,7 +297,7 @@ export class AdminService {
             
             <div class="content">
               <div class="info-box">
-                <p><strong>مرحباً:</strong> ${supadminFullName || supadminEmail}</p>
+                <p><strong>مرحباً:</strong> ${supadminEmail}</p>
                 <p><strong>تم إنشاء حسابك كمسؤول أعلى في منصة شارك</strong></p>
                 <p><strong>بواسطة الأدمن:</strong> ${adminEmail}</p>
                 <p><strong>تاريخ الإنشاء:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
@@ -359,7 +335,7 @@ export class AdminService {
         <div dir="rtl">
           <h2>إشعار إنشاء مسؤول أعلى جديد</h2>
           <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>المسؤول الأعلى:</strong> ${supadminFullName || supadminEmail}</p>
+            <p><strong>المسؤول الأعلى:</strong> ${supadminEmail}</p>
             <p><strong>البريد الإلكتروني:</strong> ${supadminEmail}</p>
             <p><strong>تم الإنشاء بواسطة:</strong> ${adminEmail}</p>
             <p><strong>كلمة المرور الأولية:</strong> ${password}</p>
@@ -737,7 +713,7 @@ export class AdminService {
     const normalizedEmail = dto.email.toLowerCase().trim();
     
     const existing = await this.supadminRepo.findOne({ 
-      where: { normalizedEmail: normalizedEmail } 
+      where: { email: normalizedEmail } 
     });
     
     if (existing) {
@@ -748,19 +724,9 @@ export class AdminService {
     
     const supadmin = this.supadminRepo.create({
       email: normalizedEmail,
-      normalizedEmail: normalizedEmail,
       password: hashedPassword,
-      fullName: dto.fullName || null,
-      phone: dto.phone || null,
       role: dto.role || SupadminRole.ADMIN,
       isActive: true,
-      canManagePlans: dto.canManagePlans || false,
-      canManageSellers: dto.canManageSellers || false,
-      canManageCompanies: dto.canManageCompanies || false,
-      canManageSubscriptions: dto.canManageSubscriptions || false,
-      canManagePayments: dto.canManagePayments || false,
-      canViewReports: dto.canViewReports || false,
-      canDownloadDatabase: dto.canDownloadDatabase || false,
       createdBy: admin,
     });
 
@@ -768,7 +734,6 @@ export class AdminService {
 
     await this.sendSupadminCreatedEmail(
       savedSupadmin.email,
-      savedSupadmin.fullName || savedSupadmin.email,
       admin.email,
       dto.password
     );
@@ -778,12 +743,9 @@ export class AdminService {
     return {
       id: savedSupadmin.id,
       email: savedSupadmin.email,
-      fullName: savedSupadmin.fullName,
-      phone: savedSupadmin.phone,
       role: savedSupadmin.role,
       isActive: savedSupadmin.isActive,
       createdAt: savedSupadmin.createdAt,
-      lastLoginAt: savedSupadmin.lastLoginAt,
       createdBy: admin,
     };
   }
@@ -797,12 +759,9 @@ export class AdminService {
     return supadmins.map(supadmin => ({
       id: supadmin.id,
       email: supadmin.email,
-      fullName: supadmin.fullName,
-      phone: supadmin.phone,
       role: supadmin.role,
       isActive: supadmin.isActive,
       createdAt: supadmin.createdAt,
-      lastLoginAt: supadmin.lastLoginAt,
       createdBy: supadmin.createdBy ? {
         id: supadmin.createdBy.id,
         email: supadmin.createdBy.email,
@@ -839,12 +798,9 @@ export class AdminService {
     return {
       id: updatedSupadmin.id,
       email: updatedSupadmin.email,
-      fullName: updatedSupadmin.fullName,
-      phone: updatedSupadmin.phone,
       role: updatedSupadmin.role,
       isActive: updatedSupadmin.isActive,
       createdAt: updatedSupadmin.createdAt,
-      lastLoginAt: updatedSupadmin.lastLoginAt,
       createdBy: updatedSupadmin.createdBy ? {
         id: updatedSupadmin.createdBy.id,
         email: updatedSupadmin.createdBy.email,
@@ -885,12 +841,9 @@ export class AdminService {
     return {
       id: updatedSupadmin.id,
       email: updatedSupadmin.email,
-      fullName: updatedSupadmin.fullName,
-      phone: updatedSupadmin.phone,
       role: updatedSupadmin.role,
       isActive: updatedSupadmin.isActive,
       createdAt: updatedSupadmin.createdAt,
-      lastLoginAt: updatedSupadmin.lastLoginAt,
       createdBy: updatedSupadmin.createdBy ? {
         id: updatedSupadmin.createdBy.id,
         email: updatedSupadmin.createdBy.email,
@@ -1710,11 +1663,9 @@ export class AdminService {
       select: {
         id: true,
         email: true,
-        fullName: true,
         role: true,
         isActive: true,
         createdAt: true,
-        lastLoginAt: true,
         createdBy: {
           id: true,
           email: true,
@@ -1744,11 +1695,9 @@ export class AdminService {
       supadmins: supadmins.map(supadmin => ({
         id: supadmin.id,
         email: supadmin.email,
-        fullName: supadmin.fullName,
         role: supadmin.role,
         isActive: supadmin.isActive,
         createdAt: supadmin.createdAt,
-        lastLoginAt: supadmin.lastLoginAt,
         createdBy: supadmin.createdBy ? {
           id: supadmin.createdBy.id,
           email: supadmin.createdBy.email

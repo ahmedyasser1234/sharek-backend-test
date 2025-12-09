@@ -21,17 +21,9 @@ export enum SupadminRole {
   MANAGER = 'manager'
 }
 
-// تعريف واجهة BaseSupadmin
 export interface BaseSupadmin {
   id: string;
   role: SupadminRole;
-  canManagePlans?: boolean;
-  canManageSellers?: boolean;
-  canManageCompanies?: boolean;
-  canManageSubscriptions?: boolean;
-  canManagePayments?: boolean;
-  canViewReports?: boolean;
-  canDownloadDatabase?: boolean;
 }
 
 @Entity('supadmins')
@@ -41,13 +33,6 @@ export class Supadmin implements BaseSupadmin {
 
   @Column({ unique: true })
   email: string;
-
-  @Column({
-    name: 'normalized_email',
-    unique: true,
-    nullable: true
-  })
-  normalizedEmail: string | null;
 
   @Column()
   password: string;
@@ -61,39 +46,6 @@ export class Supadmin implements BaseSupadmin {
 
   @Column({ default: true })
   isActive: boolean;
-
-  @Column({ nullable: true })
-  fullName: string | null;
-
-  @Column({ nullable: true })
-  phone: string | null;
-
-  @Column({ default: false })
-  canManagePlans: boolean;
-
-  @Column({ default: false })
-  canManageSellers: boolean;
-
-  @Column({ default: false })
-  canManageCompanies: boolean;
-
-  @Column({ default: false })
-  canManageSubscriptions: boolean;
-
-  @Column({ default: false })
-  canManagePayments: boolean;
-
-  @Column({ default: false })
-  canViewReports: boolean;
-
-  @Column({ default: false })
-  canDownloadDatabase: boolean;
-
-  @Column({ nullable: true })
-  lastLoginAt: Date | null;
-
-  @Column({ nullable: true })
-  lastLoginIp: string | null;
 
   @ManyToOne(() => Admin, { 
     nullable: true,
@@ -119,30 +71,17 @@ export class Supadmin implements BaseSupadmin {
 
   @UpdateDateColumn()
   updatedAt: Date;
+  fullName: any;
 
   @BeforeInsert()
   @BeforeUpdate()
   normalizeEmail() {
     if (this.email) {
-      this.normalizedEmail = this.email.toLowerCase().trim();
-      this.email = this.normalizedEmail;
+      this.email = this.email.toLowerCase().trim();
     }
   }
 
-  hasPermission(permission: string): boolean {
-    const permissionsMap: Record<string, boolean> = {
-      'manage_plans': this.canManagePlans,
-      'manage_sellers': this.canManageSellers,
-      'manage_companies': this.canManageCompanies,
-      'manage_subscriptions': this.canManageSubscriptions,
-      'manage_payments': this.canManagePayments,
-      'view_reports': this.canViewReports,
-      'download_database': this.canDownloadDatabase,
-    };
-
-    return permissionsMap[permission] || false;
-  }
-
+  
   hasRole(role: SupadminRole | SupadminRole[]): boolean {
     if (Array.isArray(role)) {
       return role.includes(this.role);
@@ -155,14 +94,16 @@ export class Supadmin implements BaseSupadmin {
   }
 
   getPermissions(): Record<string, boolean> {
+    const isSuperAdmin = this.role === SupadminRole.SUPER_ADMIN;
+    
     return {
-      canManagePlans: this.canManagePlans || this.role === SupadminRole.SUPER_ADMIN,
-      canManageSellers: this.canManageSellers || this.role === SupadminRole.SUPER_ADMIN,
-      canManageCompanies: this.canManageCompanies || this.role === SupadminRole.SUPER_ADMIN,
-      canManageSubscriptions: this.canManageSubscriptions || this.role === SupadminRole.SUPER_ADMIN,
-      canManagePayments: this.canManagePayments || this.role === SupadminRole.SUPER_ADMIN,
-      canViewReports: this.canViewReports || this.role === SupadminRole.SUPER_ADMIN,
-      canDownloadDatabase: this.canDownloadDatabase || this.role === SupadminRole.SUPER_ADMIN,
+      canManagePlans: isSuperAdmin,
+      canManageSellers: isSuperAdmin,
+      canManageCompanies: isSuperAdmin,
+      canManageSubscriptions: isSuperAdmin,
+      canManagePayments: isSuperAdmin,
+      canViewReports: isSuperAdmin,
+      canDownloadDatabase: isSuperAdmin,
     };
   }
 }
