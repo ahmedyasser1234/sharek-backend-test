@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unnecessary-type-assertion */
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { SupadminRole, BaseSupadmin } from '../entities/supadmin.entity';
@@ -17,14 +18,9 @@ export interface SupadminRefreshPayload {
   exp?: number;
 }
 
-// Interface for JWT verify response
-interface JwtPayload {
-  sub?: string;
-  supadminId?: string;
-  role?: SupadminRole;
-  permissions?: Record<string, boolean>;
-  iat?: number;
-  exp?: number;
+// Interface for JWT payload that matches @nestjs/jwt expectations
+interface JwtSignPayload {
+  sub: string;
   [key: string]: unknown;
 }
 
@@ -37,54 +33,57 @@ export class SupadminJwtService {
     role: SupadminRole;
     permissions: Record<string, boolean>;
   }): string {
-    return this.jwtService.sign(
-      {
-        sub: payload.supadminId,
-        supadminId: payload.supadminId,
-        role: payload.role,
-        permissions: payload.permissions,
-      },
-      {
-        secret: process.env.JWT_SUPADMIN_ACCESS_SECRET || 'supadmin-access-secret',
-        expiresIn: process.env.JWT_SUPADMIN_ACCESS_EXPIRES_IN || '15m',
-      },
-    );
+    // Create payload with 'sub' field as required by JWT standard
+    const jwtPayload: JwtSignPayload & Record<string, unknown> = {
+      sub: payload.supadminId,
+      supadminId: payload.supadminId,
+      role: payload.role,
+      permissions: payload.permissions,
+    };
+    
+    return this.jwtService.sign(jwtPayload, {
+      secret: process.env.JWT_SUPADMIN_ACCESS_SECRET || 'supadmin-access-secret',
+      expiresIn: process.env.JWT_SUPADMIN_ACCESS_EXPIRES_IN || '15m',
+    });
   }
 
   signRefresh(payload: {
     supadminId: string;
     role: SupadminRole;
   }): string {
-    return this.jwtService.sign(
-      {
-        sub: payload.supadminId,
-        supadminId: payload.supadminId,
-        role: payload.role,
-      },
-      {
-        secret: process.env.JWT_SUPADMIN_REFRESH_SECRET || 'supadmin-refresh-secret',
-        expiresIn: process.env.JWT_SUPADMIN_REFRESH_EXPIRES_IN || '7d',
-      },
-    );
+    // Create payload with 'sub' field as required by JWT standard
+    const jwtPayload: JwtSignPayload & Record<string, unknown> = {
+      sub: payload.supadminId,
+      supadminId: payload.supadminId,
+      role: payload.role,
+    };
+    
+    return this.jwtService.sign(jwtPayload, {
+      secret: process.env.JWT_SUPADMIN_REFRESH_SECRET || 'supadmin-refresh-secret',
+      expiresIn: process.env.JWT_SUPADMIN_REFRESH_EXPIRES_IN || '7d',
+    });
   }
 
   verifyAccess(token: string): SupadminJwtPayload | null {
     try {
-      const payload: JwtPayload = this.jwtService.verify(token, {
+      const payload = this.jwtService.verify(token, {
         secret: process.env.JWT_SUPADMIN_ACCESS_SECRET || 'supadmin-access-secret',
-      });
+      }) as Record<string, unknown>;
 
-      const supadminId = payload.supadminId || payload.sub;
-      if (!supadminId || !payload.role) {
+      const supadminId = (payload.supadminId || payload.sub) as string;
+      const role = payload.role as SupadminRole;
+      const permissions = (payload.permissions || {}) as Record<string, boolean>;
+
+      if (!supadminId || !role) {
         return null;
       }
 
       return {
         supadminId,
-        role: payload.role,
-        permissions: payload.permissions || {},
-        iat: payload.iat,
-        exp: payload.exp,
+        role,
+        permissions,
+        iat: payload.iat as number | undefined,
+        exp: payload.exp as number | undefined,
       };
     } catch {
       return null;
@@ -93,20 +92,22 @@ export class SupadminJwtService {
 
   verifyRefresh(token: string): SupadminRefreshPayload | null {
     try {
-      const payload: JwtPayload = this.jwtService.verify(token, {
+      const payload = this.jwtService.verify(token, {
         secret: process.env.JWT_SUPADMIN_REFRESH_SECRET || 'supadmin-refresh-secret',
-      });
+      }) as Record<string, unknown>;
 
-      const supadminId = payload.supadminId || payload.sub;
-      if (!supadminId || !payload.role) {
+      const supadminId = (payload.supadminId || payload.sub) as string;
+      const role = payload.role as SupadminRole;
+
+      if (!supadminId || !role) {
         return null;
       }
 
       return {
         supadminId,
-        role: payload.role,
-        iat: payload.iat,
-        exp: payload.exp,
+        role,
+        iat: payload.iat as number | undefined,
+        exp: payload.exp as number | undefined,
       };
     } catch {
       return null;
