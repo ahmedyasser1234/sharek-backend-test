@@ -301,9 +301,10 @@ export class AdminService {
                 <p>${details}</p>
               </div>
             
-                <div class="footer">
+                 <div>
                 <p>تحت مع تحيات فريق شارك</p>
                 <p>https://sharik-sa.com/</p>
+                <img src="https://res.cloudinary.com/dk3wwuy5d/image/upload/v1765288029/subscription-banner_skltmg.jpg" 
                 <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
               </div>
             </div>
