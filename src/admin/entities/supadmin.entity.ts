@@ -12,7 +12,6 @@ import {
 } from 'typeorm';
 import { CompanySubscription } from '../../subscription/entities/company-subscription.entity';
 import { SupadminToken } from './supadmin-token.entity';
-import { Plan } from '../../plan/entities/plan.entity';
 import { Admin } from '../../admin/entities/admin.entity';
 
 export enum SupadminRole {
@@ -63,15 +62,12 @@ export class Supadmin implements BaseSupadmin {
   @OneToMany(() => SupadminToken, (token) => token.supadmin)
   tokens: SupadminToken[];
 
-  @OneToMany(() => Plan, (plan) => plan.createdBySupadmin)
-  createdPlans: Plan[];
 
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
-  fullName: any;
 
   @BeforeInsert()
   @BeforeUpdate()

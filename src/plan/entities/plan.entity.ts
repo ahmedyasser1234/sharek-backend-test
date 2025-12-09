@@ -86,7 +86,6 @@ export class Plan {
   @OneToMany(() => CompanySubscription, (sub) => sub.plan)
   subscriptions: CompanySubscription[];
 
-  // دوال مساعدة
   getFeaturesArray(): string[] {
     return this.description ? this.description.split('\n').filter(f => f.trim()) : [];
   }

@@ -24,6 +24,7 @@ import { SupadminJwtService } from './auth/supadmin-jwt.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { PaymentService } from '../payment/payment.service';
 import * as nodemailer from 'nodemailer';
+import { Admin } from '../admin/entities/admin.entity';
 
 export interface SubscriptionResult {
   message: string;
@@ -764,7 +765,7 @@ export class SupadminService {
     const normalizedEmail = defaultEmail.toLowerCase().trim();
     
     const exists = await this.supadminRepo.findOne({ 
-      where: { normalizedEmail: normalizedEmail } 
+      where: { email: normalizedEmail } 
     });
     
     if (exists) return;
@@ -772,18 +773,9 @@ export class SupadminService {
     const hashedPassword = await bcrypt.hash('Admin@1234', 10);
     const supadmin = this.supadminRepo.create({
       email: normalizedEmail,
-      normalizedEmail: normalizedEmail,
       password: hashedPassword,
-      fullName: 'Super Administrator',
       role: SupadminRole.SUPER_ADMIN,
       isActive: true,
-      canManagePlans: false,    
-      canManageSellers: true,
-      canManageCompanies: true,
-      canManageSubscriptions: true,
-      canManagePayments: true,
-      canViewReports: true,
-      canDownloadDatabase: false, 
     });
 
     await this.supadminRepo.save(supadmin);
@@ -803,7 +795,7 @@ export class SupadminService {
     const normalizedEmail = email.toLowerCase().trim();
     
     const supadmin = await this.supadminRepo.findOne({ 
-      where: { normalizedEmail: normalizedEmail } 
+      where: { email: normalizedEmail } 
     });
     
     if (!supadmin || !(await bcrypt.compare(password, supadmin.password))) {
@@ -814,9 +806,11 @@ export class SupadminService {
       throw new UnauthorizedException('الحساب غير نشط، يرجى التواصل مع المسؤول');
     }
 
-    supadmin.lastLoginAt = new Date();
-    supadmin.lastLoginIp = ipAddress || '';
-    await this.supadminRepo.save(supadmin);
+    // Note: lastLoginAt و lastLoginIp غير موجودين في الكيان الجديد
+    // إذا كنت بحاجة إليهم، أضفهم للكيان
+    // supadmin.lastLoginAt = new Date();
+    // supadmin.lastLoginIp = ipAddress || '';
+    // await this.supadminRepo.save(supadmin);
 
     const tokens = this.supadminJwt.generateInitialTokens(supadmin);
 
@@ -830,20 +824,22 @@ export class SupadminService {
     await this.tokenRepo.save(tokenEntity);
 
     let companies: CompanyWithEmployeeCount[] = [];
-    if (supadmin.hasPermission('manage_companies')) {
+    if (this.hasPermission(supadmin, 'manage_companies')) {
       companies = await this.getSupadminCompanies(supadmin.id);
     }
 
     const supadminData: SupadminWithData = {
       id: supadmin.id,
       email: supadmin.email,
-      fullName: supadmin.fullName || undefined,
-      phone: supadmin.phone || undefined,
+      // fullName و phone غير موجودين في الكيان الجديد
+      // fullName: supadmin.fullName || undefined,
+      // phone: supadmin.phone || undefined,
       role: supadmin.role,
       isActive: supadmin.isActive,
       permissions: this.getPermissions(supadmin),     
       createdAt: supadmin.createdAt,
-      lastLoginAt: supadmin.lastLoginAt || undefined,
+      // lastLoginAt غير موجود في الكيان الجديد
+      // lastLoginAt: supadmin.lastLoginAt || undefined,
       companies,
       refreshToken: tokens.refreshToken,
     };
@@ -891,20 +887,22 @@ export class SupadminService {
       });
       
       let companies: CompanyWithEmployeeCount[] = [];
-      if (token.supadmin.hasPermission('manage_companies')) {
+      if (this.hasPermission(token.supadmin, 'manage_companies')) {
         companies = await this.getSupadminCompanies(token.supadmin.id);
       }
       
       const supadminData: SupadminWithData = {
         id: token.supadmin.id,
         email: token.supadmin.email,
-        fullName: token.supadmin.fullName || undefined,
-        phone: token.supadmin.phone || undefined,
+        // fullName و phone غير موجودين في الكيان الجديد
+        // fullName: token.supadmin.fullName || undefined,
+        // phone: token.supadmin.phone || undefined,
         role: token.supadmin.role,
         isActive: token.supadmin.isActive,
         permissions: this.getPermissions(token.supadmin), 
         createdAt: token.supadmin.createdAt,
-        lastLoginAt: token.supadmin.lastLoginAt || undefined,
+        // lastLoginAt غير موجود في الكيان الجديد
+        // lastLoginAt: token.supadmin.lastLoginAt || undefined,
         companies: companies,
         refreshToken: refreshToken,
       };
@@ -948,20 +946,22 @@ export class SupadminService {
     }
 
     let companies: CompanyWithEmployeeCount[] = [];
-    if (supadmin.hasPermission('manage_companies')) {
+    if (this.hasPermission(supadmin, 'manage_companies')) {
       companies = await this.getSupadminCompanies(supadmin.id);
     }
 
     return {
       id: supadmin.id,
       email: supadmin.email,
-      fullName: supadmin.fullName || undefined,
-      phone: supadmin.phone || undefined,
+      // fullName و phone غير موجودين في الكيان الجديد
+      // fullName: supadmin.fullName || undefined,
+      // phone: supadmin.phone || undefined,
       role: supadmin.role,
       isActive: supadmin.isActive,
       permissions: this.getPermissions(supadmin), 
       createdAt: supadmin.createdAt,
-      lastLoginAt: supadmin.lastLoginAt || undefined,
+      // lastLoginAt غير موجود في الكيان الجديد
+      // lastLoginAt: supadmin.lastLoginAt || undefined,
       companies,
     };
   }
@@ -981,10 +981,14 @@ export class SupadminService {
       throw new NotFoundException('المسؤول الأعلى غير موجود');
     }
 
-    if (dto.fullName !== undefined) supadmin.fullName = dto.fullName;
-    if (dto.phone !== undefined) supadmin.phone = dto.phone;
+    // Note: fullName و phone غير موجودين في الكيان الجديد
+    // if (dto.fullName !== undefined) supadmin.fullName = dto.fullName;
+    // if (dto.phone !== undefined) supadmin.phone = dto.phone;
     
-    await this.supadminRepo.save(supadmin);
+    // await this.supadminRepo.save(supadmin);
+
+    // إذا كنت تريد إضافة هذه الخصائص، أضفها للكيان أولاً
+    this.logger.warn('خاصية fullName و phone غير مدعومة في الكيان الحالي');
 
     return this.getProfile(supadminId);
   }
@@ -1025,7 +1029,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_sellers')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_sellers')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة البائعين');
     }
 
@@ -1084,13 +1088,13 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_sellers')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_sellers')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إنشاء بائعين');
     }
 
     const normalizedEmail = dto.email.toLowerCase().trim();
     const existing = await this.sellerRepo.findOne({ 
-      where: { normalizedEmail: normalizedEmail } 
+      where: { email: normalizedEmail } 
     });
     
     if (existing) {
@@ -1101,7 +1105,6 @@ export class SupadminService {
     
     const seller = this.sellerRepo.create({
       email: normalizedEmail,
-      normalizedEmail: normalizedEmail,
       password: hashedPassword,
       role: ManagerRole.SELLER,
       isActive: true,
@@ -1132,7 +1135,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_sellers')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_sellers')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة البائعين');
     }
 
@@ -1168,7 +1171,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_sellers')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_sellers')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية حذف البائعين');
     }
 
@@ -1249,7 +1252,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_companies')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_companies')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الشركات');
     }
 
@@ -1330,7 +1333,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_companies')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_companies')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الشركات');
     }
 
@@ -1366,7 +1369,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_companies')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_companies')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية حذف الشركات');
     }
 
@@ -1420,7 +1423,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_subscriptions')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_subscriptions')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الاشتراكات');
     }
 
@@ -1464,7 +1467,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_subscriptions')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_subscriptions')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الاشتراكات');
     }
 
@@ -1507,7 +1510,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_subscriptions')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_subscriptions')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الاشتراكات');
     }
 
@@ -1537,7 +1540,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_subscriptions')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_subscriptions')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الاشتراكات');
     }
 
@@ -1568,7 +1571,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_subscriptions')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_subscriptions')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الاشتراكات');
     }
 
@@ -1600,7 +1603,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_plans')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_plans')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الخطط');
     }
 
@@ -1633,7 +1636,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_plans')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_plans')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إنشاء خطط');
     }
 
@@ -1674,7 +1677,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_plans')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_plans')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية تعديل الخطط');
     }
 
@@ -1710,7 +1713,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_plans')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_plans')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الخطط');
     }
 
@@ -1746,7 +1749,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_plans')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_plans')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية حذف الخطط');
     }
 
@@ -1791,7 +1794,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_payments')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_payments')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة المدفوعات');
     }
 
@@ -1840,7 +1843,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_payments')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_payments')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة المدفوعات');
     }
 
@@ -1888,7 +1891,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('manage_payments')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_payments')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة المدفوعات');
     }
 
@@ -1932,7 +1935,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('view_reports')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'view_reports')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية عرض التقارير');
     }
 
@@ -2007,7 +2010,7 @@ export class SupadminService {
       where: { id: supadminId }
     });
 
-    if (!supadmin || !supadmin.hasPermission('download_database')) {
+    if (!supadmin || !this.hasPermission(supadmin, 'download_database')) {
       throw new ForbiddenException('غير مصرح - لا تملك صلاحية تحميل قاعدة البيانات');
     }
     
@@ -2019,18 +2022,14 @@ export class SupadminService {
     };
   }
 
-  private getPermissions(_supadmin: Supadmin): Record<string, boolean> {
+  private hasPermission(supadmin: Supadmin, permission: string): boolean {
+    const permissions = this.getPermissions(supadmin);
+    return permissions[permission] || false;
+  }
 
-    
-    return {
-      canManagePlans: false, 
-      canManageSellers: true,
-      canManageCompanies: true,
-      canManageSubscriptions: true,
-      canManagePayments: true,
-      canViewReports: true,
-      canDownloadDatabase: false,
-    };
+  private getPermissions(supadmin: Supadmin): Record<string, boolean> {
+    // استخدام الدالة الموجودة في الكيان
+    return supadmin.getPermissions();
   }
 
   private isCancelSubscriptionResult(obj: unknown): obj is CancelSubscriptionResult {
