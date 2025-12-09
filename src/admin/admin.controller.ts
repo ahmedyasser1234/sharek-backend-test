@@ -388,9 +388,12 @@ export class AdminController {
   @ApiResponse({ status: 404, description: 'الاشتراك أو الخطة غير موجودة' })
   changePlan(
     @Param('id') id: string, 
-    @Body() body: { planId: string }
+    @Body() body: { planId: string },
+    @Req() req: ExtendedAdminRequest
   ): Promise<CompanySubscription | null> {
-    return this.service.changeSubscriptionPlan(id, body.planId);
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+    return this.service.changeSubscriptionPlan(id, body.planId, adminId);
   }
 
   // === ENDPOINT متوافق مع الـ UI القديم ===
@@ -402,9 +405,12 @@ export class AdminController {
   @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
   async changePlanForCompany(
     @Param('companyId') companyId: string, 
-    @Body() body: { planId: string }
+    @Body() body: { planId: string },
+    @Req() req: ExtendedAdminRequest
   ): Promise<CompanySubscription> {
-    return this.service.changeCompanyPlan(companyId, body.planId);
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+    return this.service.changeCompanyPlan(companyId, body.planId, adminId);
   }
 
   @Patch('companies/:companyId/upgrade-plan/:planId')
@@ -415,9 +421,12 @@ export class AdminController {
   @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
   async upgradeCompanyPlan(
     @Param('companyId') companyId: string,
-    @Param('planId') planId: string
+    @Param('planId') planId: string,
+    @Req() req: ExtendedAdminRequest
   ): Promise<CompanySubscription> {
-    return this.service.upgradeCompanySubscription(companyId, planId);
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+    return this.service.upgradeCompanySubscription(companyId, planId, adminId);
   }
 
   // === ENDPOINTS الجديدة والأسهل ===
@@ -430,9 +439,12 @@ export class AdminController {
   @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
   async changeCompanyPlanWithParams(
     @Param('companyId') companyId: string,
-    @Param('planId') planId: string
+    @Param('planId') planId: string,
+    @Req() req: ExtendedAdminRequest
   ): Promise<CompanySubscription> {
-    return this.service.changeCompanyPlan(companyId, planId);
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+    return this.service.changeCompanyPlan(companyId, planId, adminId);
   }
 
   @Patch('companies/:companyId/change-plan')
@@ -443,9 +455,12 @@ export class AdminController {
   @ApiResponse({ status: 404, description: 'الشركة أو الخطة غير موجودة' })
   async changeCompanyPlanWithBody(
     @Param('companyId') companyId: string,
-    @Body() body: { planId: string }
+    @Body() body: { planId: string },
+    @Req() req: ExtendedAdminRequest
   ): Promise<CompanySubscription> {
-    return this.service.changeCompanyPlan(companyId, body.planId);
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+    return this.service.changeCompanyPlan(companyId, body.planId, adminId);
   }
 
   @Post('companies/:companyId/subscribe/:planId')
