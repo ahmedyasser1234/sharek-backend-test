@@ -20,6 +20,7 @@ import { Cron } from '@nestjs/schedule';
 import { Employee } from '../employee/entities/employee.entity'; 
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
+import { Admin } from '../admin/entities/admin.entity'; // إضافة لاستيراد Admin
 
 export interface SubscriptionResponse {
   message: string;
@@ -126,6 +127,9 @@ export class SubscriptionService {
     
     @InjectRepository(PaymentProof) 
     private readonly paymentProofRepo: Repository<PaymentProof>,
+    
+    @InjectRepository(Admin) 
+    private readonly adminRepo: Repository<Admin>,
     
     private readonly companyService: CompanyService,
     private readonly paymentService: PaymentService,
@@ -302,7 +306,6 @@ export class SubscriptionService {
                 <div class="details-title">تفاصيل الإجراء:</div>
                 <p>${details}</p>
               </div>
-              
               
               <div class="footer">
                 <p>تحت مع تحيات فريق شارك</p>
@@ -789,6 +792,7 @@ export class SubscriptionService {
       this.logger.log(`[changePlanDirectly] الشركة: ${companyId}`);
       this.logger.log(`[changePlanDirectly] الخطة الجديدة: ${newPlanId}`);
       this.logger.log(`[changePlanDirectly] adminOverride: ${adminOverride}`);
+      this.logger.log(`[changePlanDirectly] adminEmail: ${adminEmail || 'غير محدد'}`);
 
       const currentSubscription = await this.getCompanySubscription(companyId);
       this.logger.log(`[changePlanDirectly] الاشتراك الحالي: ${currentSubscription ? 'موجود' : 'غير موجود'}`);
@@ -1261,7 +1265,12 @@ export class SubscriptionService {
     }
   }
 
-  async cancelSubscription(companyId: string, adminEmail?: string): Promise<CancelSubscriptionResult> {
+  async cancelSubscription(
+    companyId: string, 
+    adminId?: string,
+    adminEmail?: string,
+    reason?: string
+  ): Promise<CancelSubscriptionResult> {
     try {
       this.logger.log(`[cancelSubscription] إلغاء اشتراك الشركة ${companyId}`);
       
@@ -1279,18 +1288,32 @@ export class SubscriptionService {
         .where('id = :id', { id: companyId })
         .execute();
 
-      const company = await this.companyRepo.findOne({ where: { id: companyId } });
-      if (company && adminEmail) {
-        const details = 'تم إلغاء اشتراك الشركة من قبل الإدارة. لن تتمكن الشركة من إضافة موظفين جدد حتى تشترك في خطة جديدة.';
+      const company = await this.companyRepo.findOne({ 
+        where: { id: companyId },
+        relations: ['subscriptions', 'subscriptions.plan']
+      });
+      
+      if (company) {
+        const latestSubscription = company.subscriptions?.sort(
+          (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
+        )[0];
         
-        await this.sendSubscriptionActionEmail(
-          company.email,
-          company.name,
-          adminEmail,
-          'لا يوجد',
-          'cancelled',
-          details
-        );
+        const planName = latestSubscription?.plan?.name || 'غير معروف';
+        
+        if (adminEmail) {
+          const details = reason 
+            ? `تم إلغاء اشتراك الشركة من قبل الإدارة. السبب: ${reason}. لن تتمكن الشركة من إضافة موظفين جدد حتى تشترك في خطة جديدة.`
+            : `تم إلغاء اشتراك الشركة من قبل الإدارة. لن تتمكن الشركة من إضافة موظفين جدد حتى تشترك في خطة جديدة.`;
+          
+          await this.sendSubscriptionActionEmail(
+            company.email,
+            company.name,
+            adminEmail,
+            planName,
+            'cancelled',
+            details
+          );
+        }
       }
 
       const result: CancelSubscriptionResult = { 
@@ -1310,9 +1333,14 @@ export class SubscriptionService {
     }
   }
 
-  async extendSubscription(companyId: string, adminEmail?: string): Promise<ExtendSubscriptionResult> {
+  async extendSubscription(
+    companyId: string, 
+    adminId?: string,
+    adminEmail?: string,
+    extraDays: number = 365
+  ): Promise<ExtendSubscriptionResult> {
     try {
-      this.logger.log(`[extendSubscription] تمديد اشتراك الشركة ${companyId}`);
+      this.logger.log(`[extendSubscription] تمديد اشتراك الشركة ${companyId} لمدة ${extraDays} يوم`);
       
       const { activeSubscription } = await this.validateCompanySubscription(companyId);
       
@@ -1339,9 +1367,9 @@ export class SubscriptionService {
       const daysRemainingBefore = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
       
       const newEndDate = new Date(activeSubscription.endDate);
-      newEndDate.setDate(newEndDate.getDate() + 365); 
+      newEndDate.setDate(newEndDate.getDate() + extraDays); 
       
-      const totalDaysAdded = 365;
+      const totalDaysAdded = extraDays;
       
       const daysRemainingAfter = daysRemainingBefore + totalDaysAdded;
       
@@ -1362,12 +1390,12 @@ export class SubscriptionService {
         .where('id = :id', { id: companyId })
         .execute();
 
-      this.logger.log(`[extendSubscription] تم تمديد اشتراك الشركة ${companyId} حتى ${newEndDate.toDateString()} (تمت إضافة سنة كاملة)`);
+      this.logger.log(`[extendSubscription] تم تمديد اشتراك الشركة ${companyId} حتى ${newEndDate.toDateString()} (تمت إضافة ${extraDays} يوم)`);
 
       const company = await this.companyRepo.findOne({ where: { id: companyId } });
       if (company && adminEmail) {
         const newEndDateStr = newEndDate.toLocaleDateString('ar-SA');
-        const details = `تم تمديد اشتراكك في خطة "${activeSubscription.plan.name}" لمدة سنة إضافية (365 يوم). الأيام المتبقية السابقة: ${daysRemainingBefore} يوم. الأيام المتبقية الجديدة: ${daysRemainingAfter} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+        const details = `تم تمديد اشتراكك في خطة "${activeSubscription.plan.name}" لمدة ${extraDays} يوم إضافية. الأيام المتبقية السابقة: ${daysRemainingBefore} يوم. الأيام المتبقية الجديدة: ${daysRemainingAfter} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
         
         await this.sendSubscriptionActionEmail(
           company.email,
@@ -1380,7 +1408,7 @@ export class SubscriptionService {
       }
 
       const result: ExtendSubscriptionResult = { 
-        message: 'تم تمديد الاشتراك بنجاح لمدة سنة إضافية', 
+        message: `تم تمديد الاشتراك بنجاح لمدة ${extraDays} يوم إضافية`, 
         subscription: updatedSubscription,
         details: {
           currentEmployees: currentEmployeeCount,
@@ -1389,7 +1417,7 @@ export class SubscriptionService {
           newEndDate: updatedSubscription.endDate,
           planStatus: `الخطة الحالية (${maxAllowed} موظف) ${maxAllowed === currentEmployeeCount ? 'مساوية' : 'أعلى'} من عدد الموظفين الحاليين`,
           planName: activeSubscription.plan.name,
-          durationAdded: `${totalDaysAdded} يوم (سنة كاملة)`,
+          durationAdded: `${totalDaysAdded} يوم`,
           daysRemainingBefore: daysRemainingBefore,
           daysRemainingAfter: daysRemainingAfter,
           totalDaysAdded: totalDaysAdded
@@ -1934,6 +1962,20 @@ export class SubscriptionService {
       const errorMessage = error instanceof Error ? error.message : String(error);
       this.logger.error(`[debugSubscriptionStatus] Debug failed for company ${companyId}: ${errorMessage}`);
       return { error: 'Debug failed' };
+    }
+  }
+
+  async getAdminEmail(adminId: string): Promise<string | undefined> {
+    try {
+      const admin = await this.adminRepo.findOne({ 
+        where: { id: adminId },
+        select: ['email']
+      });
+      
+      return admin?.email;
+    } catch (error) {
+      this.logger.error(`[getAdminEmail] فشل الحصول على بريد الأدمن ${adminId}: ${error}`);
+      return undefined;
     }
   }
 }
