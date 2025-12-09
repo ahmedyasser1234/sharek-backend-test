@@ -1,4 +1,3 @@
-// admin.module.ts
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JwtModule } from '@nestjs/jwt';
@@ -8,16 +7,20 @@ import { SellerController } from './manager.controller';
 import { SellerService } from './manager.service';
 import { Admin } from './entities/admin.entity';
 import { Manager } from './entities/manager.entity';
+import { Supadmin } from './entities/supadmin.entity';
 import { Company } from '../company/entities/company.entity';
 import { Employee } from '../employee/entities/employee.entity';
 import { CompanySubscription } from '../subscription/entities/company-subscription.entity';
 import { Plan } from '../plan/entities/plan.entity';
 import { AdminToken } from './auth/entities/admin-token.entity';
 import { ManagerToken } from './entities/manager-token.entity';
+import { SupadminToken } from './entities/supadmin-token.entity'; 
 import { AdminJwtService } from './auth/admin-jwt.service';
 import { ManagerJwtService } from './auth/manager-jwt.service';
+import { SupadminJwtService } from './auth/supadmin-jwt.service'; 
 import { AdminJwtGuard } from './auth/admin-jwt.guard';
 import { ManagerJwtGuard } from './auth/manager-jwt.guard';
+import { SupadminJwtGuard } from './auth/supadmin-jwt.guard'; 
 import { Reflector } from '@nestjs/core';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { PaymentModule } from '../payment/payment.module';
@@ -32,12 +35,14 @@ import { BankAccount } from './entities/bank-account.entity';
     TypeOrmModule.forFeature([
       Admin,
       Manager,
+      Supadmin, 
       Company,
       Employee,
       CompanySubscription,
       Plan,
       AdminToken,
       ManagerToken,
+      SupadminToken, 
       PaymentProof,
       CompanyToken,
       CompanyLoginLog,
@@ -59,8 +64,10 @@ import { BankAccount } from './entities/bank-account.entity';
     SellerService,
     AdminJwtService,
     ManagerJwtService,
+    SupadminJwtService, 
     AdminJwtGuard,
     ManagerJwtGuard,
+    SupadminJwtGuard, 
     Reflector,
   ],
   exports: [
@@ -68,8 +75,10 @@ import { BankAccount } from './entities/bank-account.entity';
     SellerService, 
     AdminJwtService, 
     ManagerJwtService, 
+    SupadminJwtService,  
     AdminJwtGuard, 
     ManagerJwtGuard,
+    SupadminJwtGuard, 
   ],
 })
 export class AdminModule {}
