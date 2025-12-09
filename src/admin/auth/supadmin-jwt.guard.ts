@@ -1,77 +1,79 @@
-import { 
-  Injectable, 
-  ExecutionContext, 
-  UnauthorizedException,
+import {
+  Injectable,
   CanActivate,
-  Request 
+  ExecutionContext,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
-import { SupadminJwtService, SupadminJwtPayload } from './supadmin-jwt.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Request } from 'express';
+import { Supadmin } from '../entities/supadmin.entity';
+import { SupadminJwtService } from './supadmin-jwt.service';
 
-interface SupadminRequest extends Request {
-  supadmin?: SupadminJwtPayload;
-  supadminId?: string;
-  supadminRole?: string;
-  supadminPermissions?: Record<string, boolean>;
+interface AuthenticatedRequest extends Request {
+  supadmin?: Supadmin;
+  managerPayload?: {
+    supadminId: string;
+    role: string;
+    permissions: Record<string, boolean>;
+    iat?: number;
+    exp?: number;
+  };
+  user?: {
+    supadminId: string;
+    role: string;
+    permissions: Record<string, boolean>;
+  };
 }
 
 @Injectable()
 export class SupadminJwtGuard implements CanActivate {
-  constructor(private readonly supadminJwtService: SupadminJwtService) {}
+  constructor(
+    private readonly supadminJwtService: SupadminJwtService,
+    @InjectRepository(Supadmin)
+    private readonly managerRepo: Repository<Supadmin>,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
-    const request = context.switchToHttp().getRequest<SupadminRequest>();
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     
-    const authHeader = this.getAuthorizationHeader(request);
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedException('مطلوب توكن مصادقة');
+    const token = this.extractToken(request);
+
+    if (!token) {
+      throw new UnauthorizedException('Token not found');
     }
 
-    const token = authHeader.substring(7);
-    const payload = this.supadminJwtService.verifyAccess(token);
-
+    const payload = this.supadminJwtService.verify(token);
+    
     if (!payload) {
-      throw new UnauthorizedException('توكن غير صالح أو منتهي الصلاحية');
+      throw new UnauthorizedException('Invalid token');
     }
 
-    if (!this.isValidPayload(payload)) {
-      throw new UnauthorizedException('توكن غير صالح - بيانات غير كاملة');
+    const supadmin = await this.supadminRepo.findOne({
+      where: { id: payload.supadminId, isActive: true },
+    });
+
+    if (!supadmin) {
+      throw new UnauthorizedException('supadmin not found or inactive');
     }
 
-    this.assignRequestData(request, payload);
-
+    request.supadmin = supadmin;
+    request.supadminPayload = payload;
+    request.user = {
+      supadminId: payload.supadminId,
+      role: payload.role,
+      permissions: payload.permissions,
+    };
+    
     return true;
   }
 
-  private getAuthorizationHeader(request: Request): string | null {
-    const headers = request.headers as unknown as Record<string, string | string[] | undefined>;
-    const authHeader = headers['authorization'] || headers['Authorization'];
+  private extractToken(request: AuthenticatedRequest): string | null {
+    const authHeader = request.headers.authorization;
     
-    if (typeof authHeader === 'string') {
-      return authHeader;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      return authHeader.substring(7);
     }
-    
-    if (Array.isArray(authHeader) && authHeader.length > 0 && typeof authHeader[0] === 'string') {
-      return authHeader[0];
-    }
-
     return null;
-  }
-
-  private isValidPayload(payload: SupadminJwtPayload): boolean {
-    return (
-      typeof payload.supadminId === 'string' &&
-      typeof payload.role === 'string' &&
-      payload.permissions !== null &&
-      typeof payload.permissions === 'object'
-    );
-  }
-
-  private assignRequestData(request: SupadminRequest, payload: SupadminJwtPayload): void {
-    request.supadmin = payload;
-    request.supadminId = payload.supadminId;
-    request.supadminRole = payload.role;
-    request.supadminPermissions = payload.permissions;
   }
 }
