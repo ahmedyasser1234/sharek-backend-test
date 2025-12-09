@@ -1,11 +1,7 @@
+// src/admin/auth/supadmin-jwt.service.ts
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-
-interface SupadminEntity {
-  id: string;
-  getPermissions(): Record<string, boolean>;
-  role?: string; 
-}
+import { Supadmin } from '../entities/supadmin.entity';
 
 interface SupadminPayload {
   supadminId: string;
@@ -20,14 +16,13 @@ interface SupadminPayload {
 export class SupadminJwtService {
   constructor(private readonly jwtService: JwtService) {}
 
-  generateInitialTokens(supadmin: SupadminEntity): { accessToken: string; refreshToken: string } {
+  generateInitialTokens(supadmin: Supadmin): { accessToken: string; refreshToken: string } {
+    // استخدم getPermissions() بدلاً من الوصول المباشر
     const permissions = supadmin.getPermissions();
     
-    const role = supadmin.role ?? 'supadmin';
-
     const payload: SupadminPayload = {
       supadminId: supadmin.id,
-      role: role,
+      role: supadmin.role,
       permissions: permissions,
     };
 
