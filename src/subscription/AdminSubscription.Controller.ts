@@ -13,6 +13,8 @@ import {
   UseInterceptors,
   ClassSerializerInterceptor,
   Query,
+  Req,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CompanyService } from '../company/company.service';
@@ -30,6 +32,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
+import { Request } from 'express';
+
+interface ExtendedAdminRequest extends Request {
+  user?: { adminId: string; role: string };
+}
 
 interface ProofResponse {
   id: string;
@@ -127,13 +134,33 @@ export class AdminSubscriptionController {
   @ApiParam({ name: 'id', description: 'معرف الشركة' })
   @ApiResponse({ status: 200, description: 'تم إلغاء الاشتراك بنجاح' })
   async cancelSubscription(
-    @Param('id') companyId: string
+    @Param('id') companyId: string,
+    @Req() req: ExtendedAdminRequest,
+    @Body() body?: { reason?: string }
   ) {
     this.logger.log(`[cancelSubscription] استلام طلب إلغاء اشتراك للشركة: ${companyId}`);
     
     try {
+      const adminId = req.user?.adminId;
+      if (!adminId) throw new UnauthorizedException('غير مصرح');
+      
+      let adminEmail: string | undefined;
+      try {
+        adminEmail = await this.subscriptionService.getAdminEmail(adminId);
+        this.logger.log(`[cancelSubscription] بريد الأدمن: ${adminEmail || 'غير متاح'}`);
+      } catch (error) {
+        this.logger.warn(`[cancelSubscription] فشل الحصول على بريد الأدمن: ${error}`);
+        adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
+        this.logger.log(`[cancelSubscription] استخدام البريد الافتراضي: ${adminEmail}`);
+      }
+      
       const startTime = Date.now();
-      const result = await this.subscriptionService.cancelSubscription(companyId);
+      const result = await this.subscriptionService.cancelSubscription(
+        companyId, 
+        adminId, 
+        adminEmail, 
+        body?.reason
+      );
       const endTime = Date.now();
       
       this.logger.log(`[cancelSubscription] وقت تنفيذ العملية: ${endTime - startTime}ms`);
@@ -157,11 +184,32 @@ export class AdminSubscriptionController {
   @ApiParam({ name: 'id', description: 'معرف الشركة' })
   @ApiResponse({ status: 200, description: 'تم تمديد الاشتراك بنجاح' })
   async extendSubscription(
-    @Param('id') companyId: string
+    @Param('id') companyId: string,
+    @Req() req: ExtendedAdminRequest
   ) {
     try {
       this.logger.log(`[extendSubscription] طلب تمديد اشتراك الشركة: ${companyId}`);
-      const result = await this.subscriptionService.extendSubscription(companyId);
+      
+      const adminId = req.user?.adminId;
+      if (!adminId) throw new UnauthorizedException('غير مصرح');
+      
+      let adminEmail: string | undefined;
+      try {
+        adminEmail = await this.subscriptionService.getAdminEmail(adminId);
+        this.logger.log(`[extendSubscription] بريد الأدمن: ${adminEmail || 'غير متاح'}`);
+      } catch (error) {
+        this.logger.warn(`[extendSubscription] فشل الحصول على بريد الأدمن: ${error}`);
+        adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
+        this.logger.log(`[extendSubscription] استخدام البريد الافتراضي: ${adminEmail}`);
+      }
+      
+      const result = await this.subscriptionService.extendSubscription(
+        companyId, 
+        adminId, 
+        adminEmail, 
+        365
+      );
+      
       this.logger.log(`[extendSubscription] تم تمديد الاشتراك بنجاح للشركة: ${companyId}`);
       return result;
     } catch (error: unknown) {
@@ -175,11 +223,12 @@ export class AdminSubscriptionController {
   @UseInterceptors(ClassSerializerInterceptor)
   async changePlan(
     @Param('id') companyId: string,
-    @Body() body: { newPlanId: string, adminOverride?: boolean },
+    @Body() body: { newPlanId: string, adminOverride?: boolean, adminEmail?: string },
+    @Req() req: ExtendedAdminRequest
   ) {
     try {
       console.log('===========================================');
-      console.log('📢 [DEBUG] changePlan called!');
+      console.log(' [DEBUG] changePlan called!');
       console.log('companyId:', companyId);
       console.log('body:', body);
       console.log('===========================================');
@@ -197,13 +246,30 @@ export class AdminSubscriptionController {
       
       this.logger.log(`[changePlan] استخدام adminOverride = ${adminOverride}`);
       
-      console.log('📢 [DEBUG] Calling changePlanDirectly...');
+      let adminEmail = body.adminEmail;
+      if (!adminEmail) {
+        const adminId = req.user?.adminId;
+        if (adminId) {
+          try {
+            adminEmail = await this.subscriptionService.getAdminEmail(adminId);
+          } catch (error) {
+            this.logger.warn(`[changePlan] فشل الحصول على بريد الأدمن: ${error}`);
+          }
+        }
+        
+        if (!adminEmail) {
+          adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
+        }
+      }
+      
+      console.log(' [DEBUG] Calling changePlanDirectly...');
       const result = await this.subscriptionService.changePlanDirectly(
         companyId, 
         body.newPlanId, 
-        adminOverride
+        adminOverride,
+        adminEmail
       );
-      console.log('📢 [DEBUG] Result:', result);
+      console.log(' [DEBUG] Result:', result);
       
       this.logger.log(`[changePlan] === نجاح تغيير الخطة ===`);
       this.logger.log(`[changePlan] النتيجة: ${JSON.stringify(result)}`);
@@ -217,7 +283,7 @@ export class AdminSubscriptionController {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      console.log('📢 [DEBUG] ERROR:', errorMessage);
+      console.log(' [DEBUG] ERROR:', errorMessage);
       this.logger.error(`[changePlan] === فشل تغيير الخطة ===`);
       this.logger.error(`[changePlan] الشركة: ${companyId}`);
       this.logger.error(`[changePlan] الخطة الجديدة: ${body?.newPlanId}`);
@@ -240,14 +306,27 @@ export class AdminSubscriptionController {
   async changePlanOld(
     @Param('id') companyId: string,
     @Param('newPlanId') newPlanId: string,
+    @Req() req: ExtendedAdminRequest
   ) {
     try {
       this.logger.log(`[changePlanOld] طلب تغيير خطة (طريقة قديمة): الشركة ${companyId} إلى ${newPlanId}`);
       
+      let adminEmail: string | undefined;
+      const adminId = req.user?.adminId;
+      if (adminId) {
+        try {
+          adminEmail = await this.subscriptionService.getAdminEmail(adminId);
+        } catch (error) {
+          this.logger.warn(`[changePlanOld] فشل الحصول على بريد الأدمن: ${error}`);
+          adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
+        }
+      }
+      
       const result = await this.subscriptionService.changePlanDirectly(
         companyId,
         newPlanId,
-        true
+        true,
+        adminEmail
       );
       
       this.logger.log(`[changePlanOld] تم تغيير الخطة بنجاح للشركة: ${companyId}`);
@@ -286,10 +365,31 @@ export class AdminSubscriptionController {
   async activateSubscriptionManually(
     @Param('id') companyId: string,
     @Param('planId') planId: string,
+    @Req() req: ExtendedAdminRequest
   ) {
     try {
       this.logger.log(`[activateSubscriptionManually] تفعيل يدوي للشركة ${companyId} في الخطة ${planId}`);
-      const result = await this.subscriptionService.subscribe(companyId, planId, true);
+      
+      let adminEmail: string | undefined;
+      const adminId = req.user?.adminId;
+      if (adminId) {
+        try {
+          adminEmail = await this.subscriptionService.getAdminEmail(adminId);
+        } catch (error) {
+          this.logger.warn(`[activateSubscriptionManually] فشل الحصول على بريد الأدمن: ${error}`);
+          adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
+        }
+      }
+      
+      const result = await this.subscriptionService.subscribe(
+        companyId, 
+        planId, 
+        true, 
+        undefined, 
+        adminId, 
+        adminEmail
+      );
+      
       this.logger.log(`[activateSubscriptionManually] تم التفعيل اليدوي بنجاح`);
       return result;
     } catch (error: unknown) {
@@ -384,66 +484,64 @@ export class AdminSubscriptionController {
     }
   }
 
-  // ==================== MANUAL PROOFS ENDPOINTS ====================
 
- @Get('manual-proofs')
-@ApiOperation({ summary: 'عرض جميع طلبات التحويل البنكي (بجميع الحالات)' })
-@ApiQuery({ name: 'status', required: false, enum: PaymentProofStatus, description: 'فلتر حسب الحالة' })
-@ApiQuery({ name: 'companyId', required: false, description: 'فلتر حسب الشركة' })
-@ApiQuery({ name: 'planId', required: false, description: 'فلتر حسب الخطة' })
-@ApiResponse({ status: 200, description: 'تم جلب جميع الطلبات بنجاح' })
-async getManualTransferProofs(
-  @Query('status') status?: PaymentProofStatus,
-  @Query('companyId') companyId?: string,
-  @Query('planId') planId?: string,
-): Promise<ProofResponse[]> {
-  try {
-    const queryBuilder = this.proofRepo
-      .createQueryBuilder('proof')
-      .leftJoinAndSelect('proof.company', 'company')
-      .leftJoinAndSelect('proof.plan', 'plan')
-      .orderBy('proof.createdAt', 'DESC');
+  @Get('manual-proofs')
+  @ApiOperation({ summary: 'عرض جميع طلبات التحويل البنكي (بجميع الحالات)' })
+  @ApiQuery({ name: 'status', required: false, enum: PaymentProofStatus, description: 'فلتر حسب الحالة' })
+  @ApiQuery({ name: 'companyId', required: false, description: 'فلتر حسب الشركة' })
+  @ApiQuery({ name: 'planId', required: false, description: 'فلتر حسب الخطة' })
+  @ApiResponse({ status: 200, description: 'تم جلب جميع الطلبات بنجاح' })
+  async getManualTransferProofs(
+    @Query('status') status?: PaymentProofStatus,
+    @Query('companyId') companyId?: string,
+    @Query('planId') planId?: string,
+  ): Promise<ProofResponse[]> {
+    try {
+      const queryBuilder = this.proofRepo
+        .createQueryBuilder('proof')
+        .leftJoinAndSelect('proof.company', 'company')
+        .leftJoinAndSelect('proof.plan', 'plan')
+        .orderBy('proof.createdAt', 'DESC');
 
-    // إضافة الفلاتر الشرطية
-    if (status) {
-      queryBuilder.andWhere('proof.status = :status', { status });
+      if (status) {
+        queryBuilder.andWhere('proof.status = :status', { status });
+      }
+      
+      if (companyId) {
+        queryBuilder.andWhere('company.id = :companyId', { companyId });
+      }
+      
+      if (planId) {
+        queryBuilder.andWhere('plan.id = :planId', { planId });
+      }
+
+      const proofs = await queryBuilder.getMany();
+
+      const safeProofs: ProofResponse[] = proofs.map((proof) => ({
+        id: proof.id,
+        companyId: proof.company?.id || 'غير معروف',
+        companyName: proof.company?.name || 'شركة غير معروفة',
+        companyEmail: proof.company?.email || 'بريد غير معروف',
+        planId: proof.plan?.id || 'غير معروف',
+        planName: proof.plan?.name || 'خطة غير معروفة',
+        imageUrl: proof.imageUrl,
+        publicId: proof.publicId,
+        createdAt: proof.createdAt,
+        status: proof.status,
+        reviewed: proof.reviewed || false,
+        rejected: proof.rejected || false,
+        decisionNote: proof.decisionNote || '',
+        approvedById: proof.approvedById,
+      }));
+
+      this.logger.log(`[getManualTransferProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي`);
+      return safeProofs;
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      this.logger.error(`[getManualTransferProofs] فشل تحميل الطلبات: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل تحميل الطلبات');
     }
-    
-    if (companyId) {
-      queryBuilder.andWhere('company.id = :companyId', { companyId });
-    }
-    
-    if (planId) {
-      queryBuilder.andWhere('plan.id = :planId', { planId });
-    }
-
-    const proofs = await queryBuilder.getMany();
-
-    const safeProofs: ProofResponse[] = proofs.map((proof) => ({
-      id: proof.id,
-      companyId: proof.company?.id || 'غير معروف',
-      companyName: proof.company?.name || 'شركة غير معروفة',
-      companyEmail: proof.company?.email || 'بريد غير معروف',
-      planId: proof.plan?.id || 'غير معروف',
-      planName: proof.plan?.name || 'خطة غير معروفة',
-      imageUrl: proof.imageUrl,
-      publicId: proof.publicId,
-      createdAt: proof.createdAt,
-      status: proof.status,
-      reviewed: proof.reviewed || false,
-      rejected: proof.rejected || false,
-      decisionNote: proof.decisionNote || '',
-      approvedById: proof.approvedById,
-    }));
-
-    this.logger.log(`[getManualTransferProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي`);
-    return safeProofs;
-  } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    this.logger.error(`[getManualTransferProofs] فشل تحميل الطلبات: ${errorMessage}`);
-    throw new InternalServerErrorException('فشل تحميل الطلبات');
   }
-}
 
   @Get('manual-proofs/pending')
   @ApiOperation({ summary: 'عرض الطلبات المعلقة فقط' })
@@ -690,7 +788,6 @@ async getManualTransferProofs(
         .leftJoinAndSelect('proof.plan', 'plan')
         .orderBy('proof.createdAt', 'DESC');
 
-      // إضافة الفلاتر الشرطية
       if (status) {
         queryBuilder.andWhere('proof.status = :status', { status });
       }
