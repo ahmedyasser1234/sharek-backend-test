@@ -20,7 +20,7 @@ import { Cron } from '@nestjs/schedule';
 import { Employee } from '../employee/entities/employee.entity'; 
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
-import { Admin } from '../admin/entities/admin.entity'; // إضافة لاستيراد Admin
+import { Admin } from '../admin/entities/admin.entity';
 
 export interface SubscriptionResponse {
   message: string;
@@ -460,10 +460,23 @@ export class SubscriptionService {
         }
       }
 
+      let isNewSubscription = false;
+      let action: 'created' | 'renewed' | 'changed' = 'created';
+      let savedSubscription: CompanySubscription;
+      let finalMessage = '';
+
       if (existingActiveSubscription) {
         this.logger.log(`[subscribe] يوجد اشتراك نشط بالفعل للشركة ${companyId}، سيتم تحديثه`);
         
         const isSamePlan = existingActiveSubscription.plan?.id === newPlan.id;
+        
+        if (isSamePlan) {
+          action = 'renewed';
+          finalMessage = 'تم تجديد الاشتراك بنجاح';
+        } else {
+          action = 'changed';
+          finalMessage = 'تم تحديث الاشتراك بنجاح';
+        }
         
         if (!isSamePlan) {
           existingActiveSubscription.plan = newPlan;
@@ -486,7 +499,7 @@ export class SubscriptionService {
           this.logger.log(`[subscribe] تم تسجيل الأدمن ${activatedByAdminId} كمفعل للاشتراك`);
         }
 
-        const savedSubscription = await this.subscriptionRepo.save(existingActiveSubscription);
+        savedSubscription = await this.subscriptionRepo.save(existingActiveSubscription);
 
         await this.companyRepo
           .createQueryBuilder()
@@ -504,41 +517,18 @@ export class SubscriptionService {
           await this.updateRelatedPaymentProof(companyId, planId);
         }
 
-        let message = '';
         if (planPrice === 0) {
-          message = 'تم تحديث الاشتراك إلى الخطة المجانية بنجاح';
+          finalMessage = 'تم تحديث الاشتراك إلى الخطة المجانية بنجاح';
         } else if (newPlan.isTrial) {
-          message = 'تم تحديث الاشتراك إلى الخطة التجريبية بنجاح';
+          finalMessage = 'تم تحديث الاشتراك إلى الخطة التجريبية بنجاح';
         } else if (isAdminOverride) {
-          message = 'تم تحديث الاشتراك يدويًا بواسطة الأدمن';
-        } else {
-          message = isSamePlan ? 'تم تجديد الاشتراك بنجاح' : 'تم تحديث الاشتراك بنجاح';
+          finalMessage = 'تم تحديث الاشتراك يدويًا بواسطة الأدمن';
         }
 
         this.logger.log(`[subscribe] تم تحديث الاشتراك بنجاح للشركة ${companyId} في الخطة ${newPlan.name}`);
 
-        if (isAdminOverride && adminEmail) {
-          const newEndDateStr = savedSubscription.endDate.toLocaleDateString('ar-SA');
-          const details = isSamePlan 
-            ? `تم تجديد اشتراكك في خطة "${newPlan.name}" لمدة ${newPlan.durationInDays} يوم إضافية. تاريخ الانتهاء الجديد: ${newEndDateStr}.`
-            : `تم تحديث اشتراكك من خطة "${existingActiveSubscription.plan?.name}" إلى خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
-          
-          await this.sendSubscriptionActionEmail(
-            company.email,
-            company.name,
-            adminEmail,
-            newPlan.name,
-            isSamePlan ? 'renewed' : 'changed',
-            details
-          );
-        }
-
-        return {
-          message: message,
-          redirectToDashboard: true,
-          subscription: savedSubscription,
-        };
       } else {
+        isNewSubscription = true;
         const startDate = new Date();
         const endDate = new Date();
         endDate.setDate(startDate.getDate() + newPlan.durationInDays);
@@ -563,81 +553,87 @@ export class SubscriptionService {
           this.logger.log(`[subscribe] تم تسجيل الأدمن ${activatedByAdminId} كمفعل للاشتراك`);
         }
 
-        if (planPrice === 0 || newPlan.isTrial || isAdminOverride) {
-          const subscription = this.subscriptionRepo.create(subscriptionData);
-          const savedSubscription = await this.subscriptionRepo.save(subscription);
+        const subscription = this.subscriptionRepo.create(subscriptionData);
+        savedSubscription = await this.subscriptionRepo.save(subscription);
 
-          await this.companyRepo
-            .createQueryBuilder()
-            .update(Company)
-            .set({
-              subscriptionStatus: 'active',
-              planId: newPlan.id,
-              paymentProvider: newPlan.paymentProvider?.toString() ?? '',
-              subscribedAt: () => 'CURRENT_TIMESTAMP'
-            })
-            .where('id = :id', { id: companyId })
-            .execute();
+        await this.companyRepo
+          .createQueryBuilder()
+          .update(Company)
+          .set({
+            subscriptionStatus: 'active',
+            planId: newPlan.id,
+            paymentProvider: newPlan.paymentProvider?.toString() ?? '',
+            subscribedAt: () => 'CURRENT_TIMESTAMP'
+          })
+          .where('id = :id', { id: companyId })
+          .execute();
 
-          if (isAdminOverride) {
-            await this.updateRelatedPaymentProof(companyId, planId);
-          }
-
-          let message = '';
-          if (planPrice === 0) {
-            message = 'تم الاشتراك في الخطة المجانية بنجاح';
-          } else if (newPlan.isTrial) {
-            message = 'تم الاشتراك في الخطة التجريبية بنجاح';
-          } else if (isAdminOverride) {
-            message = 'تم تفعيل الاشتراك يدويًا بواسطة الأدمن';
-          }
-
-          this.logger.log(`[subscribe] تم إنشاء اشتراك جديد للشركة ${companyId} في الخطة ${newPlan.name}`);
-
-          if (isAdminOverride && adminEmail) {
-            const endDateStr = savedSubscription.endDate.toLocaleDateString('ar-SA');
-            const details = `تم إنشاء اشتراك جديد في خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء: ${endDateStr}.`;
-            
-            await this.sendSubscriptionActionEmail(
-              company.email,
-              company.name,
-              adminEmail,
-              newPlan.name,
-              'created',
-              details
-            );
-          }
-
-          return {
-            message: message,
-            redirectToDashboard: true,
-            subscription: savedSubscription,
-          };
+        if (isAdminOverride) {
+          await this.updateRelatedPaymentProof(companyId, planId);
         }
 
-        if (planPrice > 0) {
-          const provider = newPlan.paymentProvider;
-          if (!provider) {
-            throw new BadRequestException('مزود الدفع مطلوب للخطط المدفوعة');
-          }
-
-          const checkoutUrl = await this.paymentService.generateCheckoutUrl(
-            provider,
-            newPlan,
-            companyId,
-          );
-
-          this.logger.log(`[subscribe] تم إنشاء رابط دفع للشركة ${companyId}: ${checkoutUrl}`);
-
-          return {
-            message: 'يتطلب إتمام عملية الدفع',
-            redirectToPayment: true,
-            checkoutUrl,
-          };
+        if (planPrice === 0) {
+          finalMessage = 'تم الاشتراك في الخطة المجانية بنجاح';
+        } else if (newPlan.isTrial) {
+          finalMessage = 'تم الاشتراك في الخطة التجريبية بنجاح';
+        } else if (isAdminOverride) {
+          finalMessage = 'تم تفعيل الاشتراك يدويًا بواسطة الأدمن';
         }
 
-        throw new BadRequestException('لم يتم الاشتراك - حالة غير متوقعة');
+        this.logger.log(`[subscribe] تم إنشاء اشتراك جديد للشركة ${companyId} في الخطة ${newPlan.name}`);
       }
+
+      // إرسال البريد الإلكتروني إذا كان هناك override بواسطة الأدمن
+      if (isAdminOverride && adminEmail) {
+        const endDateStr = savedSubscription.endDate.toLocaleDateString('ar-SA');
+        let details = '';
+        
+        if (isNewSubscription) {
+          details = `تم إنشاء اشتراك جديد في خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء: ${endDateStr}.`;
+          action = 'created';
+        } else if (action === 'renewed') {
+          details = `تم تجديد اشتراكك في خطة "${newPlan.name}" لمدة ${newPlan.durationInDays} يوم إضافية. تاريخ الانتهاء الجديد: ${endDateStr}.`;
+        } else {
+          details = `تم تغيير اشتراكك من خطة "${existingActiveSubscription?.plan?.name || 'غير معروفة'}" إلى خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء الجديد: ${endDateStr}.`;
+        }
+        
+        await this.sendSubscriptionActionEmail(
+          company.email,
+          company.name,
+          adminEmail,
+          newPlan.name,
+          action,
+          details
+        );
+      }
+
+      // إذا كان هناك سعر، نعيد رابط الدفع
+      if (planPrice > 0 && !isAdminOverride && isNewSubscription) {
+        const provider = newPlan.paymentProvider;
+        if (!provider) {
+          throw new BadRequestException('مزود الدفع مطلوب للخطط المدفوعة');
+        }
+
+        const checkoutUrl = await this.paymentService.generateCheckoutUrl(
+          provider,
+          newPlan,
+          companyId,
+        );
+
+        this.logger.log(`[subscribe] تم إنشاء رابط دفع للشركة ${companyId}: ${checkoutUrl}`);
+
+        return {
+          message: 'يتطلب إتمام عملية الدفع',
+          redirectToPayment: true,
+          checkoutUrl,
+        };
+      }
+
+      return {
+        message: finalMessage,
+        redirectToDashboard: true,
+        subscription: savedSubscription,
+      };
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'خطأ غير معروف';

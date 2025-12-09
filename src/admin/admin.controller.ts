@@ -28,10 +28,12 @@ import {
   CompanyWithActivator,
   SubscriptionResult,
   BankAccountResponse,
+  SupadminWithoutPassword,
 } from './admin.service';
 import { Employee } from '../employee/entities/employee.entity';
 import { CompanySubscription } from '../subscription/entities/company-subscription.entity';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/admin-bank.dto';
+import { SupadminRole } from './entities/supadmin.entity';
 
 interface ExtendedAdminRequest extends Request {
   user?: { adminId: string; role: string };
@@ -41,12 +43,43 @@ interface AdminSimpleData {
   email: string;
 }
 
+// DTOs للـ Sup Admin
+interface CreateSupadminDto {
+  email: string;
+  password: string;
+  fullName?: string;
+  phone?: string;
+  role?: SupadminRole;
+  canManagePlans?: boolean;
+  canManageSellers?: boolean;
+  canManageCompanies?: boolean;
+  canManageSubscriptions?: boolean;
+  canManagePayments?: boolean;
+  canViewReports?: boolean;
+  canDownloadDatabase?: boolean;
+}
+
+interface UpdateSupadminDto {
+  fullName?: string;
+  phone?: string;
+  role?: SupadminRole;
+  isActive?: boolean;
+  canManagePlans?: boolean;
+  canManageSellers?: boolean;
+  canManageCompanies?: boolean;
+  canManageSubscriptions?: boolean;
+  canManagePayments?: boolean;
+  canViewReports?: boolean;
+  canDownloadDatabase?: boolean;
+}
+
 @ApiTags('Admin')
 @Controller('admin')
 @UseInterceptors(ClassSerializerInterceptor)
 export class AdminController {
   constructor(private readonly service: AdminService) {}
 
+  // ==================== AUTHENTICATION ====================
   @Post('login')
   @ApiOperation({ summary: 'تسجيل دخول الأدمن' })
   @ApiResponse({ status: 200, description: 'تم تسجيل الدخول بنجاح' })
@@ -74,6 +107,7 @@ export class AdminController {
     return this.service.logout(refreshToken);
   }
 
+  // ==================== PROFILE ====================
   @Get('profile')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -91,18 +125,103 @@ export class AdminController {
     };
   }
 
-  @Get('companies/me')
+  // ==================== SUP ADMIN MANAGEMENT ====================
+  @Post('supadmins')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'الحصول على الشركات المرتبطة بالأدمن' })
-  @ApiResponse({ status: 200, description: 'تم الحصول على الشركات بنجاح' })
-  async getAdminCompanies(@Req() req: ExtendedAdminRequest): Promise<CompanyWithActivator[]> {
+  @ApiOperation({ summary: 'إنشاء مسؤول أعلى جديد' })
+  @ApiResponse({ status: 201, description: 'تم إنشاء المسؤول الأعلى بنجاح' })
+  @ApiResponse({ status: 400, description: 'البريد الإلكتروني مستخدم بالفعل' })
+  @ApiResponse({ status: 404, description: 'الأدمن غير موجود' })
+  async createSupadmin(
+    @Req() req: ExtendedAdminRequest,
+    @Body() dto: CreateSupadminDto
+  ): Promise<SupadminWithoutPassword> {
     const adminId = req.user?.adminId;
     if (!adminId) throw new UnauthorizedException('غير مصرح');
 
-    return this.service.getAdminCompanies(adminId);
+    return this.service.createSupadmin(adminId, dto);
   }
 
+  @Get('supadmins')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'عرض جميع المسؤولين الأعلى' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على المسؤولين الأعلى بنجاح' })
+  getAllSupadmins(): Promise<SupadminWithoutPassword[]> {
+    return this.service.getAllSupadmins();
+  }
+
+  @Put('supadmins/:id')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تحديث بيانات المسؤول الأعلى' })
+  @ApiResponse({ status: 200, description: 'تم تحديث المسؤول الأعلى بنجاح' })
+  @ApiResponse({ status: 403, description: 'غير مصرح - يمكنك فقط تعديل المسؤولين الذين قمت بإنشائهم' })
+  @ApiResponse({ status: 404, description: 'المسؤول الأعلى غير موجود' })
+  async updateSupadmin(
+    @Req() req: ExtendedAdminRequest,
+    @Param('id') id: string,
+    @Body() dto: UpdateSupadminDto
+  ): Promise<SupadminWithoutPassword> {
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+
+    return this.service.updateSupadmin(adminId, id, dto);
+  }
+
+  @Patch('supadmins/:id/activate')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'تفعيل المسؤول الأعلى' })
+  @ApiResponse({ status: 200, description: 'تم تفعيل المسؤول الأعلى بنجاح' })
+  @ApiResponse({ status: 403, description: 'غير مصرح - يمكنك فقط تعديل المسؤولين الذين قمت بإنشائهم' })
+  @ApiResponse({ status: 404, description: 'المسؤول الأعلى غير موجود' })
+  async activateSupadmin(
+    @Req() req: ExtendedAdminRequest,
+    @Param('id') id: string
+  ): Promise<SupadminWithoutPassword> {
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+
+    return this.service.toggleSupadminStatus(adminId, id, true);
+  }
+
+  @Patch('supadmins/:id/deactivate')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'إلغاء تفعيل المسؤول الأعلى' })
+  @ApiResponse({ status: 200, description: 'تم إلغاء تفعيل المسؤول الأعلى بنجاح' })
+  @ApiResponse({ status: 403, description: 'غير مصرح - يمكنك فقط تعديل المسؤولين الذين قمت بإنشائهم' })
+  @ApiResponse({ status: 404, description: 'المسؤول الأعلى غير موجود' })
+  async deactivateSupadmin(
+    @Req() req: ExtendedAdminRequest,
+    @Param('id') id: string
+  ): Promise<SupadminWithoutPassword> {
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+
+    return this.service.toggleSupadminStatus(adminId, id, false);
+  }
+
+  @Delete('supadmins/:id')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'حذف المسؤول الأعلى' })
+  @ApiResponse({ status: 200, description: 'تم حذف المسؤول الأعلى بنجاح' })
+  @ApiResponse({ status: 403, description: 'غير مصرح - يمكنك فقط حذف المسؤولين الذين قمت بإنشائهم' })
+  @ApiResponse({ status: 404, description: 'المسؤول الأعلى غير موجود' })
+  async deleteSupadmin(
+    @Req() req: ExtendedAdminRequest,
+    @Param('id') id: string
+  ): Promise<{ success: boolean; message: string }> {
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+
+    return this.service.deleteSupadmin(adminId, id);
+  }
+
+  // ==================== MANAGER MANAGEMENT ====================
   @Post('managers')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -170,6 +289,7 @@ export class AdminController {
     return this.service.deleteManager(id);
   }
 
+  // ==================== ADMIN MANAGEMENT ====================
   @Post('create-admin')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -190,6 +310,7 @@ export class AdminController {
     return this.service.updateAdmin(id, dto);
   }
 
+  // ==================== BANK ACCOUNT MANAGEMENT ====================
   @Post('bank-accounts')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -256,6 +377,7 @@ export class AdminController {
     return this.service.deleteBankAccount(id);
   }
 
+  // ==================== STATISTICS & DATA ====================
   @Get('download-database')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -270,8 +392,26 @@ export class AdminController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'إحصائيات النظام' })
   @ApiResponse({ status: 200, description: 'تم الحصول على الإحصائيات بنجاح' })
-  getStats(): Promise<{ companies: number; employees: number; activeSubscriptions: number }> {
+  getStats(): Promise<{ 
+    companies: number; 
+    employees: number; 
+    activeSubscriptions: number;
+    managers: number;
+    supadmins: number;
+  }> {
     return this.service.getStats();
+  }
+
+  @Get('companies/me')
+  @UseGuards(AdminJwtGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'الحصول على الشركات المرتبطة بالأدمن' })
+  @ApiResponse({ status: 200, description: 'تم الحصول على الشركات بنجاح' })
+  async getAdminCompanies(@Req() req: ExtendedAdminRequest): Promise<CompanyWithActivator[]> {
+    const adminId = req.user?.adminId;
+    if (!adminId) throw new UnauthorizedException('غير مصرح');
+
+    return this.service.getAdminCompanies(adminId);
   }
 
   @Get('companies')
@@ -301,6 +441,7 @@ export class AdminController {
     return this.service.getAllCompaniesWithActivator();
   }
 
+  // ==================== COMPANY MANAGEMENT ====================
   @Patch('companies/:id/activate')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -342,6 +483,7 @@ export class AdminController {
     return this.service.deleteCompany(id);
   }
 
+  // ==================== EMPLOYEE MANAGEMENT ====================
   @Get('employees/:companyId')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -361,6 +503,7 @@ export class AdminController {
     return this.service.deleteEmployee(id);
   }
 
+  // ==================== SUBSCRIPTION MANAGEMENT ====================
   @Get('subscriptions')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -430,7 +573,6 @@ export class AdminController {
   }
 
   // === ENDPOINTS الجديدة والأسهل ===
-  
   @Patch('companies/:companyId/change-plan/:planId')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()

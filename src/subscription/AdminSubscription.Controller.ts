@@ -105,11 +105,30 @@ export class AdminSubscriptionController {
   async subscribeCompanyToPlan(
     @Param('companyId') companyId: string,
     @Param('planId') planId: string,
+    @Req() req: ExtendedAdminRequest
   ) {
     this.logger.log(`[subscribeCompanyToPlan] طلب اشتراك جديد من الأدمن: الشركة ${companyId} في الخطة ${planId}`);
     
     try {
-      const result = await this.subscriptionService.subscribe(companyId, planId, true);
+      let adminEmail: string | undefined;
+      const adminId = req.user?.adminId;
+      if (adminId) {
+        try {
+          adminEmail = await this.subscriptionService.getAdminEmail(adminId);
+        } catch (error) {
+          this.logger.warn(`[subscribeCompanyToPlan] فشل الحصول على بريد الأدمن: ${error}`);
+          adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
+        }
+      }
+      
+      const result = await this.subscriptionService.subscribe(
+        companyId, 
+        planId, 
+        true,
+        undefined,
+        adminId,
+        adminEmail
+      );
       
       this.logger.log(`[subscribeCompanyToPlan] تم الاشتراك بنجاح: الشركة ${companyId} في الخطة ${planId}`);
       return result;

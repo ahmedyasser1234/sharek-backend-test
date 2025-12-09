@@ -1,3 +1,4 @@
+// src/subscription/entities/company-subscription.entity.ts
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -13,6 +14,7 @@ import { Plan } from '../../plan/entities/plan.entity';
 import { PaymentTransaction } from '../../payment/entities/payment-transaction.entity';
 import { Manager } from '../../admin/entities/manager.entity';
 import { Admin } from '../../admin/entities/admin.entity';
+import { Supadmin } from '../../admin/entities/supadmin.entity';
 
 export enum SubscriptionStatus {
   ACTIVE = 'active',
@@ -88,6 +90,9 @@ export class CompanySubscription {
   @Column({ nullable: true, comment: 'معرف الأدمن الذي فعل الاشتراك' })
   activatedByAdminId?: string;
 
+  @Column({ nullable: true, comment: 'معرف المسؤول الأعلى الذي فعل الاشتراك' })
+  activatedBySupadminId?: string;
+
   @ManyToOne(() => Manager, (manager) => manager.activatedSubscriptions, { 
     nullable: true 
   })
@@ -99,5 +104,41 @@ export class CompanySubscription {
   })
   @JoinColumn({ name: 'activatedByAdminId' })
   activatedByAdmin: Admin | null;
+
+  @ManyToOne(() => Supadmin, (supadmin) => supadmin.activatedSubscriptions, { 
+    nullable: true 
+  })
+  @JoinColumn({ name: 'activatedBySupadminId' })
+  activatedBySupadmin: Supadmin | null;
+
+  @Column({ type: 'int', nullable: true })
   maxEmployees: number;
+
+  isActive(): boolean {
+    return this.status === SubscriptionStatus.ACTIVE;
+  }
+
+  isExpired(): boolean {
+    if (!this.endDate) return false;
+    return new Date() > this.endDate && this.status !== SubscriptionStatus.CANCELLED;
+  }
+
+  daysRemaining(): number {
+    if (!this.endDate || this.status !== SubscriptionStatus.ACTIVE) return 0;
+    const now = new Date();
+    const end = new Date(this.endDate);
+    const diffTime = end.getTime() - now.getTime();
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  }
+
+  getActivatedByInfo(): string {
+    if (this.activatedBySupadmin) {
+      return `${this.activatedBySupadmin.email} (مسؤول أعلى)`;
+    } else if (this.activatedByAdmin) {
+      return `${this.activatedByAdmin.email} (أدمن)`;
+    } else if (this.activatedBySeller) {
+      return `${this.activatedBySeller.email} (بائع)`;
+    }
+    return 'غير معروف';
+  }
 }

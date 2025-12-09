@@ -4,6 +4,8 @@ import {
   UnauthorizedException,
   BadRequestException,
   InternalServerErrorException,
+  Logger,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Not, IsNull} from 'typeorm';
@@ -24,6 +26,8 @@ import { CompanyLoginLog } from '../company/auth/entities/company-login-log.enti
 import { BankAccount } from './entities/bank-account.entity';
 import { CreateBankAccountDto, UpdateBankAccountDto } from './dto/admin-bank.dto';
 import * as nodemailer from 'nodemailer';
+import { Supadmin, SupadminRole } from './entities/supadmin.entity';
+import { SupadminToken } from './entities/supadmin-token.entity';
 
 export interface CompanyWithActivator {
   id: string;
@@ -73,6 +77,18 @@ export interface ManagerWithoutPassword {
   updatedAt: Date;
 }
 
+export interface SupadminWithoutPassword {
+  id: string;
+  email: string;
+  fullName?: string | null;
+  phone?: string | null;
+  role: SupadminRole;
+  isActive: boolean;
+  createdAt: Date;
+  lastLoginAt?: Date | null;
+  createdBy: Admin | null;
+}
+
 export interface DatabaseDownloadResponse {
   message: string;
   data: {
@@ -87,6 +103,16 @@ export interface DatabaseDownloadResponse {
       role: ManagerRole;
       isActive: boolean;
       createdAt: Date;
+      createdBy: { id: string; email: string } | null;
+    }>;
+    supadmins: Array<{
+      id: string;
+      email: string;
+      fullName?: string | null;
+      role: SupadminRole;
+      isActive: boolean;
+      createdAt: Date;
+      lastLoginAt?: Date | null;
       createdBy: { id: string; email: string } | null;
     }>;
     bankAccounts: BankAccount[];
@@ -107,19 +133,51 @@ export interface BankAccountResponse {
   ibanNumber: string;
 }
 
+interface CreateSupadminDto {
+  email: string;
+  password: string;
+  fullName?: string;
+  phone?: string;
+  role?: SupadminRole;
+  canManagePlans?: boolean;
+  canManageSellers?: boolean;
+  canManageCompanies?: boolean;
+  canManageSubscriptions?: boolean;
+  canManagePayments?: boolean;
+  canViewReports?: boolean;
+  canDownloadDatabase?: boolean;
+}
+
+interface UpdateSupadminDto {
+  fullName?: string;
+  phone?: string;
+  role?: SupadminRole;
+  isActive?: boolean;
+  canManagePlans?: boolean;
+  canManageSellers?: boolean;
+  canManageCompanies?: boolean;
+  canManageSubscriptions?: boolean;
+  canManagePayments?: boolean;
+  canViewReports?: boolean;
+  canDownloadDatabase?: boolean;
+}
+
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
   private emailTransporter: nodemailer.Transporter;
 
   constructor(
     @InjectRepository(Admin) private readonly adminRepo: Repository<Admin>,
     @InjectRepository(Manager) private readonly managerRepo: Repository<Manager>,
+    @InjectRepository(Supadmin) private readonly supadminRepo: Repository<Supadmin>,
     @InjectRepository(Company) private readonly companyRepo: Repository<Company>,
     @InjectRepository(Employee) private readonly employeeRepo: Repository<Employee>,
     @InjectRepository(CompanySubscription) private readonly subRepo: Repository<CompanySubscription>,
     @InjectRepository(Plan) private readonly planRepo: Repository<Plan>,
     @InjectRepository(AdminToken) private readonly tokenRepo: Repository<AdminToken>,
     @InjectRepository(ManagerToken) private readonly managerTokenRepo: Repository<ManagerToken>,
+    @InjectRepository(SupadminToken) private readonly supadminTokenRepo: Repository<SupadminToken>,
     @InjectRepository(CompanyActivity) private readonly companyActivityRepo: Repository<CompanyActivity>,
     @InjectRepository(CompanyToken) private readonly companyTokenRepo: Repository<CompanyToken>,
     @InjectRepository(CompanyLoginLog) private readonly companyLoginLogRepo: Repository<CompanyLoginLog>,
@@ -155,9 +213,170 @@ export class AdminService {
         subject,
         html,
       });
-      console.log(` تم إرسال الإيميل إلى: ${to}`);
+      this.logger.log(`تم إرسال الإيميل إلى: ${to}`);
     } catch (error) {
-      console.error(' فشل إرسال الإيميل:', error);
+      this.logger.error(`فشل إرسال الإيميل: ${error}`);
+    }
+  }
+
+  private async sendSupadminCreatedEmail(
+    supadminEmail: string,
+    supadminFullName: string,
+    adminEmail: string,
+    password: string
+  ): Promise<void> {
+    try {
+      const subject = `إنشاء حساب مسؤول أعلى جديد - منصة شارك`;
+      
+      const html = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${subject}</title>
+          <style>
+            body {
+              font-family: 'Arial', 'Segoe UI', sans-serif;
+              line-height: 1.6;
+              color: #333;
+              margin: 0;
+              padding: 0;
+              background-color: #f5f5f5;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .header {
+              background-color: #007bff;
+              color: white;
+              padding: 30px;
+              text-align: center;
+              border-radius: 10px 10px 0 0;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+            .content {
+              background-color: white;
+              padding: 30px;
+              border-radius: 0 0 10px 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .info-box {
+              background-color: #f8f9fa;
+              border-right: 4px solid #007bff;
+              padding: 20px;
+              margin-bottom: 20px;
+              border-radius: 8px;
+            }
+            .info-box p {
+              margin: 10px 0;
+              font-size: 16px;
+            }
+            .info-box strong {
+              color: #333;
+              margin-left: 10px;
+            }
+            .warning-box {
+              background-color: #fff3cd;
+              border: 1px solid #ffeaa7;
+              padding: 15px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .warning-title {
+              color: #856404;
+              font-weight: bold;
+              margin-bottom: 10px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #eee;
+              color: #777;
+              font-size: 14px;
+            }
+            .login-info {
+              background-color: #e8f5e9;
+              padding: 20px;
+              border-radius: 8px;
+              margin-top: 20px;
+            }
+            .login-info h3 {
+              color: #2e7d32;
+              margin-bottom: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>إنشاء حساب مسؤول أعلى جديد</h1>
+            </div>
+            
+            <div class="content">
+              <div class="info-box">
+                <p><strong>مرحباً:</strong> ${supadminFullName || supadminEmail}</p>
+                <p><strong>تم إنشاء حسابك كمسؤول أعلى في منصة شارك</strong></p>
+                <p><strong>بواسطة الأدمن:</strong> ${adminEmail}</p>
+                <p><strong>تاريخ الإنشاء:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
+              </div>
+              
+              <div class="login-info">
+                <h3>بيانات تسجيل الدخول:</h3>
+                <p><strong>البريد الإلكتروني:</strong> ${supadminEmail}</p>
+                <p><strong>كلمة المرور:</strong> ${password}</p>
+              </div>
+              
+              <div class="warning-box">
+                <div class="warning-title">تنبيه مهم:</div>
+                <p>• يرجى تغيير كلمة المرور فور تسجيل الدخول الأول</p>
+                <p>• هذه البيانات سرية ولا يجب مشاركتها مع أي شخص</p>
+                <p>• يمكنك تسجيل الدخول من خلال الرابط: ${process.env.FRONTEND_URL || 'https://dashboard.sharik-sa.com'}</p>
+              </div>
+              
+              <div>
+                <p>مع تحيات فريق الدعم الفني</p>
+                <p>منصة شارك - أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
+                <p>https://sharik-sa.com/</p>
+                <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await this.sendEmail(supadminEmail, subject, html);
+
+      // إرسال نسخة للأدمن
+      const adminCopyHtml = `
+        <div dir="rtl">
+          <h2>إشعار إنشاء مسؤول أعلى جديد</h2>
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>المسؤول الأعلى:</strong> ${supadminFullName || supadminEmail}</p>
+            <p><strong>البريد الإلكتروني:</strong> ${supadminEmail}</p>
+            <p><strong>تم الإنشاء بواسطة:</strong> ${adminEmail}</p>
+            <p><strong>كلمة المرور الأولية:</strong> ${password}</p>
+            <p><strong>التاريخ:</strong> ${new Date().toLocaleString('ar-SA')}</p>
+          </div>
+        </div>
+      `;
+      
+      await this.sendEmail(
+        process.env.ADMIN_NOTIFICATION_EMAIL || adminEmail,
+        `إشعار إنشاء مسؤول أعلى - ${supadminEmail}`,
+        adminCopyHtml
+      );
+
+      this.logger.log(`تم إرسال إيميل إنشاء حساب مسؤول أعلى إلى: ${supadminEmail}`);
+    } catch (error) {
+      this.logger.error(`فشل إرسال إيميل إنشاء مسؤول أعلى: ${error}`);
     }
   }
 
@@ -334,9 +553,9 @@ export class AdminService {
         await this.sendEmail(companyAdminEmail, adminSubject, adminHtml);
       }
 
-      console.log(` تم إرسال إيميل ${actionText[action]} للشركة ${companyName}`);
+      this.logger.log(`تم إرسال إيميل ${actionText[action]} للشركة ${companyName}`);
     } catch (error) {
-      console.error(` فشل إرسال إيميل الإجراء ${action}:`, error);
+      this.logger.error(`فشل إرسال إيميل الإجراء ${action}:`, error);
     }
   }
 
@@ -354,7 +573,7 @@ export class AdminService {
     });
 
     await this.adminRepo.save(admin);
-    console.log(`تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
+    this.logger.log(`تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
   }
 
   async login(email: string, password: string): Promise<{ 
@@ -480,7 +699,7 @@ export class AdminService {
               sellerEmail: sub.activatedBySeller?.email
             } as CompanyWithActivator;
           } catch (error) {
-            console.error(`Error processing subscription ${sub.id}:`, error);
+            this.logger.error(`Error processing subscription ${sub.id}:`, error);
             return null;
           }
         })
@@ -488,7 +707,7 @@ export class AdminService {
 
       return results.filter((item): item is CompanyWithActivator => item !== null);
     } catch (error) {
-      console.error('Error in getAdminCompanies:', error);
+      this.logger.error('Error in getAdminCompanies:', error);
       return [];
     }
   }
@@ -504,6 +723,213 @@ export class AdminService {
     });
 
     return this.adminRepo.save(admin);
+  }
+
+  async createSupadmin(
+    adminId: string, 
+    dto: CreateSupadminDto
+  ): Promise<SupadminWithoutPassword> {
+    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+    if (!admin) {
+      throw new NotFoundException('الأدمن غير موجود');
+    }
+
+    const normalizedEmail = dto.email.toLowerCase().trim();
+    
+    const existing = await this.supadminRepo.findOne({ 
+      where: { normalizedEmail: normalizedEmail } 
+    });
+    
+    if (existing) {
+      throw new BadRequestException('البريد الإلكتروني مستخدم بالفعل');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    
+    const supadmin = this.supadminRepo.create({
+      email: normalizedEmail,
+      normalizedEmail: normalizedEmail,
+      password: hashedPassword,
+      fullName: dto.fullName || null,
+      phone: dto.phone || null,
+      role: dto.role || SupadminRole.ADMIN,
+      isActive: true,
+      canManagePlans: dto.canManagePlans || false,
+      canManageSellers: dto.canManageSellers || false,
+      canManageCompanies: dto.canManageCompanies || false,
+      canManageSubscriptions: dto.canManageSubscriptions || false,
+      canManagePayments: dto.canManagePayments || false,
+      canViewReports: dto.canViewReports || false,
+      canDownloadDatabase: dto.canDownloadDatabase || false,
+      createdBy: admin,
+    });
+
+    const savedSupadmin = await this.supadminRepo.save(supadmin);
+
+    await this.sendSupadminCreatedEmail(
+      savedSupadmin.email,
+      savedSupadmin.fullName || savedSupadmin.email,
+      admin.email,
+      dto.password
+    );
+
+    this.logger.log(`تم إنشاء مسؤول أعلى جديد: ${savedSupadmin.email} بواسطة الأدمن: ${admin.email}`);
+
+    return {
+      id: savedSupadmin.id,
+      email: savedSupadmin.email,
+      fullName: savedSupadmin.fullName,
+      phone: savedSupadmin.phone,
+      role: savedSupadmin.role,
+      isActive: savedSupadmin.isActive,
+      createdAt: savedSupadmin.createdAt,
+      lastLoginAt: savedSupadmin.lastLoginAt,
+      createdBy: admin,
+    };
+  }
+
+  async getAllSupadmins(): Promise<SupadminWithoutPassword[]> {
+    const supadmins = await this.supadminRepo.find({
+      relations: ['createdBy'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return supadmins.map(supadmin => ({
+      id: supadmin.id,
+      email: supadmin.email,
+      fullName: supadmin.fullName,
+      phone: supadmin.phone,
+      role: supadmin.role,
+      isActive: supadmin.isActive,
+      createdAt: supadmin.createdAt,
+      lastLoginAt: supadmin.lastLoginAt,
+      createdBy: supadmin.createdBy ? {
+        id: supadmin.createdBy.id,
+        email: supadmin.createdBy.email,
+      } as Admin : null,
+    }));
+  }
+
+  async updateSupadmin(
+    adminId: string,
+    supadminId: string,
+    dto: UpdateSupadminDto
+  ): Promise<SupadminWithoutPassword> {
+    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+    if (!admin) {
+      throw new NotFoundException('الأدمن غير موجود');
+    }
+
+    const supadmin = await this.supadminRepo.findOne({
+      where: { id: supadminId },
+      relations: ['createdBy'],
+    });
+
+    if (!supadmin) {
+      throw new NotFoundException('المسؤول الأعلى غير موجود');
+    }
+
+    if (supadmin.createdBy?.id !== adminId) {
+      throw new ForbiddenException('غير مصرح - يمكنك فقط تعديل المسؤولين الذين قمت بإنشائهم');
+    }
+
+    Object.assign(supadmin, dto);
+    const updatedSupadmin = await this.supadminRepo.save(supadmin);
+
+    return {
+      id: updatedSupadmin.id,
+      email: updatedSupadmin.email,
+      fullName: updatedSupadmin.fullName,
+      phone: updatedSupadmin.phone,
+      role: updatedSupadmin.role,
+      isActive: updatedSupadmin.isActive,
+      createdAt: updatedSupadmin.createdAt,
+      lastLoginAt: updatedSupadmin.lastLoginAt,
+      createdBy: updatedSupadmin.createdBy ? {
+        id: updatedSupadmin.createdBy.id,
+        email: updatedSupadmin.createdBy.email,
+      } as Admin : null,
+    };
+  }
+
+  async toggleSupadminStatus(
+    adminId: string,
+    supadminId: string,
+    isActive: boolean
+  ): Promise<SupadminWithoutPassword> {
+    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+    if (!admin) {
+      throw new NotFoundException('الأدمن غير موجود');
+    }
+
+    const supadmin = await this.supadminRepo.findOne({
+      where: { id: supadminId },
+      relations: ['createdBy'],
+    });
+
+    if (!supadmin) {
+      throw new NotFoundException('المسؤول الأعلى غير موجود');
+    }
+
+    if (supadmin.createdBy?.id !== adminId) {
+      throw new ForbiddenException('غير مصرح - يمكنك فقط تعديل المسؤولين الذين قمت بإنشائهم');
+    }
+
+    supadmin.isActive = isActive;
+    const updatedSupadmin = await this.supadminRepo.save(supadmin);
+
+    if (!isActive) {
+      await this.supadminTokenRepo.delete({ supadminId });
+    }
+
+    return {
+      id: updatedSupadmin.id,
+      email: updatedSupadmin.email,
+      fullName: updatedSupadmin.fullName,
+      phone: updatedSupadmin.phone,
+      role: updatedSupadmin.role,
+      isActive: updatedSupadmin.isActive,
+      createdAt: updatedSupadmin.createdAt,
+      lastLoginAt: updatedSupadmin.lastLoginAt,
+      createdBy: updatedSupadmin.createdBy ? {
+        id: updatedSupadmin.createdBy.id,
+        email: updatedSupadmin.createdBy.email,
+      } as Admin : null,
+    };
+  }
+
+  async deleteSupadmin(
+    adminId: string,
+    supadminId: string
+  ): Promise<{ success: boolean; message: string }> {
+    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+    if (!admin) {
+      throw new NotFoundException('الأدمن غير موجود');
+    }
+
+    const supadmin = await this.supadminRepo.findOne({
+      where: { id: supadminId },
+      relations: ['createdBy'],
+    });
+
+    if (!supadmin) {
+      throw new NotFoundException('المسؤول الأعلى غير موجود');
+    }
+
+    if (supadmin.createdBy?.id !== adminId) {
+      throw new ForbiddenException('غير مصرح - يمكنك فقط حذف المسؤولين الذين قمت بإنشائهم');
+    }
+
+    await this.supadminTokenRepo.delete({ supadminId });
+    
+    await this.supadminRepo.delete(supadminId);
+
+    this.logger.log(`تم حذف المسؤول الأعلى: ${supadmin.email} بواسطة الأدمن: ${admin.email}`);
+    
+    return { 
+      success: true, 
+      message: 'تم حذف المسؤول الأعلى بنجاح' 
+    };
   }
 
   async createManager(
@@ -727,14 +1153,28 @@ export class AdminService {
     };
   }
 
-  async getStats(): Promise<{ companies: number; employees: number; activeSubscriptions: number }> {
+  async getStats(): Promise<{ 
+    companies: number; 
+    employees: number; 
+    activeSubscriptions: number;
+    managers: number;
+    supadmins: number;
+  }> {
     const companies = await this.companyRepo.count();
     const employees = await this.employeeRepo.count();
     const activeSubs = await this.subRepo.count({
       where: { status: SubscriptionStatus.ACTIVE },
     });
+    const managers = await this.managerRepo.count();
+    const supadmins = await this.supadminRepo.count();
 
-    return { companies, employees, activeSubscriptions: activeSubs };
+    return { 
+      companies, 
+      employees, 
+      activeSubscriptions: activeSubs,
+      managers,
+      supadmins
+    };
   }
 
   async getAllCompaniesWithEmployeeCount(): Promise<Array<{
@@ -808,7 +1248,7 @@ export class AdminService {
               sellerEmail: sub.activatedBySeller?.email
             } as CompanyWithActivator;
           } catch (error) {
-            console.error(`Error processing subscription ${sub.id}:`, error);
+            this.logger.error(`Error processing subscription ${sub.id}:`, error);
             return null;
           }
         })
@@ -816,7 +1256,7 @@ export class AdminService {
 
       return results.filter((item): item is CompanyWithActivator => item !== null);
     } catch (error) {
-      console.error('Error in getAllCompaniesWithActivator:', error);
+      this.logger.error('Error in getAllCompaniesWithActivator:', error);
       return [];
     }
   }
@@ -946,7 +1386,7 @@ export class AdminService {
       return subscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      console.error('Error changing subscription plan:', error);
+      this.logger.error('Error changing subscription plan:', error);
       
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في تغيير الخطة: ${error.message}`);
@@ -1061,7 +1501,7 @@ export class AdminService {
       return currentSubscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      console.error('Error changing company plan:', error);
+      this.logger.error('Error changing company plan:', error);
       
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في تغيير خطة الشركة: ${error.message}`);
@@ -1265,6 +1705,23 @@ export class AdminService {
       }
     });
 
+    const supadmins = await this.supadminRepo.find({ 
+      relations: ['createdBy'],
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        lastLoginAt: true,
+        createdBy: {
+          id: true,
+          email: true,
+        }
+      }
+    });
+
     const bankAccounts = await this.bankAccountRepo.find();
 
     const data = {
@@ -1282,6 +1739,19 @@ export class AdminService {
         createdBy: manager.createdBy ? {
           id: manager.createdBy.id,
           email: manager.createdBy.email
+        } : null
+      })),
+      supadmins: supadmins.map(supadmin => ({
+        id: supadmin.id,
+        email: supadmin.email,
+        fullName: supadmin.fullName,
+        role: supadmin.role,
+        isActive: supadmin.isActive,
+        createdAt: supadmin.createdAt,
+        lastLoginAt: supadmin.lastLoginAt,
+        createdBy: supadmin.createdBy ? {
+          id: supadmin.createdBy.id,
+          email: supadmin.createdBy.email
         } : null
       })),
       bankAccounts
@@ -1341,7 +1811,7 @@ export class AdminService {
       return subscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      console.error('Error cancelling subscription:', error);
+      this.logger.error('Error cancelling subscription:', error);
     
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في إلغاء الاشتراك: ${error.message}`);
@@ -1407,7 +1877,7 @@ export class AdminService {
       return subscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      console.error('Error renewing subscription:', error);
+      this.logger.error('Error renewing subscription:', error);
       
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في تجديد الاشتراك: ${error.message}`);
@@ -1475,7 +1945,7 @@ export class AdminService {
       return subscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      console.error('Error extending subscription:', error);
+      this.logger.error('Error extending subscription:', error);
       
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في تمديد الاشتراك: ${error.message}`);
@@ -1486,4 +1956,3 @@ export class AdminService {
     }
   }
 }
-

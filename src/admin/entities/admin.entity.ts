@@ -13,6 +13,16 @@ import * as bcrypt from 'bcryptjs';
 import { AdminToken } from '../auth/entities/admin-token.entity';
 import { Manager } from './manager.entity';
 import { CompanySubscription } from '../../subscription/entities/company-subscription.entity';
+import { Supadmin } from './supadmin.entity';
+
+// تعريف enum لحالات الاشتراك لاستخدامه في المقارنات الآمنة
+export enum SubscriptionStatus {
+  ACTIVE = 'active',
+  INACTIVE = 'inactive',
+  PENDING = 'pending',
+  EXPIRED = 'expired',
+  CANCELLED = 'cancelled'
+}
 
 @Entity('admins')
 export class Admin {
@@ -32,14 +42,13 @@ export class Admin {
   role: string;
 
   @Column({ nullable: true, comment: 'اسم البنك' })
-  bankName: string;
+  bankName: string | null;
 
   @Column({ nullable: true, comment: 'رقم الحساب البنكي' })
-  accountNumber: string;
+  accountNumber: string | null;
 
   @Column({ nullable: true, comment: 'رقم الآيبان' })
-  ibanNumber: string;
-
+  ibanNumber: string | null;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -48,7 +57,7 @@ export class Admin {
   updatedAt: Date;
 
   @DeleteDateColumn()
-  deletedAt: Date;
+  deletedAt: Date | null;
 
   @OneToMany(() => AdminToken, (token) => token.admin)
   tokens: AdminToken[];
@@ -56,8 +65,19 @@ export class Admin {
   @OneToMany(() => Manager, (manager) => manager.createdBy)
   createdManagers: Manager[];
 
-  @OneToMany(() => CompanySubscription, subscription => subscription.activatedByAdmin)
+  @OneToMany(() => CompanySubscription, (subscription) => subscription.activatedByAdmin)
   activatedSubscriptions: CompanySubscription[];
+
+  @OneToMany(() => Supadmin, (supadmin) => supadmin.createdBy)
+  createdSupadmins: Supadmin[];
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  normalizeEmail() {
+    if (this.email) {
+      this.email = this.email.toLowerCase().trim();
+    }
+  }
 
   @BeforeInsert()
   @BeforeUpdate()
@@ -69,5 +89,233 @@ export class Admin {
 
   async comparePassword(plain: string): Promise<boolean> {
     return bcrypt.compare(plain, this.password);
+  }
+
+  canCreateSupadmin(): boolean {
+    return this.isActive;
+  }
+
+  getStats(): {
+    createdManagers: number;
+    activatedSubscriptions: number;
+    createdSupadmins: number;
+  } {
+    return {
+      createdManagers: this.createdManagers?.length || 0,
+      activatedSubscriptions: this.activatedSubscriptions?.length || 0,
+      createdSupadmins: this.createdSupadmins?.length || 0,
+    };
+  }
+
+  getBankInfo(): {
+    bankName: string | null;
+    accountNumber: string | null;
+    ibanNumber: string | null;
+  } {
+    return {
+      bankName: this.bankName || null,
+      accountNumber: this.accountNumber || null,
+      ibanNumber: this.ibanNumber || null,
+    };
+  }
+
+  hasBankInfo(): boolean {
+    return !!(this.bankName && this.accountNumber && this.ibanNumber);
+  }
+
+  getEmailDomain(): string {
+    return this.email.split('@')[1] || '';
+  }
+
+  // دالة للتحقق من الصلاحيات (إذا كنت تريد نظام صلاحيات)
+  hasPermission(permission: string): boolean {
+    const adminPermissions: Record<string, boolean> = {
+      'manage_managers': true,
+      'manage_subscriptions': true,
+      'manage_bank_info': true,
+      'view_reports': true,
+      'create_supadmins': true,
+    };
+    
+    return adminPermissions[permission] || false;
+  }
+
+  // دالة لإنشاء معلومات مسؤول أعلى
+  createSupadminData(email: string, password: string, fullName?: string): {
+    email: string;
+    password: string;
+    fullName?: string;
+    createdBy: Admin;
+  } {
+    return {
+      email: email.toLowerCase().trim(),
+      password,
+      fullName,
+      createdBy: this,
+    };
+  }
+
+  // دالة للتحقق مما إذا كان الأدمن يمكنه حذف مسؤول أعلى
+  canDeleteSupadmin(supadminId: string): boolean {
+    // التحقق مما إذا كان الأدمن هو من قام بإنشاء هذا المسؤول الأعلى
+    return this.createdSupadmins?.some(supadmin => supadmin.id === supadminId) || false;
+  }
+
+  // دالة للحصول على معلومات مختصرة عن الأدمن
+  getProfileInfo() {
+    return {
+      id: this.id,
+      email: this.email,
+      role: this.role,
+      isActive: this.isActive,
+      createdAt: this.createdAt,
+      hasBankInfo: this.hasBankInfo(),
+      stats: this.getStats(),
+    };
+  }
+
+  // دالة للتحقق من حالة الأدمن
+  isActiveAndValid(): boolean {
+    return this.isActive && !this.deletedAt;
+  }
+
+  // دالة لتسجيل نشاط الأدمن
+  logActivity(activity: string): {
+    adminId: string;
+    email: string;
+    activity: string;
+    timestamp: Date;
+  } {
+    return {
+      adminId: this.id,
+      email: this.email,
+      activity,
+      timestamp: new Date(),
+    };
+  }
+
+  // دالة للتحقق مما إذا كان الأدمن يمكنه تعديل معلومات بنكية
+  canUpdateBankInfo(): boolean {
+    return this.isActiveAndValid();
+  }
+
+  // دالة لإعادة تعيين كلمة المرور
+  async resetPassword(newPassword: string): Promise<void> {
+    this.password = newPassword;
+    await this.hashPassword();
+    this.updatedAt = new Date();
+  }
+
+  // دالة للتحقق مما إذا كان الأدمن لديه اشتراكات نشطة
+  hasActiveSubscriptions(): boolean {
+    if (!this.activatedSubscriptions) return false;
+    
+    return this.activatedSubscriptions.some(sub => {
+      // استخدام التحقق الآمن للمقارنة
+      if (!sub.status) return false;
+      
+      // تحويل إلى string للمقارنة الآمنة
+      const subscriptionStatus = String(sub.status);
+      const isActive = subscriptionStatus.toLowerCase() === 'active';
+      const isNotExpired = !sub.isExpired || !sub.isExpired();
+      
+      return isActive && isNotExpired;
+    });
+  }
+
+  // دالة للحصول على جميع المسؤولين الأعلى الذين قام بإنشائهم
+  getCreatedSupadminsInfo() {
+    if (!this.createdSupadmins) return [];
+    
+    return this.createdSupadmins.map(supadmin => ({
+      id: supadmin.id,
+      email: supadmin.email,
+      fullName: supadmin.fullName,
+      role: supadmin.role,
+      isActive: supadmin.isActive,
+      createdAt: supadmin.createdAt,
+      lastLoginAt: supadmin.lastLoginAt,
+    }));
+  }
+
+  // دالة للحصول على جميع البائعين الذين قام بإنشائهم
+  getCreatedManagersInfo() {
+    if (!this.createdManagers) return [];
+    
+    return this.createdManagers.map(manager => ({
+      id: manager.id,
+      email: manager.email,
+      role: manager.role,
+      isActive: manager.isActive,
+      createdAt: manager.createdAt,
+    }));
+  }
+
+  getActivatedSubscriptionsInfo() {
+    if (!this.activatedSubscriptions) return [];
+    
+    return this.activatedSubscriptions.map(subscription => ({
+      id: subscription.id,
+      companyId: subscription.companyId,
+      planId: subscription.planId,
+      // استخدام String() لتحويل القيمة إلى string بشكل آمن
+      status: subscription.status ? String(subscription.status) : 'unknown',
+      startDate: subscription.startDate,
+      endDate: subscription.endDate,
+      price: subscription.price,
+      createdAt: subscription.createdAt,
+    }));
+  }
+
+  updateBankInfo(bankName: string, accountNumber: string, ibanNumber: string): void {
+    this.bankName = bankName;
+    this.accountNumber = accountNumber;
+    this.ibanNumber = ibanNumber;
+    this.updatedAt = new Date();
+  }
+
+  deactivate(): void {
+    this.isActive = false;
+    this.deletedAt = new Date();
+  }
+
+  activate(): void {
+    this.isActive = true;
+    this.deletedAt = null;
+  }
+
+  isDeleted(): boolean {
+    return !!this.deletedAt;
+  }
+
+  getSecureBankInfo(): {
+    bankName: string | null;
+    maskedAccountNumber: string | null;
+    maskedIbanNumber: string | null;
+  } {
+    const maskString = (str: string | null): string | null => {
+      if (!str) return null;
+      if (str.length <= 4) return str;
+      return '****' + str.slice(-4);
+    };
+
+    return {
+      bankName: this.bankName || null,
+      maskedAccountNumber: maskString(this.accountNumber),
+      maskedIbanNumber: maskString(this.ibanNumber),
+    };
+  }
+
+  canAccess(feature: string): boolean {
+    const featuresAccess: Record<string, boolean> = {
+      'dashboard': true,
+      'managers': this.hasPermission('manage_managers'),
+      'subscriptions': this.hasPermission('manage_subscriptions'),
+      'bank_info': this.hasPermission('manage_bank_info'),
+      'reports': this.hasPermission('view_reports'),
+      'supadmins': this.hasPermission('create_supadmins'),
+    };
+
+    return featuresAccess[feature] || false;
   }
 }

@@ -5,9 +5,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 import { CompanySubscription } from '../../subscription/entities/company-subscription.entity';
 import { PaymentProvider } from '../../payment/payment-provider.enum';
+import { Supadmin } from '../../admin/entities/supadmin.entity';
 
 @Entity('plans')
 export class Plan {
@@ -65,6 +68,15 @@ export class Plan {
   @Column({ nullable: true })
   geideaPlanId?: string;
 
+  @ManyToOne(() => Supadmin, { 
+    nullable: true 
+  })
+  @JoinColumn({ name: 'createdBySupadminId' })
+  createdBySupadmin: Supadmin | null;
+
+  @Column({ nullable: true })
+  createdBySupadminId: string;
+
   @CreateDateColumn()
   createdAt: Date;
 
@@ -73,4 +85,25 @@ export class Plan {
 
   @OneToMany(() => CompanySubscription, (sub) => sub.plan)
   subscriptions: CompanySubscription[];
+
+  // دوال مساعدة
+  getFeaturesArray(): string[] {
+    return this.description ? this.description.split('\n').filter(f => f.trim()) : [];
+  }
+
+  isValidForEmployeesCount(employeesCount: number): boolean {
+    return employeesCount <= this.maxEmployees;
+  }
+
+  getDailyPrice(): number {
+    if (this.durationInDays === 0) return this.price;
+    return parseFloat((this.price / this.durationInDays).toFixed(2));
+  }
+
+  getCreatedByInfo(): string {
+    if (this.createdBySupadmin) {
+      return `${this.createdBySupadmin.email} (مسؤول أعلى)`;
+    }
+    return 'النظام';
+  }
 }

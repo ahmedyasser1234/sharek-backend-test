@@ -18,7 +18,8 @@ import { CompanyActivity } from './company/entities/company-activity.entity';
 import { Manager } from './admin/entities/manager.entity'; 
 import { ManagerToken } from './admin/entities/manager-token.entity';
 import { BankAccount } from './admin/entities/bank-account.entity';
-
+import { Supadmin } from './admin/entities/supadmin.entity'; 
+import { SupadminToken } from './admin/entities/supadmin-token.entity';
 export const AppDataSource = new DataSource({
 type: 'postgres',
   host: process.env.DB_HOST,
@@ -45,6 +46,8 @@ type: 'postgres',
     Manager, 
     ManagerToken, 
     BankAccount,
+    Supadmin,
+    SupadminToken,
   ],
   migrations: ['dist/migrations/*.js'],
   synchronize: false,
