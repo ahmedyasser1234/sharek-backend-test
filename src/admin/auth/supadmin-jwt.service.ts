@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { SupadminRole, BaseSupadmin } from '../entities/supadmin.entity';
 
-// تعريف واجهة الحمولة (payload)
 export interface SupadminJwtPayload {
   supadminId: string;
   role: SupadminRole;
@@ -27,9 +26,13 @@ export class SupadminJwtService {
     role: SupadminRole;
     permissions: Record<string, boolean>;
   }): string {
-    return this.jwtService.sign(payload, {
+    return this.jwtService.sign({
+      supadminId: payload.supadminId,
+      role: payload.role,
+      permissions: payload.permissions,
+    }, {
       secret: process.env.JWT_SUPADMIN_ACCESS_SECRET || 'supadmin-access-secret',
-      expiresIn: process.env.JWT_SUPADMIN_ACCESS_EXPIRES_IN || '15m',
+      expiresIn: process.env.JWT_SUPADMIN_ACCESS_EXPIRES_IN || '999m',
     });
   }
 
@@ -37,7 +40,10 @@ export class SupadminJwtService {
     supadminId: string;
     role: SupadminRole;
   }): string {
-    return this.jwtService.sign(payload, {
+    return this.jwtService.sign({
+      supadminId: payload.supadminId,
+      role: payload.role,
+    }, {
       secret: process.env.JWT_SUPADMIN_REFRESH_SECRET || 'supadmin-refresh-secret',
       expiresIn: process.env.JWT_SUPADMIN_REFRESH_EXPIRES_IN || '7d',
     });
