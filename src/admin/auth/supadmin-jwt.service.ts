@@ -17,6 +17,17 @@ export interface SupadminRefreshPayload {
   exp?: number;
 }
 
+// Interface for JWT verify response
+interface JwtPayload {
+  sub?: string;
+  supadminId?: string;
+  role?: SupadminRole;
+  permissions?: Record<string, boolean>;
+  iat?: number;
+  exp?: number;
+  [key: string]: unknown;
+}
+
 @Injectable()
 export class SupadminJwtService {
   constructor(private readonly jwtService: JwtService) {}
@@ -26,34 +37,55 @@ export class SupadminJwtService {
     role: SupadminRole;
     permissions: Record<string, boolean>;
   }): string {
-    return this.jwtService.sign({
-      supadminId: payload.supadminId,
-      role: payload.role,
-      permissions: payload.permissions,
-    }, {
-      secret: process.env.JWT_SUPADMIN_ACCESS_SECRET || 'supadmin-access-secret',
-      expiresIn: process.env.JWT_SUPADMIN_ACCESS_EXPIRES_IN || '999m',
-    });
+    return this.jwtService.sign(
+      {
+        sub: payload.supadminId,
+        supadminId: payload.supadminId,
+        role: payload.role,
+        permissions: payload.permissions,
+      },
+      {
+        secret: process.env.JWT_SUPADMIN_ACCESS_SECRET || 'supadmin-access-secret',
+        expiresIn: process.env.JWT_SUPADMIN_ACCESS_EXPIRES_IN || '15m',
+      },
+    );
   }
 
   signRefresh(payload: {
     supadminId: string;
     role: SupadminRole;
   }): string {
-    return this.jwtService.sign({
-      supadminId: payload.supadminId,
-      role: payload.role,
-    }, {
-      secret: process.env.JWT_SUPADMIN_REFRESH_SECRET || 'supadmin-refresh-secret',
-      expiresIn: process.env.JWT_SUPADMIN_REFRESH_EXPIRES_IN || '7d',
-    });
+    return this.jwtService.sign(
+      {
+        sub: payload.supadminId,
+        supadminId: payload.supadminId,
+        role: payload.role,
+      },
+      {
+        secret: process.env.JWT_SUPADMIN_REFRESH_SECRET || 'supadmin-refresh-secret',
+        expiresIn: process.env.JWT_SUPADMIN_REFRESH_EXPIRES_IN || '7d',
+      },
+    );
   }
 
   verifyAccess(token: string): SupadminJwtPayload | null {
     try {
-      return this.jwtService.verify<SupadminJwtPayload>(token, {
+      const payload: JwtPayload = this.jwtService.verify(token, {
         secret: process.env.JWT_SUPADMIN_ACCESS_SECRET || 'supadmin-access-secret',
       });
+
+      const supadminId = payload.supadminId || payload.sub;
+      if (!supadminId || !payload.role) {
+        return null;
+      }
+
+      return {
+        supadminId,
+        role: payload.role,
+        permissions: payload.permissions || {},
+        iat: payload.iat,
+        exp: payload.exp,
+      };
     } catch {
       return null;
     }
@@ -61,9 +93,21 @@ export class SupadminJwtService {
 
   verifyRefresh(token: string): SupadminRefreshPayload | null {
     try {
-      return this.jwtService.verify<SupadminRefreshPayload>(token, {
+      const payload: JwtPayload = this.jwtService.verify(token, {
         secret: process.env.JWT_SUPADMIN_REFRESH_SECRET || 'supadmin-refresh-secret',
       });
+
+      const supadminId = payload.supadminId || payload.sub;
+      if (!supadminId || !payload.role) {
+        return null;
+      }
+
+      return {
+        supadminId,
+        role: payload.role,
+        iat: payload.iat,
+        exp: payload.exp,
+      };
     } catch {
       return null;
     }
