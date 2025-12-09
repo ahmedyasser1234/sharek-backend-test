@@ -310,6 +310,7 @@ export class SubscriptionService {
               <div class="footer">
                 <p>تحت مع تحيات فريق شارك</p>
                 <p>https://sharik-sa.com/</p>
+                <img src="http://89.116.39.168:3000/uploads/email-images/subscription-banner.jpg" 
                 <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
               </div>
             </div>
