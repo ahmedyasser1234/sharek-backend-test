@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 
+interface SupadminEntity {
+  id: string;
+  getPermissions(): Record<string, boolean>;
+  role?: string; 
+}
+
 interface SupadminPayload {
   supadminId: string;
   role: string;
@@ -14,9 +20,26 @@ interface SupadminPayload {
 export class SupadminJwtService {
   constructor(private readonly jwtService: JwtService) {}
 
+  generateInitialTokens(supadmin: SupadminEntity): { accessToken: string; refreshToken: string } {
+    const permissions = supadmin.getPermissions();
+    
+    const role = supadmin.role ?? 'supadmin';
+
+    const payload: SupadminPayload = {
+      supadminId: supadmin.id,
+      role: role,
+      permissions: permissions,
+    };
+
+    return {
+      accessToken: this.signAccess(payload),
+      refreshToken: this.signRefresh(payload),
+    };
+  }
+
   signAccess(payload: SupadminPayload): string {
     return this.jwtService.sign(payload, {
-      secret: process.env.SUPADMIN_JWT_SECRET || 'manager-secret-key',
+      secret: process.env.SUPADMIN_JWT_SECRET || 'supadmin-secret-key',
       expiresIn: parseInt(process.env.SUPADMIN_JWT_EXPIRES_IN || '3600')
     });
   }
