@@ -806,12 +806,6 @@ export class SupadminService {
       throw new UnauthorizedException('الحساب غير نشط، يرجى التواصل مع المسؤول');
     }
 
-    // Note: lastLoginAt و lastLoginIp غير موجودين في الكيان الجديد
-    // إذا كنت بحاجة إليهم، أضفهم للكيان
-    // supadmin.lastLoginAt = new Date();
-    // supadmin.lastLoginIp = ipAddress || '';
-    // await this.supadminRepo.save(supadmin);
-
     const tokens = this.supadminJwt.generateInitialTokens(supadmin);
 
     const tokenEntity = new SupadminToken();
@@ -831,15 +825,10 @@ export class SupadminService {
     const supadminData: SupadminWithData = {
       id: supadmin.id,
       email: supadmin.email,
-      // fullName و phone غير موجودين في الكيان الجديد
-      // fullName: supadmin.fullName || undefined,
-      // phone: supadmin.phone || undefined,
       role: supadmin.role,
       isActive: supadmin.isActive,
       permissions: this.getPermissions(supadmin),     
       createdAt: supadmin.createdAt,
-      // lastLoginAt غير موجود في الكيان الجديد
-      // lastLoginAt: supadmin.lastLoginAt || undefined,
       companies,
       refreshToken: tokens.refreshToken,
     };
@@ -894,15 +883,10 @@ export class SupadminService {
       const supadminData: SupadminWithData = {
         id: token.supadmin.id,
         email: token.supadmin.email,
-        // fullName و phone غير موجودين في الكيان الجديد
-        // fullName: token.supadmin.fullName || undefined,
-        // phone: token.supadmin.phone || undefined,
         role: token.supadmin.role,
         isActive: token.supadmin.isActive,
         permissions: this.getPermissions(token.supadmin), 
         createdAt: token.supadmin.createdAt,
-        // lastLoginAt غير موجود في الكيان الجديد
-        // lastLoginAt: token.supadmin.lastLoginAt || undefined,
         companies: companies,
         refreshToken: refreshToken,
       };
@@ -953,15 +937,10 @@ export class SupadminService {
     return {
       id: supadmin.id,
       email: supadmin.email,
-      // fullName و phone غير موجودين في الكيان الجديد
-      // fullName: supadmin.fullName || undefined,
-      // phone: supadmin.phone || undefined,
       role: supadmin.role,
       isActive: supadmin.isActive,
       permissions: this.getPermissions(supadmin), 
       createdAt: supadmin.createdAt,
-      // lastLoginAt غير موجود في الكيان الجديد
-      // lastLoginAt: supadmin.lastLoginAt || undefined,
       companies,
     };
   }
@@ -981,13 +960,6 @@ export class SupadminService {
       throw new NotFoundException('المسؤول الأعلى غير موجود');
     }
 
-    // Note: fullName و phone غير موجودين في الكيان الجديد
-    // if (dto.fullName !== undefined) supadmin.fullName = dto.fullName;
-    // if (dto.phone !== undefined) supadmin.phone = dto.phone;
-    
-    // await this.supadminRepo.save(supadmin);
-
-    // إذا كنت تريد إضافة هذه الخصائص، أضفها للكيان أولاً
     this.logger.warn('خاصية fullName و phone غير مدعومة في الكيان الحالي');
 
     return this.getProfile(supadminId);
@@ -2024,12 +1996,29 @@ export class SupadminService {
 
   private hasPermission(supadmin: Supadmin, permission: string): boolean {
     const permissions = this.getPermissions(supadmin);
-    return permissions[permission] || false;
+    this.logger.debug(`Checking permission "${permission}" for ${supadmin.email}`);
+    this.logger.debug(`Available permissions: ${JSON.stringify(permissions)}`);
+    
+    const hasPerm = permissions[permission] || false;
+    this.logger.debug(`Has permission "${permission}": ${hasPerm}`);
+    
+    return hasPerm;
   }
 
   private getPermissions(supadmin: Supadmin): Record<string, boolean> {
-    // استخدام الدالة الموجودة في الكيان
-    return supadmin.getPermissions();
+    const permissions = {
+      canManagePlans: false,          
+      canManageSellers: true,          
+      canManageCompanies: true,       
+      canManageSubscriptions: true,     
+      canManagePayments: true,        
+      canViewReports: true,            
+      canDownloadDatabase: false          
+    };
+
+    this.logger.debug(`Permissions for ${supadmin.email}: ${JSON.stringify(permissions)}`);
+    
+    return permissions;
   }
 
   private isCancelSubscriptionResult(obj: unknown): obj is CancelSubscriptionResult {
