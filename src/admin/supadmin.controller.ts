@@ -109,17 +109,61 @@ async login(
 ) {
   try {
     this.logger.log(`=== Login Request Debug ===`);
+    
+    // تحقق مفصل من الطلب
+    this.logger.log(`Method: ${req.method}`);
+    this.logger.log(`URL: ${req.url}`);
+    this.logger.log(`Headers: ${JSON.stringify(req.headers)}`);
+    
+    // تحقق من Content-Type
+    const contentType = req.headers['content-type'] || req.headers['Content-Type'];
+    this.logger.log(`Content-Type: ${contentType}`);
+    
+    // تحقق من البيانات الخام مباشرة من الطلب
+    this.logger.log(`Parsed Body: ${JSON.stringify(body)}`);
     this.logger.log(`Body type: ${typeof body}`);
-    this.logger.log(`Body content: ${JSON.stringify(body)}`);
     this.logger.log(`Body keys: ${body ? Object.keys(body).join(', ') : 'null'}`);
     this.logger.log(`Email: ${body?.email || 'undefined'}`);
     this.logger.log(`Password: ${body?.password ? 'exists' : 'missing'}`);
     
-    if (!body || !body.email || !body.password) {
+    // تحقق شامل من البيانات
+    if (!body) {
+      this.logger.error('Body is completely null or undefined');
+      throw new BadRequestException('يجب إرسال بيانات تسجيل الدخول');
+    }
+    
+    if (typeof body !== 'object' || Object.keys(body).length === 0) {
+      this.logger.error(`Body is empty object: ${JSON.stringify(body)}`);
+      throw new BadRequestException('بيانات تسجيل الدخول فارغة');
+    }
+    
+    if (!body.email || !body.password) {
       this.logger.error(`Validation failed - Body: ${JSON.stringify(body)}`);
-      throw new BadRequestException('البريد الإلكتروني وكلمة المرور مطلوبان');
+      
+      // رسالة مفصلة - التصحيح هنا
+      let errorMessage = 'بيانات تسجيل الدخول غير مكتملة: ';
+      const missingFields: string[] = []; // تحديد النوع بوضوح
+      
+      if (!body.email) missingFields.push('البريد الإلكتروني');
+      if (!body.password) missingFields.push('كلمة المرور');
+      
+      errorMessage += missingFields.join(' و ');
+      errorMessage += ' مطلوبان';
+      
+      throw new BadRequestException(errorMessage);
     }
 
+    if (typeof body.email !== 'string' || typeof body.password !== 'string') {
+      this.logger.error(`Invalid data types - email: ${typeof body.email}, password: ${typeof body.password}`);
+      throw new BadRequestException('نوع البيانات غير صحيح');
+    }
+
+    if (body.email.trim() === '' || body.password.trim() === '') {
+      this.logger.error('Empty strings in email or password');
+      throw new BadRequestException('البريد الإلكتروني وكلمة المرور لا يمكن أن يكونا فارغين');
+    }
+
+    // استخراج IP Address
     const extractHeader = (request: Request, headerName: string): string | undefined => {
       const headers = request.headers;
       const typedHeaders = headers as unknown as Record<string, string | string[] | undefined>;
@@ -153,15 +197,27 @@ async login(
 
     this.logger.log(`Attempting login for: ${body.email} from IP: ${ipAddress}`);
 
-    return await this.supadminService.login(
+    // استدعاء خدمة تسجيل الدخول
+    const result = await this.supadminService.login(
       body.email,
       body.password,
       ipAddress,
       userAgent || ''
     );
+    
+    this.logger.log(`Login successful for: ${body.email}`);
+    return result;
+    
   } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    this.logger.error(`فشل تسجيل الدخول: ${errorMessage}`);
+    // تسجيل الخطأ بالتفصيل
+    if (error instanceof Error) {
+      this.logger.error(`فشل تسجيل الدخول: ${error.message}`);
+      this.logger.error(`Stack trace: ${error.stack}`);
+    } else {
+      this.logger.error(`فشل تسجيل الدخول: ${String(error)}`);
+    }
+    
+    // إعادة الخطأ الأصلي
     throw error;
   }
 }
