@@ -100,58 +100,62 @@ export class SupadminController {
   constructor(private readonly supadminService: SupadminService) {}
 
   @Post('login')
-  @ApiOperation({ 
-    summary: 'تسجيل دخول المسؤول الأعلى',
-    description: 'يقوم بتسجيل دخول المسؤول الأعلى باستخدام البريد الإلكتروني وكلمة المرور'
-  })
-  async login(
-    @Body() body: LoginDto,
-    @Req() req: CustomRequest
-  ) {
-    try {
-      const extractHeader = (request: Request, headerName: string): string | undefined => {
-        const headers = request.headers;
-        const typedHeaders = headers as unknown as Record<string, string | string[] | undefined>;
-        const headerValue = typedHeaders[headerName.toLowerCase()] || typedHeaders[headerName];
-        
-        if (headerValue === undefined || headerValue === null) {
-          return undefined;
-        }
-        
-        if (Array.isArray(headerValue)) {
-          return headerValue.length > 0 ? headerValue[0] : undefined;
-        }
-        
-        return headerValue;
-      };
-      
-      const xForwardedFor = extractHeader(req, 'x-forwarded-for');
-      const userAgent = extractHeader(req, 'user-agent');
-
-      let ipAddress = '';
-      
-      if (xForwardedFor) {
-        ipAddress = xForwardedFor.split(',')[0].trim();
-      } else if (req.ip) {
-        ipAddress = req.ip;
-      } else if (req.socket?.remoteAddress) {
-        ipAddress = req.socket.remoteAddress;
-      } else if (req.connection?.remoteAddress) {
-        ipAddress = req.connection.remoteAddress;
-      }
-
-      return await this.supadminService.login(
-        body.email,
-        body.password,
-        ipAddress,
-        userAgent || ''
-      );
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`فشل تسجيل الدخول: ${errorMessage}`);
-      throw error;
+@ApiOperation({ 
+  summary: 'تسجيل دخول المسؤول الأعلى',
+  description: 'يقوم بتسجيل دخول المسؤول الأعلى باستخدام البريد الإلكتروني وكلمة المرور'
+})
+async login(
+  @Body() body: LoginDto,
+  @Req() req: CustomRequest
+) {
+  try {
+    if (!body || !body.email || !body.password) {
+      throw new BadRequestException('البريد الإلكتروني وكلمة المرور مطلوبان');
     }
+
+    const extractHeader = (request: Request, headerName: string): string | undefined => {
+      const headers = request.headers;
+      const typedHeaders = headers as unknown as Record<string, string | string[] | undefined>;
+      const headerValue = typedHeaders[headerName.toLowerCase()] || typedHeaders[headerName];
+      
+      if (headerValue === undefined || headerValue === null) {
+        return undefined;
+      }
+      
+      if (Array.isArray(headerValue)) {
+        return headerValue.length > 0 ? headerValue[0] : undefined;
+      }
+      
+      return headerValue;
+    };
+    
+    const xForwardedFor = extractHeader(req, 'x-forwarded-for');
+    const userAgent = extractHeader(req, 'user-agent');
+
+    let ipAddress = '';
+    
+    if (xForwardedFor) {
+      ipAddress = xForwardedFor.split(',')[0].trim();
+    } else if (req.ip) {
+      ipAddress = req.ip;
+    } else if (req.socket?.remoteAddress) {
+      ipAddress = req.socket.remoteAddress;
+    } else if (req.connection?.remoteAddress) {
+      ipAddress = req.connection.remoteAddress;
+    }
+
+    return await this.supadminService.login(
+      body.email,
+      body.password,
+      ipAddress,
+      userAgent || ''
+    );
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    this.logger.error(`فشل تسجيل الدخول: ${errorMessage}`);
+    throw error;
   }
+}
 
   @Post('refresh')
   @ApiOperation({ 
