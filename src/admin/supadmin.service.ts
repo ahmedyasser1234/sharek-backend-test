@@ -1997,7 +1997,7 @@ export class SupadminService {
   private hasPermission(supadmin: Supadmin, permission: string): boolean {
     const permissions = this.getPermissions(supadmin);
     this.logger.debug(`Checking permission "${permission}" for ${supadmin.email}`);
-    this.logger.debug(`Available permissions: ${JSON.stringify(permissions)}`);
+    this.logger.debug(`All permissions: ${JSON.stringify(permissions)}`);
     
     const hasPerm = permissions[permission] || false;
     this.logger.debug(`Has permission "${permission}": ${hasPerm}`);
@@ -2006,19 +2006,31 @@ export class SupadminService {
   }
 
   private getPermissions(supadmin: Supadmin): Record<string, boolean> {
-    const permissions = {
-      canManagePlans: false,          
-      canManageSellers: true,          
-      canManageCompanies: true,       
-      canManageSubscriptions: true,     
-      canManagePayments: true,        
-      canViewReports: true,            
-      canDownloadDatabase: false          
+    // الصلاحيات الأساسية كما تريدها
+    const basePermissions = {
+      canManagePlans: false,
+      canManageSellers: true,
+      canManageCompanies: true,
+      canManageSubscriptions: true,
+      canManagePayments: true,
+      canViewReports: true,
+      canDownloadDatabase: false
     };
 
-    this.logger.debug(`Permissions for ${supadmin.email}: ${JSON.stringify(permissions)}`);
+    this.logger.debug(`Base permissions for ${supadmin.email}: ${JSON.stringify(basePermissions)}`);
     
-    return permissions;
+    // إرجاع كل الصلاحيات مع أسماء متوافقة مع الكود الحالي
+    return {
+      ...basePermissions,
+      // أسماء الصلاحيات القديمة للتتوافق مع الكود الحالي
+      manage_sellers: basePermissions.canManageSellers,
+      manage_companies: basePermissions.canManageCompanies,
+      manage_subscriptions: basePermissions.canManageSubscriptions,
+      manage_payments: basePermissions.canManagePayments,
+      manage_plans: basePermissions.canManagePlans,
+      view_reports: basePermissions.canViewReports,
+      download_database: basePermissions.canDownloadDatabase
+    };
   }
 
   private isCancelSubscriptionResult(obj: unknown): obj is CancelSubscriptionResult {
