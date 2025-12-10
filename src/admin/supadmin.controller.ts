@@ -99,7 +99,7 @@ export class SupadminController {
 
   constructor(private readonly supadminService: SupadminService) {}
 
-  @Post('login')
+ @Post('login')
 @ApiOperation({ 
   summary: 'تسجيل دخول المسؤول الأعلى',
   description: 'يقوم بتسجيل دخول المسؤول الأعلى باستخدام البريد الإلكتروني وكلمة المرور'
@@ -109,7 +109,16 @@ async login(
   @Req() req: CustomRequest
 ) {
   try {
+    // Logging للتشخيص
+    this.logger.log(`=== Login Request Debug ===`);
+    this.logger.log(`Body type: ${typeof body}`);
+    this.logger.log(`Body content: ${JSON.stringify(body)}`);
+    this.logger.log(`Body keys: ${body ? Object.keys(body).join(', ') : 'null'}`);
+    this.logger.log(`Email: ${body?.email || 'undefined'}`);
+    this.logger.log(`Password: ${body?.password ? 'exists' : 'missing'}`);
+    
     if (!body || !body.email || !body.password) {
+      this.logger.error(`Validation failed - Body: ${JSON.stringify(body)}`);
       throw new BadRequestException('البريد الإلكتروني وكلمة المرور مطلوبان');
     }
 
@@ -143,6 +152,8 @@ async login(
     } else if (req.connection?.remoteAddress) {
       ipAddress = req.connection.remoteAddress;
     }
+
+    this.logger.log(`Attempting login for: ${body.email} from IP: ${ipAddress}`);
 
     return await this.supadminService.login(
       body.email,
