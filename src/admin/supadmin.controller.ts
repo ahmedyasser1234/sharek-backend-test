@@ -93,7 +93,6 @@ class RejectPaymentDto {
 
 @ApiTags('Supadmin - المسؤولين الأعلى')
 @Controller('supadmin')
-@UseInterceptors(TokenRefreshInterceptor)
 export class SupadminController {
   private readonly logger = new Logger(SupadminController.name);
 
@@ -109,7 +108,6 @@ async login(
   @Req() req: CustomRequest
 ) {
   try {
-    // Logging للتشخيص
     this.logger.log(`=== Login Request Debug ===`);
     this.logger.log(`Body type: ${typeof body}`);
     this.logger.log(`Body content: ${JSON.stringify(body)}`);
