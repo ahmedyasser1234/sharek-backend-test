@@ -98,7 +98,7 @@ export class SupadminController {
 
   constructor(private readonly supadminService: SupadminService) {}
 
- @Post('login')
+@Post('login')
 @ApiOperation({ 
   summary: 'تسجيل دخول المسؤول الأعلى',
   description: 'يقوم بتسجيل دخول المسؤول الأعلى باستخدام البريد الإلكتروني وكلمة المرور'
@@ -110,94 +110,54 @@ async login(
   try {
     this.logger.log(`=== Login Request Debug ===`);
     
-    // تحقق مفصل من الطلب
-    this.logger.log(`Method: ${req.method}`);
-    this.logger.log(`URL: ${req.url}`);
-    this.logger.log(`Headers: ${JSON.stringify(req.headers)}`);
-    
-    // تحقق من Content-Type
-    const contentType = req.headers['content-type'] || req.headers['Content-Type'];
-    this.logger.log(`Content-Type: ${contentType}`);
-    
-    // تحقق من البيانات الخام مباشرة من الطلب
-    this.logger.log(`Parsed Body: ${JSON.stringify(body)}`);
+    // تحقق من body
+    this.logger.log(`Body: ${JSON.stringify(body)}`);
     this.logger.log(`Body type: ${typeof body}`);
-    this.logger.log(`Body keys: ${body ? Object.keys(body).join(', ') : 'null'}`);
-    this.logger.log(`Email: ${body?.email || 'undefined'}`);
-    this.logger.log(`Password: ${body?.password ? 'exists' : 'missing'}`);
     
-    // تحقق شامل من البيانات
-    if (!body) {
-      this.logger.error('Body is completely null or undefined');
-      throw new BadRequestException('يجب إرسال بيانات تسجيل الدخول');
-    }
-    
-    if (typeof body !== 'object' || Object.keys(body).length === 0) {
-      this.logger.error(`Body is empty object: ${JSON.stringify(body)}`);
-      throw new BadRequestException('بيانات تسجيل الدخول فارغة');
-    }
-    
-    if (!body.email || !body.password) {
-      this.logger.error(`Validation failed - Body: ${JSON.stringify(body)}`);
+    // إذا كان body فارغاً، تحقق من req.body
+    if (!body || Object.keys(body).length === 0) {
+      const reqBody = req.body as Partial<LoginDto>;
+      this.logger.log(`req.body: ${JSON.stringify(reqBody)}`);
       
-      // رسالة مفصلة - التصحيح هنا
-      let errorMessage = 'بيانات تسجيل الدخول غير مكتملة: ';
-      const missingFields: string[] = []; // تحديد النوع بوضوح
-      
-      if (!body.email) missingFields.push('البريد الإلكتروني');
-      if (!body.password) missingFields.push('كلمة المرور');
-      
-      errorMessage += missingFields.join(' و ');
-      errorMessage += ' مطلوبان';
-      
-      throw new BadRequestException(errorMessage);
-    }
-
-    if (typeof body.email !== 'string' || typeof body.password !== 'string') {
-      this.logger.error(`Invalid data types - email: ${typeof body.email}, password: ${typeof body.password}`);
-      throw new BadRequestException('نوع البيانات غير صحيح');
-    }
-
-    if (body.email.trim() === '' || body.password.trim() === '') {
-      this.logger.error('Empty strings in email or password');
-      throw new BadRequestException('البريد الإلكتروني وكلمة المرور لا يمكن أن يكونا فارغين');
-    }
-
-    // استخراج IP Address
-    const extractHeader = (request: Request, headerName: string): string | undefined => {
-      const headers = request.headers;
-      const typedHeaders = headers as unknown as Record<string, string | string[] | undefined>;
-      const headerValue = typedHeaders[headerName.toLowerCase()] || typedHeaders[headerName];
-      
-      if (headerValue === undefined || headerValue === null) {
-        return undefined;
+      if (reqBody && reqBody.email && reqBody.password) {
+        body = {
+          email: reqBody.email,
+          password: reqBody.password
+        };
+        this.logger.log(`Using req.body: ${JSON.stringify(body)}`);
       }
-      
-      if (Array.isArray(headerValue)) {
-        return headerValue.length > 0 ? headerValue[0] : undefined;
+    }
+    
+    // التحقق النهائي
+    if (!body || !body.email || !body.password) {
+      this.logger.error(`Login validation failed`);
+      throw new BadRequestException('البريد الإلكتروني وكلمة المرور مطلوبان');
+    }
+
+    // استخراج IP - طريقة بسيطة بدون أخطاء TypeScript
+    const getHeaderValue = (headerName: string): string | undefined => {
+      const headers = req.headers as unknown as Record<string, string | string[] | undefined>;
+      const value = headers[headerName.toLowerCase()] || headers[headerName];
+      if (Array.isArray(value)) {
+        return value.length > 0 ? value[0] : undefined;
       }
-      
-      return headerValue;
+      return value;
     };
     
-    const xForwardedFor = extractHeader(req, 'x-forwarded-for');
-    const userAgent = extractHeader(req, 'user-agent');
+    const xForwardedFor = getHeaderValue('x-forwarded-for');
+    const userAgent = getHeaderValue('user-agent');
 
     let ipAddress = '';
-    
     if (xForwardedFor) {
       ipAddress = xForwardedFor.split(',')[0].trim();
     } else if (req.ip) {
       ipAddress = req.ip;
     } else if (req.socket?.remoteAddress) {
       ipAddress = req.socket.remoteAddress;
-    } else if (req.connection?.remoteAddress) {
-      ipAddress = req.connection.remoteAddress;
     }
 
     this.logger.log(`Attempting login for: ${body.email} from IP: ${ipAddress}`);
-
-    // استدعاء خدمة تسجيل الدخول
+    
     const result = await this.supadminService.login(
       body.email,
       body.password,
@@ -209,15 +169,8 @@ async login(
     return result;
     
   } catch (error: unknown) {
-    // تسجيل الخطأ بالتفصيل
-    if (error instanceof Error) {
-      this.logger.error(`فشل تسجيل الدخول: ${error.message}`);
-      this.logger.error(`Stack trace: ${error.stack}`);
-    } else {
-      this.logger.error(`فشل تسجيل الدخول: ${String(error)}`);
-    }
-    
-    // إعادة الخطأ الأصلي
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    this.logger.error(`Login failed: ${errorMessage}`);
     throw error;
   }
 }
