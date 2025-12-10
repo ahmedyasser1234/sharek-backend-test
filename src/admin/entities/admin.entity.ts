@@ -29,25 +29,25 @@ export class Admin {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ unique: true })
+  @Column({ type: 'varchar', unique: true })
   email: string;
 
-  @Column()
+  @Column({ type: 'varchar' })
   password: string;
 
-  @Column({ default: true })
+  @Column({ type: 'boolean', default: true })
   isActive: boolean;
 
-  @Column({ default: 'admin' })
+  @Column({ type: 'varchar', default: 'admin' })
   role: string;
 
-  @Column({ nullable: true, comment: 'اسم البنك' })
+  @Column({ type: 'varchar', nullable: true, comment: 'اسم البنك' })
   bankName: string | null;
 
-  @Column({ nullable: true, comment: 'رقم الحساب البنكي' })
+  @Column({ type: 'varchar', nullable: true, comment: 'رقم الحساب البنكي' })
   accountNumber: string | null;
 
-  @Column({ nullable: true, comment: 'رقم الآيبان' })
+  @Column({ type: 'varchar', nullable: true, comment: 'رقم الآيبان' })
   ibanNumber: string | null;
 
   @CreateDateColumn()
@@ -127,7 +127,6 @@ export class Admin {
     return this.email.split('@')[1] || '';
   }
 
-  // دالة للتحقق من الصلاحيات (إذا كنت تريد نظام صلاحيات)
   hasPermission(permission: string): boolean {
     const adminPermissions: Record<string, boolean> = {
       'manage_managers': true,
@@ -140,7 +139,6 @@ export class Admin {
     return adminPermissions[permission] || false;
   }
 
-  // دالة لإنشاء معلومات مسؤول أعلى
   createSupadminData(email: string, password: string, fullName?: string): {
     email: string;
     password: string;
@@ -155,13 +153,10 @@ export class Admin {
     };
   }
 
-  // دالة للتحقق مما إذا كان الأدمن يمكنه حذف مسؤول أعلى
   canDeleteSupadmin(supadminId: string): boolean {
-    // التحقق مما إذا كان الأدمن هو من قام بإنشاء هذا المسؤول الأعلى
     return this.createdSupadmins?.some(supadmin => supadmin.id === supadminId) || false;
   }
 
-  // دالة للحصول على معلومات مختصرة عن الأدمن
   getProfileInfo() {
     return {
       id: this.id,
@@ -174,12 +169,10 @@ export class Admin {
     };
   }
 
-  // دالة للتحقق من حالة الأدمن
   isActiveAndValid(): boolean {
     return this.isActive && !this.deletedAt;
   }
 
-  // دالة لتسجيل نشاط الأدمن
   logActivity(activity: string): {
     adminId: string;
     email: string;
@@ -194,27 +187,22 @@ export class Admin {
     };
   }
 
-  // دالة للتحقق مما إذا كان الأدمن يمكنه تعديل معلومات بنكية
   canUpdateBankInfo(): boolean {
     return this.isActiveAndValid();
   }
 
-  // دالة لإعادة تعيين كلمة المرور
   async resetPassword(newPassword: string): Promise<void> {
     this.password = newPassword;
     await this.hashPassword();
     this.updatedAt = new Date();
   }
 
-  // دالة للتحقق مما إذا كان الأدمن لديه اشتراكات نشطة
   hasActiveSubscriptions(): boolean {
     if (!this.activatedSubscriptions) return false;
     
     return this.activatedSubscriptions.some(sub => {
-      // استخدام التحقق الآمن للمقارنة
       if (!sub.status) return false;
       
-      // تحويل إلى string للمقارنة الآمنة
       const subscriptionStatus = String(sub.status);
       const isActive = subscriptionStatus.toLowerCase() === 'active';
       const isNotExpired = !sub.isExpired || !sub.isExpired();
@@ -229,7 +217,7 @@ export class Admin {
     return this.createdSupadmins.map(supadmin => ({
       id: supadmin.id,
       email: supadmin.email,
-       role: supadmin.role,
+      role: supadmin.role,
       isActive: supadmin.isActive,
       createdAt: supadmin.createdAt,
     }));
