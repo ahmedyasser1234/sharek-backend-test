@@ -55,7 +55,6 @@ interface SupadminRequest extends CustomRequest {
   supadminPermissions?: Record<string, boolean>;
 }
 
-// أنواع DTO للطلب
 class LoginDto {
   email: string;
   password: string;

@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
-// import { APP_GUARD } from '@nestjs/core'; 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -21,6 +20,7 @@ import { CompanyJwtService } from './company/auth/company-jwt.service';
 import { RevokedToken } from './company/entities/revoked-token.entity';
 import { NotificationModule } from './notification/notification.module';
 import { BackupModule } from './backup/backup.module';
+import { SupadminModule } from './admin/supadmin.module';
 
 @Module({
   imports: [
@@ -50,6 +50,7 @@ import { BackupModule } from './backup/backup.module';
     PaymentModule,
     NotificationModule,
     BackupModule,
+    SupadminModule, 
   ],
   controllers: [AppController],
   providers: [
@@ -57,11 +58,7 @@ import { BackupModule } from './backup/backup.module';
     CloudinaryService,
     CompanyJwtService,
     CompanyJwtGuard, 
-    
-    // {
-    //   provide: APP_GUARD,
-    //   useClass: CompanyJwtGuard,
-    // },
   ],
 })
 export class AppModule {}
+
