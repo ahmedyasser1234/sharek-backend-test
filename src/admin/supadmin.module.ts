@@ -15,6 +15,8 @@ import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { Manager } from './entities/manager.entity';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { PaymentModule } from '../payment/payment.module';
+import { TokenRefreshInterceptor } from '../common/interceptors/token-refresh.interceptor'; 
+import { ManagerModule } from '../admin/manager.module';
 
 @Module({
   imports: [
@@ -34,12 +36,14 @@ import { PaymentModule } from '../payment/payment.module';
     }),
     SubscriptionModule,
     PaymentModule,
+    ManagerModule,
   ],
   controllers: [SupadminController],
   providers: [
     SupadminService,
     SupadminJwtService,
     SupadminJwtGuard,
+    TokenRefreshInterceptor,
   ],
   exports: [
     SupadminService,
