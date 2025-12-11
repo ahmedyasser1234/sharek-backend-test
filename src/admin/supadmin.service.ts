@@ -1206,7 +1206,7 @@ export class SupadminService {
     return result.filter(company => company !== null) as CompanyWithEmployeeCount[];
   }
 
-   async getAllCompanies(
+async getAllCompanies(
   supadminId: string,
   page: number = 1,
   limit: number = 10,
@@ -1221,13 +1221,14 @@ export class SupadminService {
     throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الشركات');
   }
 
+  // استخدم أسماء الجداول الصحيحة
   const query = this.companyRepo.createQueryBuilder('company')
     .leftJoin(
-      'company_subscriptions',  
+      'company_subscriptions', // ✅ هذا صحيح
       'subscription', 
       'subscription.companyId = company.id'
     )
-    .leftJoin('plan', 'plan', 'plan.id = subscription.planId')
+    .leftJoin('plans', 'plan', 'plan.id = subscription.planId') // ✅ plans بدلاً من plan
     .leftJoin('supadmin', 'supadmin', 'supadmin.id = subscription.activatedBySupadminId')
     .leftJoin('admin', 'admin', 'admin.id = subscription.activatedByAdminId')
     .leftJoin('manager', 'seller', 'seller.id = subscription.activatedBySellerId');
@@ -1250,6 +1251,7 @@ export class SupadminService {
 
   const formattedData = await Promise.all(
     companies.map(async (company) => {
+      // احصل على الاشتراك الحالي للشركة
       const subscription = await this.subRepo.findOne({
         where: { 
           company: { id: company.id }
