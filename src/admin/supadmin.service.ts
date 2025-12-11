@@ -1207,23 +1207,23 @@ export class SupadminService {
   }
 
    async getAllCompanies(
-    supadminId: string,
-    page: number = 1,
-    limit: number = 10,
-    search?: string,
-    status?: string
-  ): Promise<{ data: CompanyWithEmployeeCount[]; total: number; page: number; totalPages: number }> {
-    const supadmin = await this.supadminRepo.findOne({
-      where: { id: supadminId }
-    });
+  supadminId: string,
+  page: number = 1,
+  limit: number = 10,
+  search?: string,
+  status?: string
+): Promise<{ data: CompanyWithEmployeeCount[]; total: number; page: number; totalPages: number }> {
+  const supadmin = await this.supadminRepo.findOne({
+    where: { id: supadminId }
+  });
 
-    if (!supadmin || !this.hasPermission(supadmin, 'manage_companies')) {
-      throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الشركات');
-    }
+  if (!supadmin || !this.hasPermission(supadmin, 'manage_companies')) {
+    throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الشركات');
+  }
 
-    const query = this.companyRepo.createQueryBuilder('company')
+  const query = this.companyRepo.createQueryBuilder('company')
     .leftJoin(
-      'company_subscription', 
+      'company_subscriptions',  
       'subscription', 
       'subscription.companyId = company.id'
     )
@@ -1232,73 +1232,72 @@ export class SupadminService {
     .leftJoin('admin', 'admin', 'admin.id = subscription.activatedByAdminId')
     .leftJoin('manager', 'seller', 'seller.id = subscription.activatedBySellerId');
 
-    if (search) {
-      query.where('(company.name LIKE :search OR company.email LIKE :search OR company.phone LIKE :search)', {
-        search: `%${search}%`
-      });
-    }
+  if (search) {
+    query.where('(company.name LIKE :search OR company.email LIKE :search OR company.phone LIKE :search)', {
+      search: `%${search}%`
+    });
+  }
 
-    if (status) {
-      query.andWhere('company.subscriptionStatus = :status', { status });
-    }
+  if (status) {
+    query.andWhere('company.subscriptionStatus = :status', { status });
+  }
 
-    const [companies, total] = await query
+  const [companies, total] = await query
     .orderBy('company.createdAt', 'DESC')
     .skip((page - 1) * limit)
     .take(limit)
     .getManyAndCount();
 
-    const formattedData = await Promise.all(
-      companies.map(async (company) => {
-        const subscription = await this.subRepo.findOne({
-          where: { 
-            company: { id: company.id },
-            status: SubscriptionStatus.ACTIVE
-          },
-          relations: ['plan', 'activatedBySupadmin', 'activatedByAdmin', 'activatedBySeller'],
-          order: { createdAt: 'DESC' }
-        });
+  const formattedData = await Promise.all(
+    companies.map(async (company) => {
+      const subscription = await this.subRepo.findOne({
+        where: { 
+          company: { id: company.id }
+        },
+        relations: ['plan', 'activatedBySupadmin', 'activatedByAdmin', 'activatedBySeller'],
+        order: { createdAt: 'DESC' }
+      });
 
-        const employeesCount = await this.employeeRepo.count({
-          where: { company: { id: company.id } }
-        });
+      const employeesCount = await this.employeeRepo.count({
+        where: { company: { id: company.id } }
+      });
 
-        const activatedBySupadmin = subscription?.activatedBySupadmin;
-        const activatedByAdmin = subscription?.activatedByAdmin;
-        const activatedBySeller = subscription?.activatedBySeller;
+      const activatedBySupadmin = subscription?.activatedBySupadmin;
+      const activatedByAdmin = subscription?.activatedByAdmin;
+      const activatedBySeller = subscription?.activatedBySeller;
 
-        return {
-          id: company.id,
-          name: company.name || '',
-          email: company.email || '',
-          phone: company.phone || '',
-          isActive: company.isActive,
-          isVerified: company.isVerified,
-          subscriptionStatus: company.subscriptionStatus || '',
-          employeesCount,
-          activatedBy: activatedBySupadmin ? 
+      return {
+        id: company.id,
+        name: company.name || '',
+        email: company.email || '',
+        phone: company.phone || '',
+        isActive: company.isActive,
+        isVerified: company.isVerified,
+        subscriptionStatus: company.subscriptionStatus || '',
+        employeesCount,
+        activatedBy: activatedBySupadmin ? 
           `${activatedBySupadmin.email} (مسؤول أعلى)` : 
           activatedByAdmin ? `${activatedByAdmin.email} (أدمن)` :
           activatedBySeller ? `${activatedBySeller.email} (بائع)` :
           'غير معروف',
-          activatorType: activatedBySupadmin ? 'مسؤول أعلى' : 
+        activatorType: activatedBySupadmin ? 'مسؤول أعلى' : 
           activatedByAdmin ? 'أدمن' :
           activatedBySeller ? 'بائع' : 'غير معروف',
-          subscriptionDate: subscription?.startDate || undefined,
-          planName: subscription?.plan?.name || 'غير معروف',
-          adminEmail: activatedByAdmin?.email,
-          supadminEmail: activatedBySupadmin?.email
-        };
-      })
-    );
+        subscriptionDate: subscription?.startDate || undefined,
+        planName: subscription?.plan?.name || 'غير معروف',
+        adminEmail: activatedByAdmin?.email,
+        supadminEmail: activatedBySupadmin?.email
+      };
+    })
+  );
 
-    return {
-      data: formattedData,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-    };
-  }
+  return {
+    data: formattedData,
+    total,
+    page,
+    totalPages: Math.ceil(total / limit),
+  };
+}
 
   async toggleCompanyStatus(
     supadminId: string,
