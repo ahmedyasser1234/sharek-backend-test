@@ -42,7 +42,7 @@ export class AdminJwtGuard implements CanActivate {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       console.error('JWT Error:', errorMessage);
-      throw new UnauthorizedException('Invalid or expired token');
+      throw new UnauthorizedException('يرجى تسجيل الدخول للوصول إلى هذا المورد');
     }
   }
 }

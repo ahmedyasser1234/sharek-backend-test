@@ -85,10 +85,10 @@ export interface SupadminWithData {
 }
 
 export interface SystemStats {
-  totalCompanies: number;
-  totalEmployees: number;
+  Companies: number;
+  Employees: number;
   activeSubscriptions: number;
-  totalSellers: number;
+  Sellers: number;
 }
 
 export interface SellerList {
@@ -1905,10 +1905,10 @@ export class SupadminService {
     }
 
     const [
-      totalCompanies,
-      totalEmployees,
+      Companies,
+      Employees,
       activeSubscriptions,
-      totalSellers,
+      Sellers,
     ] = await Promise.all([
       this.companyRepo.count(),
       this.employeeRepo.count(),
@@ -1917,10 +1917,10 @@ export class SupadminService {
     ]);
 
     return {
-      totalCompanies,
-      totalEmployees,
+      Companies,
+      Employees,
       activeSubscriptions,
-      totalSellers,
+      Sellers,
     };
   }
 

@@ -296,7 +296,6 @@ export class AdminSubscriptionController {
       return {
         success: true,
         message: 'تم تغيير الخطة بنجاح',
-        data: result,
         timestamp: new Date().toISOString()
       };
     } catch (error: unknown) {

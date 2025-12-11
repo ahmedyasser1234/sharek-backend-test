@@ -48,7 +48,7 @@ export class CompanyJwtGuard implements CanActivate {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer '))
-      throw new ForbiddenException('Missing or malformed Authorization header');
+      throw new ForbiddenException('الوقت المسموح به انتهى، يرجى تسجيل الدخول مجدداً');
 
     const token = authHeader.slice(7).trim();
     
@@ -60,14 +60,14 @@ export class CompanyJwtGuard implements CanActivate {
     try {
       const payload = this.jwtService.verify(token);
       if (!payload?.companyId)
-        throw new UnauthorizedException('Invalid token payload');
+        throw new UnauthorizedException('الرجاء تسجيل الدخول');
 
       this.logger.debug(` تم فك تشفير التوكن للشركة: ${payload.companyId}`);
 
       const isRevoked = await this.revokedTokenRepo.findOne({ where: { token } });
       if (isRevoked) {
         this.logger.warn(` التوكن ملغي للشركة: ${payload.companyId}`);
-        throw new ForbiddenException('Access Token has been revoked');
+        throw new ForbiddenException('يرجى تسجيل الدخول مجدداً');
       }
 
       let isInactive = false;

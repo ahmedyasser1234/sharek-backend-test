@@ -370,7 +370,7 @@ export class CompanyService implements OnModuleInit {
     });
     
     if (!company) {
-      throw new NotFoundException('Company not found');
+      throw new NotFoundException('هذا البريد غير مسجل لدينا');
     }
     company.verificationCode = code;
     await this.companyRepo.save(company);
@@ -437,7 +437,7 @@ export class CompanyService implements OnModuleInit {
       where: { email: normalizedEmail } 
     });
     
-    if (!company) throw new NotFoundException('Company not found');
+    if (!company) throw new NotFoundException('هذا البريد غير مسجل لدينا');
     if (company.verificationCode !== code)
       throw new UnauthorizedException('كود غير صحيح');
 
@@ -455,7 +455,7 @@ export class CompanyService implements OnModuleInit {
     customFont?: Express.Multer.File 
   ): Promise<void> {
     const company = await this.companyRepo.findOne({ where: { id } });
-    if (!company) throw new NotFoundException('Company not found');
+    if (!company) throw new NotFoundException('هذا البريد غير مسجل لدينا');
 
     if (dto.email) {
       const normalizedEmail = this.normalizeEmail(dto.email);
@@ -633,7 +633,7 @@ export class CompanyService implements OnModuleInit {
       where: { email: normalizedEmail } 
     });
     
-    if (!company) throw new NotFoundException('Company not found');
+    if (!company) throw new NotFoundException('هذا البريد غير مسجل لدينا');
     return company;
   }
 
@@ -645,7 +645,7 @@ export class CompanyService implements OnModuleInit {
       .where('company.id = :id', { id })
       .getOne();
 
-    if (!company) throw new NotFoundException('Company not found');
+    if (!company) throw new NotFoundException('هذا البريد غير مسجل لدينا');
     return company;
   }
 
@@ -671,7 +671,7 @@ export class CompanyService implements OnModuleInit {
       ],
     });
 
-    if (!company) throw new NotFoundException('Company not found');
+    if (!company) throw new NotFoundException('هذا البريد غير مسجل لدينا');
     return company;
   }
 
@@ -775,8 +775,8 @@ export class CompanyService implements OnModuleInit {
     const company = await this.findByEmail(normalizedEmail);
     
     if (!company) throw new UnauthorizedException('Invalid credentials');
-    if (!company.isActive) throw new UnauthorizedException('Company not active');
-    if (!company.isVerified) throw new UnauthorizedException('Email not verified');
+    if (!company.isActive) throw new UnauthorizedException('البريد غير نشط');
+    if (!company.isVerified) throw new UnauthorizedException('البريد غير مفعل');
 
     const isMatch = await company.comparePassword(dto.password);
     if (!isMatch) throw new UnauthorizedException('Invalid credentials');
@@ -994,7 +994,7 @@ export class CompanyService implements OnModuleInit {
       where: { email: normalizedEmail } 
     });
     
-    if (!company) throw new NotFoundException('Company not found');
+    if (!company) throw new NotFoundException('هذا البريد غير مسجل لدينا');
     if (company.verificationCode !== code)
       throw new UnauthorizedException('كود غير صحيح');
 
@@ -1011,7 +1011,7 @@ export class CompanyService implements OnModuleInit {
       where: { email: normalizedEmail } 
     });
     
-    if (!company) throw new NotFoundException('Company not found');
+    if (!company) throw new NotFoundException('هذا البريد غير مسجل لدينا');
 
     const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
     company.verificationCode = resetCode;
@@ -1211,7 +1211,7 @@ export class CompanyService implements OnModuleInit {
 
   async deleteCustomFont(companyId: string): Promise<void> {
     const company = await this.companyRepo.findOne({ where: { id: companyId } });
-    if (!company) throw new NotFoundException('Company not found');
+    if (!company) throw new NotFoundException('هذا البريد غير مسجل لدينا');
 
     if (company.customFontUrl) {
       try {

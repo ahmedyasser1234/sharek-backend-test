@@ -57,7 +57,6 @@ export class ManagerJwtGuard implements CanActivate {
       throw new UnauthorizedException('Manager not found or inactive');
     }
 
-    // إعداد البيانات في الطلب للاستخدام في الـ controllers
     request.manager = manager;
     request.managerPayload = payload;
     request.user = {

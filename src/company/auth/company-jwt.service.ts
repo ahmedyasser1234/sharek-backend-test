@@ -51,7 +51,7 @@ export class CompanyJwtService {
       
       if (!payload.companyId) {
         this.logger.error(' التوكن لا يحتوي على companyId');
-        throw new UnauthorizedException('Invalid token payload');
+        throw new UnauthorizedException('الرجاء تسجيل الدخول');
       }
       
       this.logger.debug(` تم التحقق من التوكن بنجاح للشركة: ${payload.companyId}`);
@@ -62,9 +62,9 @@ export class CompanyJwtService {
       this.logger.debug(` نوع الخطأ: ${jwtError.name}, التوكن: ${token.substring(0, 20)}...`);
       
       if (jwtError.name === 'TokenExpiredError') {
-        throw new UnauthorizedException('Token expired');
+        throw new UnauthorizedException('الجلسة منتهية يرجى تسجبل الدخول');
       } else if (jwtError.name === 'JsonWebTokenError') {
-        throw new UnauthorizedException('Invalid token');
+        throw new UnauthorizedException('الرجاء تسجيل الدخول');
       } else {
         throw new UnauthorizedException('الجلسة منتهية يرجى تسجبل الدخول');
       }
@@ -77,7 +77,7 @@ export class CompanyJwtService {
       
       if (!payload.companyId) {
         this.logger.error(' التوكن لا يحتوي على companyId');
-        throw new UnauthorizedException('Invalid token payload');
+        throw new UnauthorizedException('الرجاء تسجيل الدخول');
       }
       
       this.logger.debug(` تم التحقق من التوكن بشكل غير متزامن للشركة: ${payload.companyId}`);
@@ -89,7 +89,7 @@ export class CompanyJwtService {
       if (jwtError.name === 'TokenExpiredError') {
         throw new UnauthorizedException('Token expired');
       } else if (jwtError.name === 'JsonWebTokenError') {
-        throw new UnauthorizedException('Invalid token');
+        throw new UnauthorizedException('الرجاء تسجيل الدخول');
       } else {
         throw new UnauthorizedException('يرجى تسجيل الدخول');
       }
