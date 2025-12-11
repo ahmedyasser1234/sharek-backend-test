@@ -1206,100 +1206,102 @@ export class SupadminService {
     return result.filter(company => company !== null) as CompanyWithEmployeeCount[];
   }
 
-   async getAllCompanies(
-    supadminId: string,
-    page: number = 1,
-    limit: number = 10,
-    search?: string,
-    status?: string
-  ): Promise<{ data: CompanyWithEmployeeCount[]; total: number; page: number; totalPages: number }> {
-    const supadmin = await this.supadminRepo.findOne({
-      where: { id: supadminId }
+async getAllCompanies(
+  supadminId: string,
+  page: number = 1,
+  limit: number = 10,
+  search?: string,
+  status?: string
+): Promise<{ data: CompanyWithEmployeeCount[]; total: number; page: number; totalPages: number }> {
+  const supadmin = await this.supadminRepo.findOne({
+    where: { id: supadminId }
+  });
+
+  if (!supadmin || !this.hasPermission(supadmin, 'manage_companies')) {
+    throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الشركات');
+  }
+
+  const allSubscriptions = await this.subRepo.find({
+    relations: ['company', 'plan', 'activatedBySupadmin', 'activatedByAdmin', 'activatedBySeller'],
+    order: { createdAt: 'DESC' }
+  });
+
+  const subscriptionsByCompany = new Map<string, CompanySubscription[]>();
+  
+  allSubscriptions.forEach(subscription => {
+    if (subscription.company) {
+      const companyId = subscription.company.id;
+      if (!subscriptionsByCompany.has(companyId)) {
+        subscriptionsByCompany.set(companyId, []);
+      }
+      subscriptionsByCompany.get(companyId)!.push(subscription);
+    }
+  });
+
+  const query = this.companyRepo.createQueryBuilder('company');
+
+  if (search) {
+    query.where('(company.name LIKE :search OR company.email LIKE :search OR company.phone LIKE :search)', {
+      search: `%${search}%`
     });
+  }
 
-    if (!supadmin || !this.hasPermission(supadmin, 'manage_companies')) {
-      throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الشركات');
-    }
+  if (status) {
+    query.andWhere('company.subscriptionStatus = :status', { status });
+  }
 
-    const query = this.companyRepo.createQueryBuilder('company')
-    .leftJoin(
-      'company_subscription', 
-      'subscription', 
-      'subscription.companyId = company.id'
-    )
-    .leftJoin('plan', 'plan', 'plan.id = subscription.planId')
-    .leftJoin('admin', 'admin', 'admin.id = subscription.activatedByAdminId')
-    .leftJoin('manager', 'seller', 'seller.id = subscription.activatedBySellerId');
-
-    if (search) {
-      query.where('(company.name LIKE :search OR company.email LIKE :search OR company.phone LIKE :search)', {
-        search: `%${search}%`
-      });
-    }
-
-    if (status) {
-      query.andWhere('company.subscriptionStatus = :status', { status });
-    }
-
-    const [companies, total] = await query
+  const [companies, total] = await query
     .orderBy('company.createdAt', 'DESC')
     .skip((page - 1) * limit)
     .take(limit)
     .getManyAndCount();
 
-    const formattedData = await Promise.all(
-      companies.map(async (company) => {
-        const subscription = await this.subRepo.findOne({
-          where: { 
-            company: { id: company.id },
-            status: SubscriptionStatus.ACTIVE
-          },
-          relations: ['plan', 'activatedBySupadmin', 'activatedByAdmin', 'activatedBySeller'],
-          order: { createdAt: 'DESC' }
-        });
+  const formattedData = await Promise.all(
+    companies.map(async (company) => {
+      const companySubscriptions = subscriptionsByCompany.get(company.id) || [];
+      const latestSubscription = companySubscriptions.length > 0 ? companySubscriptions[0] : null;
 
-        const employeesCount = await this.employeeRepo.count({
-          where: { company: { id: company.id } }
-        });
+      const employeesCount = await this.employeeRepo.count({
+        where: { company: { id: company.id } }
+      });
 
-        const activatedBySupadmin = subscription?.activatedBySupadmin;
-        const activatedByAdmin = subscription?.activatedByAdmin;
-        const activatedBySeller = subscription?.activatedBySeller;
+      const activatedBySupadmin = latestSubscription?.activatedBySupadmin;
+      const activatedByAdmin = latestSubscription?.activatedByAdmin;
+      const activatedBySeller = latestSubscription?.activatedBySeller;
 
-        return {
-          id: company.id,
-          name: company.name || '',
-          email: company.email || '',
-          phone: company.phone || '',
-          isActive: company.isActive,
-          isVerified: company.isVerified,
-          subscriptionStatus: company.subscriptionStatus || '',
-          employeesCount,
-          activatedBy: activatedBySupadmin ? 
+      return {
+        id: company.id,
+        name: company.name || '',
+        email: company.email || '',
+        phone: company.phone || '',
+        isActive: company.isActive,
+        isVerified: company.isVerified,
+        subscriptionStatus: company.subscriptionStatus || '',
+        employeesCount,
+        activatedBy: activatedBySupadmin ? 
           `${activatedBySupadmin.email} (مسؤول أعلى)` : 
           activatedByAdmin ? `${activatedByAdmin.email} (أدمن)` :
           activatedBySeller ? `${activatedBySeller.email} (بائع)` :
           'غير معروف',
-          activatorType: activatedBySupadmin ? 'مسؤول أعلى' : 
+        activatorType: activatedBySupadmin ? 'مسؤول أعلى' : 
           activatedByAdmin ? 'أدمن' :
           activatedBySeller ? 'بائع' : 'غير معروف',
-          subscriptionDate: subscription?.startDate || undefined,
-          planName: subscription?.plan?.name || 'غير معروف',
-          adminEmail: activatedByAdmin?.email,
-          supadminEmail: activatedBySupadmin?.email
-        };
-      })
-    );
+        subscriptionDate: latestSubscription?.startDate || undefined,
+        planName: latestSubscription?.plan?.name || 'غير معروف',
+        adminEmail: activatedByAdmin?.email,
+        supadminEmail: activatedBySupadmin?.email
+      };
+    })
+  );
 
-    return {
-      data: formattedData,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-    };
+  return {
+    data: formattedData,
+    total,
+    page,
+    totalPages: Math.ceil(total / limit),
+  };
+}
 
-  }
-  
   async toggleCompanyStatus(
     supadminId: string,
     companyId: string,
