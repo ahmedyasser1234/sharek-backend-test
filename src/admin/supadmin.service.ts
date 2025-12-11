@@ -1221,11 +1221,13 @@ async getAllCompanies(
     throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الشركات');
   }
 
+  // جلب جميع الاشتراكات مرة واحدة
   const allSubscriptions = await this.subRepo.find({
     relations: ['company', 'plan', 'activatedBySupadmin', 'activatedByAdmin', 'activatedBySeller'],
     order: { createdAt: 'DESC' }
   });
 
+  // تجميع الاشتراكات حسب الشركة
   const subscriptionsByCompany = new Map<string, CompanySubscription[]>();
   
   allSubscriptions.forEach(subscription => {
@@ -1238,36 +1240,62 @@ async getAllCompanies(
     }
   });
 
+  // بناء الاستعلام - جلب كل الشركات
   const query = this.companyRepo.createQueryBuilder('company');
 
+  // فلترة البحث فقط
   if (search) {
     query.where('(company.name LIKE :search OR company.email LIKE :search OR company.phone LIKE :search)', {
       search: `%${search}%`
     });
   }
 
-  if (status) {
-    query.andWhere('company.subscriptionStatus = :status', { status });
+  // فلترة الحالة (اختياري)
+  if (status && status.trim() !== '') {
+    query.andWhere('LOWER(company.subscriptionStatus) = LOWER(:status)', { 
+      status: status.trim() 
+    });
   }
 
+  // الحصول على جميع الشركات مع الترتيب والصفحات
   const [companies, total] = await query
     .orderBy('company.createdAt', 'DESC')
     .skip((page - 1) * limit)
     .take(limit)
     .getManyAndCount();
 
+  this.logger.log(`جلب ${companies.length} شركة من أصل ${total} شركة (صفحة ${page})`);
+
+  // تنسيق البيانات
   const formattedData = await Promise.all(
     companies.map(async (company) => {
+      // جلب اشتراكات هذه الشركة (قد تكون موجودة أو لا)
       const companySubscriptions = subscriptionsByCompany.get(company.id) || [];
       const latestSubscription = companySubscriptions.length > 0 ? companySubscriptions[0] : null;
 
+      // حساب عدد الموظفين
       const employeesCount = await this.employeeRepo.count({
         where: { company: { id: company.id } }
       });
 
+      // تحديد من قام بالتفعيل
       const activatedBySupadmin = latestSubscription?.activatedBySupadmin;
       const activatedByAdmin = latestSubscription?.activatedByAdmin;
       const activatedBySeller = latestSubscription?.activatedBySeller;
+
+      let activatedBy = 'لا يوجد اشتراك';
+      let activatorType = 'لا يوجد';
+
+      if (activatedBySupadmin) {
+        activatedBy = `${activatedBySupadmin.email} (مسؤول أعلى)`;
+        activatorType = 'مسؤول أعلى';
+      } else if (activatedByAdmin) {
+        activatedBy = `${activatedByAdmin.email} (أدمن)`;
+        activatorType = 'أدمن';
+      } else if (activatedBySeller) {
+        activatedBy = `${activatedBySeller.email} (بائع)`;
+        activatorType = 'بائع';
+      }
 
       return {
         id: company.id,
@@ -1276,18 +1304,12 @@ async getAllCompanies(
         phone: company.phone || '',
         isActive: company.isActive,
         isVerified: company.isVerified,
-        subscriptionStatus: company.subscriptionStatus || '',
+        subscriptionStatus: company.subscriptionStatus || 'غير مشترك',
         employeesCount,
-        activatedBy: activatedBySupadmin ? 
-          `${activatedBySupadmin.email} (مسؤول أعلى)` : 
-          activatedByAdmin ? `${activatedByAdmin.email} (أدمن)` :
-          activatedBySeller ? `${activatedBySeller.email} (بائع)` :
-          'غير معروف',
-        activatorType: activatedBySupadmin ? 'مسؤول أعلى' : 
-          activatedByAdmin ? 'أدمن' :
-          activatedBySeller ? 'بائع' : 'غير معروف',
+        activatedBy,
+        activatorType,
         subscriptionDate: latestSubscription?.startDate || undefined,
-        planName: latestSubscription?.plan?.name || 'غير معروف',
+        planName: latestSubscription?.plan?.name || 'لا يوجد',
         adminEmail: activatedByAdmin?.email,
         supadminEmail: activatedBySupadmin?.email
       };
