@@ -1206,7 +1206,7 @@ export class SupadminService {
     return result.filter(company => company !== null) as CompanyWithEmployeeCount[];
   }
 
-  async getAllCompanies(
+   async getAllCompanies(
     supadminId: string,
     page: number = 1,
     limit: number = 10,
@@ -1222,11 +1222,15 @@ export class SupadminService {
     }
 
     const query = this.companyRepo.createQueryBuilder('company')
-      .leftJoinAndSelect('company.subscriptions', 'subscriptions')
-      .leftJoinAndSelect('subscriptions.plan', 'plan')
-      .leftJoinAndSelect('subscriptions.activatedBySupadmin', 'supadmin')
-      .leftJoinAndSelect('subscriptions.activatedByAdmin', 'admin')
-      .leftJoinAndSelect('subscriptions.activatedBySeller', 'seller');
+    .leftJoin(
+      'company_subscription', 
+      'subscription', 
+      'subscription.companyId = company.id'
+    )
+    .leftJoin('plan', 'plan', 'plan.id = subscription.planId')
+    .leftJoin('supadmin', 'supadmin', 'supadmin.id = subscription.activatedBySupadminId')
+    .leftJoin('admin', 'admin', 'admin.id = subscription.activatedByAdminId')
+    .leftJoin('manager', 'seller', 'seller.id = subscription.activatedBySellerId');
 
     if (search) {
       query.where('(company.name LIKE :search OR company.email LIKE :search OR company.phone LIKE :search)', {
@@ -1239,18 +1243,25 @@ export class SupadminService {
     }
 
     const [companies, total] = await query
-      .orderBy('company.createdAt', 'DESC')
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getManyAndCount();
+    .orderBy('company.createdAt', 'DESC')
+    .skip((page - 1) * limit)
+    .take(limit)
+    .getManyAndCount();
 
     const formattedData = await Promise.all(
       companies.map(async (company) => {
+        const subscription = await this.subRepo.findOne({
+          where: { 
+            company: { id: company.id },
+            status: SubscriptionStatus.ACTIVE
+          },
+          relations: ['plan', 'activatedBySupadmin', 'activatedByAdmin', 'activatedBySeller'],
+          order: { createdAt: 'DESC' }
+        });
+
         const employeesCount = await this.employeeRepo.count({
           where: { company: { id: company.id } }
         });
-
-        const subscription = company.subscriptions?.[0]; 
 
         const activatedBySupadmin = subscription?.activatedBySupadmin;
         const activatedByAdmin = subscription?.activatedByAdmin;
@@ -1266,13 +1277,13 @@ export class SupadminService {
           subscriptionStatus: company.subscriptionStatus || '',
           employeesCount,
           activatedBy: activatedBySupadmin ? 
-            `${activatedBySupadmin.email} (مسؤول أعلى)` : 
-            activatedByAdmin ? `${activatedByAdmin.email} (أدمن)` :
-            activatedBySeller ? `${activatedBySeller.email} (بائع)` :
-            'غير معروف',
+          `${activatedBySupadmin.email} (مسؤول أعلى)` : 
+          activatedByAdmin ? `${activatedByAdmin.email} (أدمن)` :
+          activatedBySeller ? `${activatedBySeller.email} (بائع)` :
+          'غير معروف',
           activatorType: activatedBySupadmin ? 'مسؤول أعلى' : 
-            activatedByAdmin ? 'أدمن' :
-            activatedBySeller ? 'بائع' : 'غير معروف',
+          activatedByAdmin ? 'أدمن' :
+          activatedBySeller ? 'بائع' : 'غير معروف',
           subscriptionDate: subscription?.startDate || undefined,
           planName: subscription?.plan?.name || 'غير معروف',
           adminEmail: activatedByAdmin?.email,
