@@ -695,7 +695,6 @@ async login(
     return this.supadminService.rejectPaymentProof(supadminId, id, body.reason);
   }
 
-  // === الإحصائيات والتقارير ===
   @Get('stats')
   @UseGuards(SupadminJwtGuard)
   @ApiBearerAuth()

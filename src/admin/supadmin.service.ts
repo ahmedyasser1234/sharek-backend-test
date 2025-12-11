@@ -86,15 +86,9 @@ export interface SupadminWithData {
 
 export interface SystemStats {
   totalCompanies: number;
-  activeCompanies: number;
   totalEmployees: number;
   activeSubscriptions: number;
-  expiringSubscriptions: number;
-  pendingPayments: number;
   totalSellers: number;
-  activeSellers: number;
-  totalSupadmins: number;
-  monthlyRevenue: number;
 }
 
 export interface SellerList {
@@ -108,7 +102,6 @@ export interface SellerList {
   createdBy?: string;
 }
 
-// تعريف أنواع الخدمات
 type CancelSubscriptionResult = {
   message: string;
   cancelledSubscriptions: number;
@@ -1913,45 +1906,21 @@ export class SupadminService {
 
     const [
       totalCompanies,
-      activeCompanies,
       totalEmployees,
       activeSubscriptions,
-      pendingPayments,
       totalSellers,
-      activeSellers,
-      totalSupadmins,
     ] = await Promise.all([
       this.companyRepo.count(),
-      this.companyRepo.count({ where: { isActive: true } }),
       this.employeeRepo.count(),
       this.subRepo.count({ where: { status: SubscriptionStatus.ACTIVE } }),
-      this.paymentProofRepo.count({ where: { reviewed: false } }),
       this.sellerRepo.count(),
-      this.sellerRepo.count({ where: { isActive: true } }),
-      this.supadminRepo.count({ where: { isActive: true } }),
     ]);
-
-    const sevenDaysFromNow = new Date();
-    sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
-    
-    const expiringSubscriptions = await this.subRepo.createQueryBuilder('sub')
-      .where('sub.endDate <= :date', { date: sevenDaysFromNow })
-      .andWhere('sub.status = :status', { status: SubscriptionStatus.ACTIVE })
-      .getCount();
-
-    const monthlyRevenue = await this.calculateMonthlyRevenue();
 
     return {
       totalCompanies,
-      activeCompanies,
       totalEmployees,
       activeSubscriptions,
-      expiringSubscriptions,
-      pendingPayments,
       totalSellers,
-      activeSellers,
-      totalSupadmins,
-      monthlyRevenue,
     };
   }
 
@@ -2006,7 +1975,6 @@ export class SupadminService {
   }
 
   private getPermissions(supadmin: Supadmin): Record<string, boolean> {
-    // الصلاحيات الأساسية كما تريدها
     const basePermissions = {
       canManagePlans: false,
       canManageSellers: true,
@@ -2080,3 +2048,5 @@ export class SupadminService {
     return false;
   }
 }
+
+
