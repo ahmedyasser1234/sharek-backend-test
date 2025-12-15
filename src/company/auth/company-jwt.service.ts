@@ -32,7 +32,6 @@ export class CompanyJwtService {
       expiresIn: parseInt(process.env.JWT_EXPIRES_IN || '3600'),
       issuer: 'sharik-app'
     });
-    this.logger.debug(` تم إنشاء توكن وصول جديد للشركة: ${payload.companyId}`);
     return token;
   }
 
@@ -41,7 +40,6 @@ export class CompanyJwtService {
       expiresIn: parseInt(process.env.JWT_REFRESH_EXPIRES_IN || '604800'),
       issuer: 'sharik-app'
     });
-    this.logger.debug(` تم إنشاء توكن تحديث جديد للشركة: ${payload.companyId}`);
     return token;
   }
 
@@ -54,12 +52,10 @@ export class CompanyJwtService {
         throw new UnauthorizedException('الرجاء تسجيل الدخول');
       }
       
-      this.logger.debug(` تم التحقق من التوكن بنجاح للشركة: ${payload.companyId}`);
       return payload;
     } catch (error: unknown) {
       const jwtError = error as JwtError;
       this.logger.error(` فشل التحقق من التوكن: ${jwtError.message}`);
-      this.logger.debug(` نوع الخطأ: ${jwtError.name}, التوكن: ${token.substring(0, 20)}...`);
       
       if (jwtError.name === 'TokenExpiredError') {
         throw new UnauthorizedException('الجلسة منتهية يرجى تسجبل الدخول');
@@ -80,7 +76,6 @@ export class CompanyJwtService {
         throw new UnauthorizedException('الرجاء تسجيل الدخول');
       }
       
-      this.logger.debug(` تم التحقق من التوكن بشكل غير متزامن للشركة: ${payload.companyId}`);
       return payload;
     } catch (error: unknown) {
       const jwtError = error as JwtError;
@@ -104,7 +99,6 @@ export class CompanyJwtService {
         return payload;
       }
       
-      this.logger.warn(' التوكن المفكوك لا يحتوي على companyId صالح');
       return null;
     } catch (error: unknown) {
       const err = error as Error;

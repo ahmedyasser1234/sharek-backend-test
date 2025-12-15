@@ -85,7 +85,6 @@ export class CompanyService implements OnModuleInit {
       });
 
       if (!company) {
-        this.logger.warn(`الشركة غير موجودة: ${companyId}`);
         return;
       }
 
@@ -100,7 +99,6 @@ export class CompanyService implements OnModuleInit {
             planId: activeSubscription.plan.id, 
             subscribedAt: activeSubscription.startDate
           });
-          this.logger.log(` تم مزامنة حالة الاشتراك للشركة ${companyId} إلى active`);
         }
       } else {
         if (company.subscriptionStatus === 'active') {
@@ -109,7 +107,6 @@ export class CompanyService implements OnModuleInit {
             planId: null,
             subscribedAt: null as any 
           });
-          this.logger.log(` تم مزامنة حالة الاشتراك للشركة ${companyId} إلى inactive`);
         }
       }
     } catch (error: unknown) {
@@ -146,7 +143,6 @@ export class CompanyService implements OnModuleInit {
   async shouldLogoutDueToInactivity(companyId: string): Promise<boolean> {
     try {
       const result = await this.activityTracker.checkInactivity(companyId);
-      this.logger.debug(` نتيجة التحقق من النشاط للشركة ${companyId}: ${result}`);
       return result;
     } catch (error) {
       this.logger.error(` خطأ في التحقق من النشاط في CompanyService: ${error}`);
@@ -157,7 +153,6 @@ export class CompanyService implements OnModuleInit {
   async markUserAsOffline(companyId: string): Promise<void> {
     try {
       await this.activityTracker.markAsOffline(companyId);
-      this.logger.log(` تم تسجيل خروج الشركة ${companyId} بسبب عدم النشاط`);
     } catch (error) {
       this.logger.error(` فشل تعيين حالة غير متصل في CompanyService: ${error}`);
     }
@@ -172,7 +167,6 @@ export class CompanyService implements OnModuleInit {
     const normalizedEmail = this.normalizeEmail(email);
     const exists = await this.companyRepo.findOne({ where: { email: normalizedEmail } });
     if (exists) {
-      this.logger.warn(`الشركة الافتراضية موجودة بالفعل: ${normalizedEmail}`);
       return;
     }
 
@@ -193,7 +187,6 @@ export class CompanyService implements OnModuleInit {
 
     const company = this.companyRepo.create(companyData);
     await this.companyRepo.save(company);
-    this.logger.log(`تم زرع الشركة الافتراضية: ${normalizedEmail}`);
   }
 
   async countEmployees(companyId: string): Promise<number> {
@@ -256,13 +249,8 @@ export class CompanyService implements OnModuleInit {
 
     if (customFont) {
       try {
-        this.logger.debug(`بدء رفع الخط المخصص: ${customFont.originalname}`);
-        
         const fileName = customFont.originalname || 'custom-font';
         const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
-        
-        this.logger.debug(`امتداد ملف الخط: ${fileExtension}`);
-        this.logger.debug(`نوع MIME: ${customFont.mimetype}`);
         
         let fontType = 'ttf'; 
         
@@ -305,8 +293,6 @@ export class CompanyService implements OnModuleInit {
           }
         }
         
-        this.logger.debug(`نوع الخط المكتشف: ${fontType}`);
-        
         const fontUploadResult = await this.fileUploadService.uploadFont(customFont, tempId, fontType);
         customFontUrl = fontUploadResult.fileUrl;
         
@@ -314,15 +300,12 @@ export class CompanyService implements OnModuleInit {
           fileName.split('.')[0] || 
           `CustomFont-${Date.now()}`;
 
-        this.logger.debug(`تم رفع الخط: ${customFontUrl}, بالاسم: ${finalCustomFontName}, بالنوع: ${fontType}`);
-
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         this.logger.error(`فشل رفع الخط المخصص: ${errorMessage}`);
         throw new InternalServerErrorException(`فشل رفع ملف الخط: ${errorMessage}`);
       }
     } else if (dto.customFontUrl && dto.customFontUrl.trim() !== '') {
-      // استخدام الرابط النصي إذا لم يتم رفع ملف
       customFontUrl = dto.customFontUrl;
       finalCustomFontName = dto.customFontName || 'CustomFont';
     }
@@ -344,7 +327,6 @@ export class CompanyService implements OnModuleInit {
       paymentProvider: undefined,
     };
 
-    // إضافة بيانات الخط إذا تم رفعه أو إدخال رابط
     if (customFontUrl) {
       companyData.customFontUrl = customFontUrl;
       companyData.customFontName = finalCustomFontName;
@@ -384,8 +366,6 @@ export class CompanyService implements OnModuleInit {
       throw new InternalServerErrorException('إعدادات البريد الإلكتروني غير مكتملة');
     }
 
-    this.logger.log(` إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
-
     const transportOptions: SMTPTransport.Options = {
       host: emailHost,
       port: parseInt(emailPort),
@@ -422,7 +402,6 @@ export class CompanyService implements OnModuleInit {
 
     try {
       await transporter.sendMail(mailOptions);
-      this.logger.log(` تم إرسال كود التحقق إلى ${normalizedEmail}`);
       return `تم إرسال كود التحقق إلى ${normalizedEmail}`;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -502,8 +481,6 @@ export class CompanyService implements OnModuleInit {
           const result = await this.cloudinaryService.uploadImage(compressedFile, `companies/${id}/logo`);
           logoUrl = result.secure_url;
         }
-        
-        this.logger.debug(`تم رفع الشعار الجديد: ${logoUrl}`);
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         this.logger.error(`فشل رفع الشعار على Cloudinary: ${errorMessage}`);
@@ -513,15 +490,10 @@ export class CompanyService implements OnModuleInit {
 
     if (customFont) {
       try {
-        this.logger.debug(`بدء رفع الخط المخصص: ${customFont.originalname}`);
-        
         const fileName = customFont.originalname || 'custom-font';
         const fileExtension = fileName.split('.').pop()?.toLowerCase() || '';
         
-        this.logger.debug(`امتداد ملف الخط: ${fileExtension}`);
-        this.logger.debug(`نوع MIME: ${customFont.mimetype}`);
-        
-        let fontType = 'ttf'; // قيمة افتراضية
+        let fontType = 'ttf';
         
         if (fileExtension) {
           switch(fileExtension) {
@@ -550,7 +522,6 @@ export class CompanyService implements OnModuleInit {
               fontType = 'ttf'; 
               break;
             default:
-              // استخدم الميم تايب إذا كان معروفاً
               if (customFont.mimetype.includes('woff2')) {
                 fontType = 'woff2';
               } else if (customFont.mimetype.includes('woff')) {
@@ -560,11 +531,8 @@ export class CompanyService implements OnModuleInit {
               } else if (customFont.mimetype.includes('truetype')) {
                 fontType = 'ttf';
               }
-              // وإلا يبقى 'ttf' كافتراضي
           }
         }
-        
-        this.logger.debug(`نوع الخط المكتشف: ${fontType}`);
         
         const fontUploadResult = await this.fileUploadService.uploadFont(customFont, id, fontType);
         customFontUrl = fontUploadResult.fileUrl;
@@ -573,15 +541,12 @@ export class CompanyService implements OnModuleInit {
           fileName.split('.')[0] || 
           `CustomFont-${Date.now()}`;
 
-        this.logger.debug(`تم رفع الخط: ${customFontUrl}, بالاسم: ${finalCustomFontName}, بالنوع: ${fontType}`);
-
         if (company.customFontUrl && company.customFontUrl.trim() !== '') {
           try {
             await this.fileUploadService.deleteFont(company.customFontUrl);
-            this.logger.debug(`تم حذف الخط القديم: ${company.customFontUrl}`);
           } catch (deleteError: unknown) {
             const deleteErrorMessage = deleteError instanceof Error ? deleteError.message : 'Unknown error';
-            this.logger.warn(`فشل حذف الخط القديم: ${deleteErrorMessage}`);
+            this.logger.error(`فشل حذف الخط القديم: ${deleteErrorMessage}`);
           }
         }
       } catch (error: unknown) {
@@ -617,13 +582,8 @@ export class CompanyService implements OnModuleInit {
       updateData.fontFamily = dto.fontFamily;
     }
 
-    this.logger.debug(`بيانات التحديث: ${JSON.stringify(updateData)}`);
     if (Object.keys(updateData).length > 0) {
       await this.companyRepo.update(id, updateData);
-      this.logger.debug(`تم تحديث بيانات الشركة ${id} بنجاح`);
-
-    } else {
-      this.logger.debug(`لا توجد بيانات لتحديثها للشركة ${id}`);
     }
   }
 
@@ -708,14 +668,12 @@ export class CompanyService implements OnModuleInit {
           );
         } catch (tableError: unknown) {
           const errorMessage = tableError instanceof Error ? tableError.message : 'Unknown error';
-          this.logger.warn(` لا يوجد جدول ${table}: ${errorMessage}`);
         }
       }
 
       await queryRunner.query(`DELETE FROM company WHERE id = $1`, [id]);
 
       await queryRunner.commitTransaction();
-      this.logger.log(` تم حذف الشركة ${id} وجميع بياناتها`);
 
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
@@ -743,7 +701,6 @@ export class CompanyService implements OnModuleInit {
         await queryRunner.query(`DELETE FROM company WHERE id = $1`, [id]);
 
         await queryRunner.commitTransaction();
-        this.logger.log(` تم حذف الشركة ${id} بعد إزالة الـ constraint`);
 
       } catch (innerError: unknown) {
         await queryRunner.rollbackTransaction();
@@ -930,7 +887,6 @@ export class CompanyService implements OnModuleInit {
     });
 
     if (!existing) {
-      this.logger.warn(` التوكن غير موجود في عملية تسجيل الخروج`);
       throw new NotFoundException('Refresh token غير صالح');
     }
 
@@ -953,9 +909,8 @@ export class CompanyService implements OnModuleInit {
           expiresAt: new Date(Date.now() + 15 * 60 * 1000),
         });
         await this.revokedTokenRepo.save(revoked);
-        this.logger.debug(`تم إلغاء توكن الوصول للشركة ${companyId}`);
       } catch {
-        this.logger.warn(` التوكن غير صالح للتسجيل كـ ملغي`);
+        //
       }
     }
     
@@ -965,8 +920,6 @@ export class CompanyService implements OnModuleInit {
       action: 'logout',
       success: true,
     });
-
-    this.logger.log(` تم تسجيل خروج الشركة ${companyId} بنجاح`);
     
     return { success: true };
   }
@@ -1026,8 +979,6 @@ export class CompanyService implements OnModuleInit {
       throw new InternalServerErrorException('إعدادات البريد الإلكتروني غير مكتملة');
     }
 
-    this.logger.log(` إعدادات البريد: ${emailHost}:${emailPort} - ${emailUser}`);
-
     const transporter = nodemailer.createTransport({
       host: emailHost,
       port: parseInt(emailPort),
@@ -1058,7 +1009,6 @@ export class CompanyService implements OnModuleInit {
 
     try {
       await transporter.sendMail(mailOptions);
-      this.logger.log(` تم إرسال كود إعادة تعيين كلمة المرور إلى ${normalizedEmail}`);
       return 'تم إرسال كود إعادة تعيين كلمة المرور';
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';

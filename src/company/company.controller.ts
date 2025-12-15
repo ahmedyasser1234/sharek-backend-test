@@ -176,14 +176,8 @@ export class CompanyController {
     @Body() dto: CreateCompanyDto, 
     @UploadedFiles() files: Express.Multer.File[]
   ) {
-    this.logger.debug(`ملفات مستلمة: ${files.length} ملفات`);
-    
     const logo = files.find(file => file.fieldname === 'logo');
     const customFont = files.find(file => file.fieldname === 'customFont');
-    
-    if (customFont && dto.customFontUrl) {
-      this.logger.warn('تم رفع ملف خط، سيتم تجاهل customFontUrl النصي');
-    }
     
     const company = await this.companyService.createCompany(dto, logo, customFont);
     return {
@@ -705,7 +699,6 @@ export class CompanyController {
           }
         }
         
-        console.error(`خطأ في فحص الملف: ${errorMessage}`);
         return cb(new BadRequestException('خطأ في معالجة الملف'), false);
       }
     }
@@ -753,21 +746,8 @@ export class CompanyController {
     const logo = files.find(file => file.fieldname === 'logo');
     const customFont = files.find(file => file.fieldname === 'customFont');
 
-    this.logger.debug(`ملفات مستلمة: logo=${!!logo}, customFont=${!!customFont}`);
-    this.logger.debug(`عدد الملفات الإجمالي: ${files.length}`);
-    
-    if (customFont) {
-      this.logger.debug(`تفاصيل ملف الخط: 
-        اسم الملف: ${customFont.originalname}
-        نوع MIME: ${customFont.mimetype}
-        الحجم: ${customFont.size} bytes
-        الامتداد: ${customFont.originalname?.split('.').pop()?.toLowerCase()}
-      `);
-    }
-
     // إذا كان هناك ملف خط مرفوع، تجاهل customFontUrl إذا كان موجوداً
     if (customFont && dto.customFontUrl) {
-      this.logger.warn('تم رفع ملف خط، سيتم تجاهل customFontUrl النصي');
       dto.customFontUrl = undefined;
     }
 
