@@ -18,6 +18,8 @@ import {
   HttpCode,
   HttpStatus,
   Request,
+  UsePipes,
+  ValidationPipe,
 } from '@nestjs/common';
 import { SupadminService } from './supadmin.service';
 import { SupadminJwtGuard } from './auth/supadmin-jwt.guard';
@@ -27,6 +29,17 @@ import { SubscriptionStatus } from '../subscription/entities/company-subscriptio
 import { Plan } from '../plan/entities/plan.entity';
 import { ManagerRole } from './entities/manager.entity';
 import { SupadminRole } from './entities/supadmin.entity';
+import {
+  IsEmail,
+  IsString,
+  MinLength,
+  IsNotEmpty,
+  IsOptional,
+  IsBoolean,
+  IsNumber,
+  IsEnum,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 import type {
   SellerList,
@@ -35,7 +48,7 @@ import type {
   PaymentProofList,
   ApproveRejectResult,
   SystemStats,
-  SupadminWithData
+  SupadminWithData,
 } from './supadmin.service';
 
 interface CustomRequest extends Request {
@@ -56,39 +69,125 @@ interface SupadminRequest extends CustomRequest {
 }
 
 class LoginDto {
+  @IsNotEmpty({ message: 'البريد الإلكتروني مطلوب' })
+  @IsEmail({}, { message: 'صيغة البريد الإلكتروني غير صحيحة' })
   email: string;
+
+  @IsNotEmpty({ message: 'كلمة المرور مطلوبة' })
+  @IsString()
   password: string;
 }
 
 class RefreshTokenDto {
+  @IsNotEmpty({ message: 'توكن التجديد مطلوب' })
+  @IsString()
   refreshToken: string;
 }
 
 class LogoutDto {
+  @IsOptional()
+  @IsString()
   refreshToken?: string;
 }
 
 class UpdateProfileDto {
+  @IsOptional()
+  @IsString()
   fullName?: string;
+
+  @IsOptional()
+  @IsString()
   phone?: string;
 }
 
 class ChangePasswordDto {
+  @IsNotEmpty({ message: 'كلمة المرور القديمة مطلوبة' })
+  @IsString()
   oldPassword: string;
+
+  @IsNotEmpty({ message: 'كلمة المرور الجديدة مطلوبة' })
+  @IsString()
+  @MinLength(6, { message: 'كلمة المرور يجب أن تكون على الأقل 6 أحرف' })
   newPassword: string;
 }
 
 class CreateSellerDto {
+  @IsNotEmpty({ message: 'البريد الإلكتروني مطلوب' })
+  @IsEmail({}, { message: 'صيغة البريد الإلكتروني غير صحيحة' })
   email: string;
+
+  @IsNotEmpty({ message: 'كلمة المرور مطلوبة' })
+  @IsString()
+  @MinLength(6, { message: 'كلمة المرور يجب أن تكون على الأقل 6 أحرف' })
   password: string;
 }
 
+class UpdateSellerDto {
+  @IsOptional()
+  @IsEmail({}, { message: 'صيغة البريد الإلكتروني غير صحيحة' })
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6, { message: 'كلمة المرور يجب أن تكون على الأقل 6 أحرف' })
+  password?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
 class ToggleStatusDto {
+  @IsNotEmpty({ message: 'الحالة مطلوبة' })
+  @IsBoolean()
   isActive: boolean;
 }
 
 class RejectPaymentDto {
+  @IsNotEmpty({ message: 'سبب الرفض مطلوب' })
+  @IsString()
+  @MinLength(10, { message: 'يرجى كتابة سبب مفصل للرفض (10 أحرف على الأقل)' })
   reason: string;
+}
+
+class PaginationDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  limit?: number = 10;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+}
+
+class SubscriptionFilterDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  limit?: number = 10;
+
+  @IsOptional()
+  @IsEnum(SubscriptionStatus)
+  status?: SubscriptionStatus;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
 }
 
 @ApiTags('Supadmin - المسؤولين الأعلى')
@@ -98,84 +197,68 @@ export class SupadminController {
 
   constructor(private readonly supadminService: SupadminService) {}
 
-@Post('login')
-@ApiOperation({ 
-  summary: 'تسجيل دخول المسؤول الأعلى',
-  description: 'يقوم بتسجيل دخول المسؤول الأعلى باستخدام البريد الإلكتروني وكلمة المرور'
-})
-async login(
-  @Body() body: LoginDto,
-  @Req() req: CustomRequest
-) {
-  try {
-    this.logger.log(`=== Login Request Debug ===`);
-    
-    // تحقق من body
-    this.logger.log(`Body: ${JSON.stringify(body)}`);
-    this.logger.log(`Body type: ${typeof body}`);
-    
-    // إذا كان body فارغاً، تحقق من req.body
-    if (!body || Object.keys(body).length === 0) {
-      const reqBody = req.body as Partial<LoginDto>;
-      this.logger.log(`req.body: ${JSON.stringify(reqBody)}`);
+  @Post('login')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
+  @ApiOperation({ 
+    summary: 'تسجيل دخول المسؤول الأعلى',
+    description: 'يقوم بتسجيل دخول المسؤول الأعلى باستخدام البريد الإلكتروني وكلمة المرور'
+  })
+  async login(
+    @Body() body: LoginDto,
+    @Req() req: CustomRequest
+  ) {
+    try {
+      this.logger.log(`=== Login Request Debug ===`);
       
-      if (reqBody && reqBody.email && reqBody.password) {
-        body = {
-          email: reqBody.email,
-          password: reqBody.password
-        };
-        this.logger.log(`Using req.body: ${JSON.stringify(body)}`);
+      // التحقق النهائي من البيانات
+      if (!body || !body.email || !body.password) {
+        this.logger.error(`Login validation failed`);
+        throw new BadRequestException('البريد الإلكتروني وكلمة المرور مطلوبان');
       }
-    }
-    
-    // التحقق النهائي
-    if (!body || !body.email || !body.password) {
-      this.logger.error(`Login validation failed`);
-      throw new BadRequestException('البريد الإلكتروني وكلمة المرور مطلوبان');
-    }
 
-    // استخراج IP - طريقة بسيطة بدون أخطاء TypeScript
-    const getHeaderValue = (headerName: string): string | undefined => {
-      const headers = req.headers as unknown as Record<string, string | string[] | undefined>;
-      const value = headers[headerName.toLowerCase()] || headers[headerName];
-      if (Array.isArray(value)) {
-        return value.length > 0 ? value[0] : undefined;
+      // استخراج IP - طريقة بسيطة بدون أخطاء TypeScript
+      const getHeaderValue = (headerName: string): string | undefined => {
+        const headers = req.headers as unknown as Record<string, string | string[] | undefined>;
+        const value = headers[headerName.toLowerCase()] || headers[headerName];
+        if (Array.isArray(value)) {
+          return value.length > 0 ? value[0] : undefined;
+        }
+        return value;
+      };
+      
+      const xForwardedFor = getHeaderValue('x-forwarded-for');
+      const userAgent = getHeaderValue('user-agent');
+
+      let ipAddress = '';
+      if (xForwardedFor) {
+        ipAddress = xForwardedFor.split(',')[0].trim();
+      } else if (req.ip) {
+        ipAddress = req.ip;
+      } else if (req.socket?.remoteAddress) {
+        ipAddress = req.socket.remoteAddress;
       }
-      return value;
-    };
-    
-    const xForwardedFor = getHeaderValue('x-forwarded-for');
-    const userAgent = getHeaderValue('user-agent');
 
-    let ipAddress = '';
-    if (xForwardedFor) {
-      ipAddress = xForwardedFor.split(',')[0].trim();
-    } else if (req.ip) {
-      ipAddress = req.ip;
-    } else if (req.socket?.remoteAddress) {
-      ipAddress = req.socket.remoteAddress;
+      this.logger.log(`Attempting login for: ${body.email} from IP: ${ipAddress}`);
+      
+      const result = await this.supadminService.login(
+        body.email,
+        body.password,
+        ipAddress,
+        userAgent || ''
+      );
+      
+      this.logger.log(`Login successful for: ${body.email}`);
+      return result;
+      
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Login failed: ${errorMessage}`);
+      throw error;
     }
-
-    this.logger.log(`Attempting login for: ${body.email} from IP: ${ipAddress}`);
-    
-    const result = await this.supadminService.login(
-      body.email,
-      body.password,
-      ipAddress,
-      userAgent || ''
-    );
-    
-    this.logger.log(`Login successful for: ${body.email}`);
-    return result;
-    
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    this.logger.error(`Login failed: ${errorMessage}`);
-    throw error;
   }
-}
 
   @Post('refresh')
+  @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOperation({ 
     summary: 'تجديد توكن الوصول',
     description: 'يقوم بتجديد توكن الوصول باستخدام توكن التجديد'
@@ -196,6 +279,7 @@ async login(
   @Post('logout')
   @UseGuards(SupadminJwtGuard)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOperation({ 
     summary: 'تسجيل خروج المسؤول الأعلى',
     description: 'يقوم بتسجيل خروج المسؤول الأعلى من الجهاز الحالي'
@@ -247,6 +331,7 @@ async login(
   @Put('profile')
   @UseGuards(SupadminJwtGuard)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ whitelist: true, skipMissingProperties: true }))
   @ApiOperation({ 
     summary: 'تحديث الملف الشخصي',
     description: 'يقوم بتحديث بيانات الملف الشخصي للمسؤول الأعلى'
@@ -265,6 +350,7 @@ async login(
   @UseGuards(SupadminJwtGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOperation({ 
     summary: 'تغيير كلمة المرور',
     description: 'يغير كلمة مرور المسؤول الأعلى الحالي'
@@ -283,6 +369,7 @@ async login(
   @Get('sellers')
   @UseGuards(SupadminJwtGuard)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({ 
     summary: 'عرض جميع البائعين',
     description: 'يعرض قائمة بجميع البائعين في النظام'
@@ -291,9 +378,7 @@ async login(
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'عدد العناصر في الصفحة' })
   @ApiQuery({ name: 'search', required: false, type: String, description: 'بحث في البريد الإلكتروني' })
   async getAllSellers(
-    @Query('page') page: string = '1',
-    @Query('limit') limit: string = '10',
-    @Query('search') search: string | undefined,
+    @Query() query: PaginationDto,
     @Req() req: SupadminRequest
   ): Promise<{ data: SellerList[]; total: number; page: number; totalPages: number }> {
     const supadminId = req.supadminId;
@@ -301,15 +386,16 @@ async login(
 
     return this.supadminService.getAllSellers(
       supadminId,
-      parseInt(page),
-      parseInt(limit),
-      search
+      query.page || 1,
+      query.limit || 10,
+      query.search
     );
   }
 
   @Post('sellers')
   @UseGuards(SupadminJwtGuard)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOperation({ 
     summary: 'إنشاء بائع جديد',
     description: 'يقوم بإنشاء حساب بائع جديد في النظام'
@@ -324,10 +410,30 @@ async login(
     return this.supadminService.createSeller(supadminId, dto);
   }
 
+  @Put('sellers/:id')
+  @UseGuards(SupadminJwtGuard)
+  @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ whitelist: true, skipMissingProperties: true }))
+  @ApiOperation({ 
+    summary: 'تحديث بيانات البائع',
+    description: 'يقوم بتحديث بيانات البائع المحدد'
+  })
+  async updateSeller(
+    @Param('id') id: string,
+    @Body() dto: UpdateSellerDto,
+    @Req() req: SupadminRequest
+  ) {
+    const supadminId = req.supadminId;
+    if (!supadminId) throw new UnauthorizedException('غير مصرح');
+
+    return this.supadminService.updateSeller(supadminId, id, dto);
+  }
+
   @Patch('sellers/:id/status')
   @UseGuards(SupadminJwtGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOperation({ 
     summary: 'تغيير حالة البائع',
     description: 'يقوم بتفعيل أو تعطيل حساب البائع'
@@ -364,6 +470,7 @@ async login(
   @Get('companies')
   @UseGuards(SupadminJwtGuard)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({ 
     summary: 'عرض جميع الشركات',
     description: 'يعرض قائمة بجميع الشركات في النظام'
@@ -373,10 +480,7 @@ async login(
   @ApiQuery({ name: 'search', required: false, type: String, description: 'بحث في اسم أو بريد الشركة' })
   @ApiQuery({ name: 'status', required: false, type: String, description: 'فلترة حسب حالة الشركة' })
   async getAllCompanies(
-    @Query('page') page: string = '1',
-    @Query('limit') limit: string = '10',
-    @Query('search') search: string | undefined,
-    @Query('status') status: string | undefined,
+    @Query() query: PaginationDto,
     @Req() req: SupadminRequest
   ): Promise<{ data: CompanyWithEmployeeCount[]; total: number; page: number; totalPages: number }> {
     const supadminId = req.supadminId;
@@ -384,10 +488,10 @@ async login(
 
     return this.supadminService.getAllCompanies(
       supadminId,
-      parseInt(page),
-      parseInt(limit),
-      search,
-      status
+      query.page || 1,
+      query.limit || 10,
+      query.search,
+      query.status
     );
   }
 
@@ -395,6 +499,7 @@ async login(
   @UseGuards(SupadminJwtGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOperation({ 
     summary: 'تغيير حالة الشركة',
     description: 'يقوم بتفعيل أو تعطيل الشركة'
@@ -431,6 +536,7 @@ async login(
   @Get('subscriptions')
   @UseGuards(SupadminJwtGuard)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({ 
     summary: 'عرض جميع الاشتراكات',
     description: 'يعرض قائمة بجميع اشتراكات الشركات'
@@ -440,10 +546,7 @@ async login(
   @ApiQuery({ name: 'status', required: false, enum: SubscriptionStatus, description: 'فلترة حسب حالة الاشتراك' })
   @ApiQuery({ name: 'search', required: false, type: String, description: 'بحث في اسم أو بريد الشركة' })
   async getAllSubscriptions(
-    @Query('page') page: string = '1',
-    @Query('limit') limit: string = '10',
-    @Query('status') status: SubscriptionStatus | undefined,
-    @Query('search') search: string | undefined,
+    @Query() query: SubscriptionFilterDto,
     @Req() req: SupadminRequest
   ) {
     const supadminId = req.supadminId;
@@ -451,10 +554,10 @@ async login(
 
     return this.supadminService.getAllSubscriptions(
       supadminId,
-      parseInt(page),
-      parseInt(limit),
-      status,
-      search
+      query.page || 1,
+      query.limit || 10,
+      query.status,
+      query.search
     );
   }
 
@@ -535,6 +638,7 @@ async login(
   @Get('plans')
   @UseGuards(SupadminJwtGuard)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({ 
     summary: 'عرض جميع الخطط',
     description: 'يعرض قائمة بجميع الخطط المتاحة'
@@ -543,9 +647,7 @@ async login(
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'عدد العناصر في الصفحة' })
   @ApiQuery({ name: 'search', required: false, type: String, description: 'بحث في اسم الخطة' })
   async getAllPlans(
-    @Query('page') page: string = '1',
-    @Query('limit') limit: string = '10',
-    @Query('search') search: string | undefined,
+    @Query() query: PaginationDto,
     @Req() req: SupadminRequest
   ) {
     const supadminId = req.supadminId;
@@ -553,9 +655,9 @@ async login(
 
     return this.supadminService.getAllPlans(
       supadminId,
-      parseInt(page),
-      parseInt(limit),
-      search
+      query.page || 1,
+      query.limit || 10,
+      query.search
     );
   }
 
@@ -598,6 +700,7 @@ async login(
   @UseGuards(SupadminJwtGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOperation({ 
     summary: 'تغيير حالة الخطة',
     description: 'يقوم بتفعيل أو تعطيل الخطة'
@@ -634,6 +737,7 @@ async login(
   @Get('payments/proofs')
   @UseGuards(SupadminJwtGuard)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   @ApiOperation({ 
     summary: 'عرض طلبات التحويل البنكي',
     description: 'يعرض جميع طلبات إثبات الدفع البنكي'
@@ -642,9 +746,7 @@ async login(
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'عدد العناصر في الصفحة' })
   @ApiQuery({ name: 'status', required: false, type: String, description: 'فلترة حسب الحالة' })
   async getAllPaymentProofs(
-    @Query('page') page: string = '1',
-    @Query('limit') limit: string = '10',
-    @Query('status') status: string | undefined,
+    @Query() query: PaginationDto,
     @Req() req: SupadminRequest
   ): Promise<{ data: PaymentProofList[]; total: number; page: number; totalPages: number }> {
     const supadminId = req.supadminId;
@@ -652,9 +754,9 @@ async login(
 
     return this.supadminService.getAllPaymentProofs(
       supadminId,
-      parseInt(page),
-      parseInt(limit),
-      status
+      query.page || 1,
+      query.limit || 10,
+      query.status
     );
   }
 
@@ -680,6 +782,7 @@ async login(
   @UseGuards(SupadminJwtGuard)
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
+  @UsePipes(new ValidationPipe({ whitelist: true }))
   @ApiOperation({ 
     summary: 'رفض طلب تحويل بنكي',
     description: 'يقوم برفض طلب إثبات الدفع البنكي'
