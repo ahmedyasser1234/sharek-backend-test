@@ -121,23 +121,6 @@ export class EmployeeService {
   }
   
   async create(dto: CreateEmployeeDto, companyId: string, files: Express.Multer.File[]) {
- 
-  
-    Object.keys(dto).forEach(key => {
-      const value = dto[key as keyof CreateEmployeeDto];
-      if (value === null || value === undefined || value === '') {
-        this.logger.warn(`  ${key}: NULL/EMPTY`);
-      } else {
-        this.logger.log(` ${key}: ${this.safeToString(value)}`);
-      }
-    });
-
-    this.logger.log(` الملفات المستلمة: ${files?.length || 0} ملف`);
-    if (files && files.length > 0) {
-      files.forEach((file, index) => {
-      });
-    }
-
     const company = await this.companyRepo.findOne({ where: { id: companyId } });
     if (!company) {
       throw new NotFoundException('Company not found');
@@ -231,7 +214,7 @@ export class EmployeeService {
         if (normalizedUrl && isValidUrl(normalizedUrl)) {
           employeeData[field as keyof typeof employeeData] = normalizedUrl as any;
         } else if (normalizedUrl) {
-          this.logger.warn(`  الرابط غير صالح في ${field}: ${value}`);
+          this.logger.error(`  الرابط غير صالح في ${field}: ${value}`);
           employeeData[field as keyof typeof employeeData] = null as any;
         }
       }
@@ -249,31 +232,9 @@ export class EmployeeService {
         if (normalizedUrl && isValidUrl(normalizedUrl)) {
           employeeData[field as keyof typeof employeeData] = normalizedUrl as any;
         } else if (normalizedUrl) {
-          this.logger.warn(`  الرابط غير صالح في ${field}: ${value}`);
+          this.logger.error(`  الرابط غير صالح في ${field}: ${value}`);
           employeeData[field as keyof typeof employeeData] = null as any;
         }
-      }
-    });
-
-    const employeeDataForLog = {
-      name: employeeData.name,
-      email: employeeData.email,
-      jobTitle: employeeData.jobTitle,
-      phone: employeeData.phone,
-      showWorkingHours: employeeData.showWorkingHours,
-      isOpen24Hours: employeeData.isOpen24Hours,
-      workingHours: employeeData.workingHours,
-      workLink: employeeData.workLink,
-      workLinkkkk: employeeData.workLinkkkk,
-      facebook: employeeData.facebook,
-    };
-  
-    Object.keys(employeeDataForLog).forEach(key => {
-      const value = employeeDataForLog[key as keyof typeof employeeDataForLog];
-      if (value === null || value === undefined || value === '') {
-        this.logger.warn(`  ${key}: NULL/EMPTY في البيانات النهائية`);
-      } else {
-        this.logger.log(` ${key}: ${this.safeToString(value)}`);
       }
     });
 
@@ -338,10 +299,6 @@ export class EmployeeService {
       file.originalname.toLowerCase().endsWith('.pdf')
     );
 
-    if (!hasPdfFile) {
-      this.logger.warn(` لم يتم إرسال ملف PDF في حقل pdfFile أو pdfFileUrl`);
-    }
-
     function chunkArray<T>(array: T[], size: number): T[][] {
       const result: T[][] = [];
       for (let i = 0; i < array.length; i += size) {
@@ -375,7 +332,6 @@ export class EmployeeService {
         batch.map(async (file, fileIndex) => {
           try {
             if (file.size > 3 * 1024 * 1024) {
-              this.logger.warn(` الملف كبير جداً: ${file.originalname} - ${file.size} bytes`);
               throw new BadRequestException('الملف أكبر من 3MB');
             }
 
@@ -435,7 +391,6 @@ export class EmployeeService {
           }
 
         } catch (error: unknown) {
-
           const errMsg = error instanceof Error && typeof error.message === 'string'
           ? error.message
           : 'Unknown error';
@@ -634,8 +589,6 @@ async generateGoogleWalletLink(employeeId: number): Promise<{ url: string; saveL
     employee.googleWalletUrl = saveLink;
     await this.employeeRepo.save(employee);
 
-    this.logger.log(' تم إنشاء رابط Google Wallet');
-
     return {
       url: `${process.env.API_BASE_URL}/employee/${employeeId}/google-wallet/redirect`,
       saveLink: saveLink,
@@ -819,9 +772,8 @@ async generateGoogleWalletLink(employeeId: number): Promise<{ url: string; saveL
         const normalizedUrl = normalizeUrl(value);
         if (normalizedUrl && isValidUrl(normalizedUrl)) {
           linkUpdates[fieldKey] = normalizedUrl;
-          this.logger.log(`  تم تحويل ${fieldKey} في التحديث: ${value} → ${normalizedUrl}`);
         } else if (normalizedUrl) {
-          this.logger.warn(`  الرابط غير صالح في ${fieldKey} أثناء التحديث: ${value}`);
+          this.logger.error(`  الرابط غير صالح في ${fieldKey} أثناء التحديث: ${value}`);
           linkUpdates[fieldKey] = null;
         }
       }
@@ -935,7 +887,6 @@ async generateGoogleWalletLink(employeeId: number): Promise<{ url: string; saveL
       throw new NotFoundException('فشل في جلب بيانات الموظف بعد التحديث');
     }
 
-    // التعديل: إضافة الـ backgroundImage في الـ response
     const card = finalEmployee.cards?.[0];
     const responseData = {
       ...finalEmployee,
@@ -986,9 +937,6 @@ async generateGoogleWalletLink(employeeId: number): Promise<{ url: string; saveL
       typeof image.imageUrl === 'string'
     );
 
-    if (validImages.length !== images.length) {
-      this.logger.warn(`⚠️ بعض الصور غير صالحة، سيتم استخدام ${validImages.length} صورة صالحة فقط`);
-    }
     const oldImages = await this.imageRepo.find({ where: { employeeId } });
     
     await this.imageRepo.manager.transaction(async (transactionalEntityManager) => {
@@ -1013,24 +961,10 @@ async generateGoogleWalletLink(employeeId: number): Promise<{ url: string; saveL
 
 private async handleDeleteAllImages(employeeId: number): Promise<void> {
   try {
-    this.logger.log(` بدء حذف جميع الصور للموظف: ${employeeId}`);
-    
     const currentImages = await this.imageRepo.find({ where: { employeeId } });
-    this.logger.log(` عدد الصور الموجودة: ${currentImages.length}`);
     
     if (currentImages.length > 0) {
-      this.logger.log(` الصور التي سيتم حذفها:`);
-      currentImages.forEach((image, index) => {
-        this.logger.log(`   ${index + 1}. ${image.imageUrl} (${image.label})`);
-      });
-      
       const deleteResult = await this.imageRepo.delete({ employeeId });
-      this.logger.log(` تم حذف ${deleteResult.affected} صورة`);
-      
-      const afterDelete = await this.imageRepo.find({ where: { employeeId } });
-      this.logger.log(` عدد الصور بعد الحذف: ${afterDelete.length}`);
-    } else {
-      this.logger.log(`لا توجد صور لحذفها`);
     }
   } catch (error) {
     this.logger.error(` فشل في حذف الصور: ${error}`);
@@ -1110,7 +1044,6 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
   for (const file of validFiles) {
     try {
       if (file.size > 3 * 1024 * 1024) {
-        this.logger.warn(` الملف كبير جداً: ${file.originalname}`);
         continue;
       }
 
@@ -1136,8 +1069,6 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
       } else if (file.fieldname.startsWith('employee_images')) {
         await this.saveEmployeeImage(employee.id, result.secure_url, result.public_id, file.originalname);
         updatedFields.push('employee_images');
-      } else {
-        this.logger.warn(` حقل غير معروف: ${file.fieldname}`);
       }
 
     } catch (error: unknown) {
@@ -1238,30 +1169,6 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
   };
 }
 
-  private isCardDesignUpdated(dto: UpdateEmployeeDto, employee: Employee): boolean {
-    const designFields: (keyof UpdateEmployeeDto)[] = [
-      'name', 'jobTitle', 'designId', 'qrStyle',
-      'fontColorHead', 'fontColorHead2', 'fontColorParagraph', 'fontColorExtra',
-      'sectionBackground', 'Background', 'sectionBackground2', 'dropShadow',
-      'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread', 'cardRadius', 'cardStyleSection'
-    ];
-
-    let hasAnyChange = false;
-
-    designFields.forEach(field => {
-      const dtoValue = dto[field];
-      const employeeValue = employee[field as keyof Employee];
-
-      const hasChanged = dtoValue !== undefined && dtoValue !== employeeValue;
-    
-      if (hasChanged) {
-        hasAnyChange = true;
-      }
-    });
-
-    return hasAnyChange;
-  }
-
   async remove(id: number) {
     const employeeRes = await this.findOne(id);
     const employee = employeeRes.data;
@@ -1346,7 +1253,7 @@ private async handleDeleteAllImages(employeeId: number): Promise<void> {
       cardInfo: {
         uniqueUrl: card.uniqueUrl,
         designId: card.designId,
-        backgroundImage: card.backgroundImage, // إضافة الـ backgroundImage هنا أيضاً
+        backgroundImage: card.backgroundImage,
       }
     };
 
