@@ -1848,49 +1848,60 @@ async getAllCompanies(
     };
   }
 
-  async subscribeCompanyToPlan(
-    supadminId: string,
-    companyId: string,
-    planId: string
-  ): Promise<SubscriptionResult> {
-    const supadmin = await this.supadminRepo.findOne({
-      where: { id: supadminId }
-    });
+async subscribeCompanyToPlan(
+  supadminId: string,
+  companyId: string,
+  planId: string
+): Promise<SubscriptionResult> {
+  const supadmin = await this.supadminRepo.findOne({
+    where: { id: supadminId }
+  });
 
-    if (!supadmin || !this.hasPermission(supadmin, 'manage_subscriptions')) {
-      throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الاشتراكات');
+  if (!supadmin || !this.hasPermission(supadmin, 'manage_subscriptions')) {
+    throw new ForbiddenException('غير مصرح - لا تملك صلاحية إدارة الاشتراكات');
+  }
+
+  try {
+    this.logger.log(`المسؤول الأعلى ${supadmin.email} يشترك بالشركة ${companyId} في الخطة ${planId}`);
+    
+    const result = await this.subscriptionService.subscribe(
+      companyId,       
+      planId, 
+      true, 
+      undefined, 
+      undefined, 
+      supadminId, 
+      supadmin.email 
+    );
+    
+    this.logger.log(`تم الاشتراك بنجاح للشركة ${companyId} في الخطة ${planId} بواسطة المسؤول الأعلى ${supadmin.email}`);
+    
+    if (result && typeof result === 'object' && 'message' in result) {
+      const subscriptionResult = result as SubscriptionResult;
+      return {
+        message: subscriptionResult.message,
+        redirectToDashboard: subscriptionResult.redirectToDashboard,
+        redirectToPayment: subscriptionResult.redirectToPayment,
+        checkoutUrl: subscriptionResult.checkoutUrl,
+        subscription: subscriptionResult.subscription,
+      };
     }
-
-    try {
-      this.logger.log(`المسؤول الأعلى ${supadmin.email} يشترك بالشركة ${companyId} في الخطة ${planId}`);
-      
-      const result = await this.subscriptionService.subscribe(
-        companyId, 
-        planId, 
-        false,  
-        undefined, 
-        supadminId
-      );
-      
-      this.logger.log(`تم الاشتراك بنجاح للشركة ${companyId} في الخطة ${planId} بواسطة المسؤول الأعلى ${supadmin.email}`);
-      
-      if (result && typeof result === 'object' && 'message' in result) {
-        const subscriptionResult = result as SubscriptionResult;
-        return {
-          message: subscriptionResult.message,
-          redirectToDashboard: subscriptionResult.redirectToDashboard,
-          redirectToPayment: subscriptionResult.redirectToPayment,
-          checkoutUrl: subscriptionResult.checkoutUrl,
-          subscription: subscriptionResult.subscription,
-        };
-      }
-      throw new Error('استجابة غير متوقعة من خدمة الاشتراك');
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      this.logger.error(`فشل اشتراك الشركة ${companyId} في الخطة ${planId}: ${errorMessage}`);
+    throw new Error('استجابة غير متوقعة من خدمة الاشتراك');
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    this.logger.error(`فشل اشتراك الشركة ${companyId} في الخطة ${planId}: ${errorMessage}`);
+    
+    if (error instanceof BadRequestException) {
+      throw error;
+    } else if (error instanceof NotFoundException) {
+      throw error;
+    } else if (error instanceof ForbiddenException) {
       throw error;
     }
+    
+    throw new InternalServerErrorException('فشل في عملية الاشتراك');
   }
+}
 
   async cancelSubscription(
     supadminId: string,
