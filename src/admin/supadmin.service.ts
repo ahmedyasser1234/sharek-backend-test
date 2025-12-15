@@ -1259,6 +1259,9 @@ async updateSeller(
     throw new ForbiddenException('غير مصرح - لا تملك صلاحية تحديث البائعين');
   }
 
+  this.logger.log(`بدء تحديث البائع ${sellerId} بواسطة ${supadmin.email}`);
+  this.logger.log(`بيانات التحديث: ${JSON.stringify(dto)}`);
+
   const seller = await this.sellerRepo.findOne({ 
     where: { id: sellerId },
     relations: ['createdBy']
@@ -1268,6 +1271,9 @@ async updateSeller(
     throw new NotFoundException('البائع غير موجود');
   }
 
+  this.logger.log(`البائع الحالي: ${seller.email}, النشط: ${seller.isActive}`);
+
+  // تحديث البريد الإلكتروني
   if (dto.email && dto.email !== seller.email) {
     const normalizedEmail = dto.email.toLowerCase().trim();
     
@@ -1284,25 +1290,45 @@ async updateSeller(
       throw new ConflictException('البريد الإلكتروني مستخدم بالفعل من قبل بائع آخر');
     }
     
+    this.logger.log(`تغيير البريد من ${seller.email} إلى ${normalizedEmail}`);
     seller.email = normalizedEmail;
   }
 
+  // تحديث كلمة المرور
   if (dto.password) {
     if (dto.password.length < 6) {
       throw new BadRequestException('كلمة المرور يجب أن تكون على الأقل 6 أحرف');
     }
+    this.logger.log(`تغيير كلمة المرور للبائع ${seller.email}`);
+    const oldPasswordHash = seller.password.substring(0, 20); // أول 20 حرف فقط للـ log
     seller.password = await bcrypt.hash(dto.password, 10);
+    const newPasswordHash = seller.password.substring(0, 20);
+    this.logger.log(`كلمة المرور القديمة (جزئي): ${oldPasswordHash}...`);
+    this.logger.log(`كلمة المرور الجديدة (جزئي): ${newPasswordHash}...`);
     
-    await this.managerTokenRepo.delete({ manager: { id: sellerId } });
-    this.logger.log(`تم إلغاء جميع جلسات البائع ${seller.email} بعد تغيير كلمة المرور`);
+    try {
+      await this.managerTokenRepo.delete({ manager: { id: sellerId } });
+      this.logger.log(`تم إلغاء جميع جلسات البائع ${seller.email} بعد تغيير كلمة المرور`);
+    } catch (tokenError: unknown) {
+      const tokenErrorMessage = tokenError instanceof Error ? tokenError.message : 'Unknown error';
+      this.logger.error(`فشل حذف التوكنات: ${tokenErrorMessage}`);
+    }
   }
   
+  // تحديث الحالة
   if (dto.isActive !== undefined) {
+    this.logger.log(`تغيير حالة البائع من ${seller.isActive} إلى ${dto.isActive}`);
     seller.isActive = dto.isActive;
   }
 
+  // تحديث تاريخ التعديل
+  seller.updatedAt = new Date();
+
   try {
+    this.logger.log(`محاولة حفظ التغييرات للبائع ${seller.email}`);
     const updatedSeller = await this.sellerRepo.save(seller);
+    this.logger.log(`تم حفظ التغييرات بنجاح`);
+    this.logger.log(`البائع بعد الحفظ: ${updatedSeller.email}, النشط: ${updatedSeller.isActive}`);
     
     try {
       await this.sendSellerUpdateEmail(updatedSeller, dto);
@@ -1315,6 +1341,17 @@ async updateSeller(
     
     this.logger.log(`تم تحديث البائع ${seller.email} بواسطة المسؤول الأعلى: ${supadmin.email}`);
     
+    // التحقق من التحديث مرة أخرى
+    const verifySeller = await this.sellerRepo.findOne({ 
+      where: { id: sellerId } 
+    });
+    
+    if (verifySeller) {
+      this.logger.log(`التحقق بعد الحفظ - البريد: ${verifySeller.email}, النشط: ${verifySeller.isActive}`);
+    } else {
+      this.logger.error(`البائع غير موجود بعد الحفظ!`);
+    }
+    
     return {
       ...sellerWithoutPassword,
       tokens: [],
@@ -1324,6 +1361,7 @@ async updateSeller(
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     this.logger.error(`فشل تحديث البائع ${sellerId}: ${errorMessage}`);
+    this.logger.error(`Stack trace: ${error instanceof Error ? error.stack : 'No stack trace'}`);
     
     if (errorMessage.includes('duplicate key') || errorMessage.includes('UNIQUE constraint')) {
       throw new ConflictException('البريد الإلكتروني مستخدم بالفعل');
