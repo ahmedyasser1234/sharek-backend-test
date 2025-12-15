@@ -35,7 +35,6 @@ export class ActivityTrackerService {
       }
 
       await this.activityRepo.save(activity);
-      this.logger.debug(` تم تسجيل نشاط للشركة ${companyId}: ${action}`);
     } catch (error) {
       this.logger.error(` فشل تسجيل النشاط للشركة ${companyId}: ${error}`);
     }
@@ -48,7 +47,6 @@ export class ActivityTrackerService {
       });
 
       if (!activity) {
-        this.logger.debug(` لا توجد سجلات نشاط للشركة ${companyId}`);
         return false; 
       }
 
@@ -56,14 +54,8 @@ export class ActivityTrackerService {
       const lastActivityTime = activity.lastActivity.getTime();
       const inactivityPeriod = now - lastActivityTime;
 
-      this.logger.debug(` التحقق من النشاط للشركة ${companyId}: ${inactivityPeriod}ms منذ آخر نشاط`);
-
       const isInactive = inactivityPeriod > this.INACTIVITY_THRESHOLD;
       
-      if (isInactive) {
-        this.logger.warn(` الشركة ${companyId} غير نشطة لمدة ${Math.round(inactivityPeriod / 60000)} دقيقة`);
-      }
-
       return isInactive;
     } catch (error) {
       this.logger.error(` خطأ في التحقق من النشاط للشركة ${companyId}: ${error}`);
@@ -77,7 +69,6 @@ export class ActivityTrackerService {
         { companyId },
         { isOnline: false, lastActivity: new Date() }
       );
-      this.logger.debug(` تم تعيين الشركة ${companyId} كغير متصل`);
     } catch (error) {
       this.logger.error(` فشل تعيين حالة غير متصل للشركة ${companyId}: ${error}`);
     }
@@ -86,7 +77,6 @@ export class ActivityTrackerService {
   async markAsOnline(companyId: string): Promise<void> {
     try {
       await this.recordActivity(companyId, 'login');
-      this.logger.debug(` تم تعيين الشركة ${companyId} كمتصل`);
     } catch (error) {
       this.logger.error(` فشل تعيين حالة متصل للشركة ${companyId}: ${error}`);
     }
@@ -116,7 +106,6 @@ export class ActivityTrackerService {
         .where('lastActivity < :threshold', { threshold })
         .execute();
 
-      this.logger.log(` تم تنظيف ${result.affected} سجل نشاط قديم`);
       return result.affected || 0;
     } catch (error) {
       this.logger.error(` فشل تنظيف سجلات النشاط القديمة: ${error}`);

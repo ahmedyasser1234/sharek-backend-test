@@ -3,7 +3,6 @@ import {
   NestInterceptor,
   ExecutionContext,
   CallHandler,
-  Logger,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
@@ -20,8 +19,6 @@ interface RequestWithUser {
 
 @Injectable()
 export class ActivityInterceptor implements NestInterceptor {
-  private readonly logger = new Logger(ActivityInterceptor.name);
-
   constructor(private readonly activityTracker: ActivityTrackerService) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
@@ -34,9 +31,7 @@ export class ActivityInterceptor implements NestInterceptor {
           const action = `${request.method} ${request.url}`;
           
           this.activityTracker.recordActivity(companyId, action)
-            .catch((err: Error) => 
-              this.logger.error(` فشل تسجيل النشاط في الإنترسيبتور: ${err.message}`)
-            );
+            .catch(() => {});
         }
       })
     );
