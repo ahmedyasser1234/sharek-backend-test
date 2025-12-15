@@ -39,7 +39,7 @@ import {
 } from '@nestjs/swagger';
 import { VisitService } from '../visit/visit.service';
 import { CardService } from '../card/card.service';
-import { DigitalCardService } from '../card/digital-card.service'; 
+import { DigitalCardService } from '../card/digital-card.service';
 
 interface CompanyRequest extends Request {
   user: { companyId: string };
@@ -60,6 +60,48 @@ export class EmployeeController {
     private readonly digitalCardService: DigitalCardService,
   ) {}
 
+  // ========== دالة لتشفير البيانات ==========
+  private encryptData(data: any): string {
+    if (!data) return '';
+    
+    try {
+      const jsonString = JSON.stringify(data);
+      // تشفير بسيط باستخدام Base64 مع إضافة بعض الحماية
+      const base64 = Buffer.from(jsonString).toString('base64');
+      
+      // تقليب الأحرف للحماية الإضافية
+      const reversed = base64.split('').reverse().join('');
+      const withPrefix = `ENC_${reversed}_${Date.now()}`;
+      
+      return withPrefix;
+    } catch (error) {
+      this.logger.error('Error encrypting data:', error);
+      return '';
+    }
+  }
+
+  // ========== دالة لفك التشفير (للاستخدام في Frontend) ==========
+  private decryptData(encrypted: string): any {
+    if (!encrypted || !encrypted.startsWith('ENC_')) {
+      return null;
+    }
+    
+    try {
+      // إزالة البادئة والوقت
+      const parts = encrypted.split('_');
+      if (parts.length < 3) return null;
+      
+      const reversed = parts[1];
+      const base64 = reversed.split('').reverse().join('');
+      const jsonString = Buffer.from(base64, 'base64').toString('utf-8');
+      
+      return JSON.parse(jsonString);
+    } catch (error) {
+      this.logger.error('Error decrypting data:', error);
+      return null;
+    }
+  }
+
   @Public()
   @Get('secondary-image/:uniqueUrl')
   @ApiOperation({ summary: 'جلب صورة التحميل للبطاقة' })
@@ -75,12 +117,15 @@ export class EmployeeController {
 
       const result = await this.employeeService.getSecondaryImageUrl(uniqueUrl);
       
+      // تشفير البيانات قبل إرجاعها
+      const encryptedData = this.encryptData({
+        secondaryImageUrl: result.secondaryImageUrl
+      });
+      
       return {
         statusCode: HttpStatus.OK,
         message: 'تم جلب صورة التحميل بنجاح',
-        data: {
-          secondaryImageUrl: result.secondaryImageUrl
-        }
+        encryptedData: encryptedData, // بيانات مشفرة
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -97,7 +142,7 @@ export class EmployeeController {
   @Get('by-url')
   async getByUniqueUrl(
     @Query('url') encodedUrl: string,
-    @Query('source') source: string = 'link', 
+    @Query('source') source: string = 'link',
     @Req() req: Request
   ) {
     try {
@@ -108,28 +153,29 @@ export class EmployeeController {
       }
 
       const uniqueUrl = decodeURIComponent(encodedUrl);
-    
       const finalSource = source;
-    
 
       const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
       if (!result.data) throw new BadRequestException('Employee not found');
 
+      // تشفير كامل البيانات
+      const encryptedData = this.encryptData(result.data);
+      
       return {
         statusCode: HttpStatus.OK,
         message: 'تم جلب بيانات البطاقة بنجاح',
-        data: result.data,
+        encryptedData: encryptedData, // جميع البيانات مشفرة هنا
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`فشل جلب البطاقة من الرابط ${encodedUrl}: ${msg}`);
     
       if (error instanceof NotFoundException) {
-      throw error;
+        throw error;
+      }
+      throw new InternalServerErrorException('حدث خطأ أثناء جلب البطاقة من الرابط');
     }
-    throw new InternalServerErrorException('حدث خطأ أثناء جلب البطاقة من الرابط');
   }
-}
 
   @Public()
   @Get('card/:uniqueUrl')
@@ -152,23 +198,25 @@ export class EmployeeController {
         finalSource = req.query.source as string;
       }
 
- 
       const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
       if (!result.data) throw new BadRequestException('البطاقة غير موجودة');
 
+      // تشفير البيانات
+      const encryptedData = this.encryptData(result.data);
+
       return {
         statusCode: HttpStatus.OK,
-        message: '  تم جلب البطاقة بنجاح',
-        data: result.data,
+        message: 'تم جلب البطاقة بنجاح',
+        encryptedData: encryptedData, // بيانات مشفرة
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب البطاقة  ${uniqueUrl}: ${msg}`);
+      this.logger.error(`فشل جلب البطاقة ${uniqueUrl}: ${msg}`);
       
       if (error instanceof NotFoundException) {
         throw error;
       }
-      throw new InternalServerErrorException('حدث خطأ أثناء جلب البطاقة ');
+      throw new InternalServerErrorException('حدث خطأ أثناء جلب البطاقة');
     }
   }
 
@@ -179,10 +227,14 @@ export class EmployeeController {
   async getGoogleWalletLink(@Param('id', ParseIntPipe) id: number) {
     try {
       const result = await this.employeeService.generateGoogleWalletLink(id);
+      
+      // تشفير البيانات
+      const encryptedData = this.encryptData(result);
+      
       return {
         statusCode: HttpStatus.OK,
-        message: 'تم توليد رابط محفظه جوجل  بنجاح',
-        data: result,
+        message: 'تم توليد رابط محفظه جوجل بنجاح',
+        encryptedData: encryptedData, // بيانات مشفرة
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -190,7 +242,6 @@ export class EmployeeController {
       throw new InternalServerErrorException('حدث خطأ أثناء إنشاء رابط Google Wallet');
     }
   }
-
 
   @Public()
   @Get(':id/google-wallet/redirect')
@@ -244,14 +295,14 @@ export class EmployeeController {
     }
   }
 
- @Public()
-@Get(':id/wallet-options')
-@ApiOperation({ summary: 'خيارات إضافة البطاقة إلى المحافظ الرقمية' })
-async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
-  try {
-    const employee = await this.employeeService.getEmployeeForWallet(id);
-    
-    const html = `
+  @Public()
+  @Get(':id/wallet-options')
+  @ApiOperation({ summary: 'خيارات إضافة البطاقة إلى المحافظ الرقمية' })
+  async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
+    try {
+      const employee = await this.employeeService.getEmployeeForWallet(id);
+      
+      const html = `
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
@@ -356,10 +407,10 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       storage: memoryStorage(),
       fileFilter: (req, file, cb) => {
         const allowedTypes = [
-          'image/jpeg', 
-          'image/png', 
+          'image/jpeg',
+          'image/png',
           'image/webp',
-          'application/pdf' 
+          'application/pdf'
         ];
         
         if (allowedTypes.includes(file.mimetype)) {
@@ -369,7 +420,7 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
         }
       },
       limits: {
-        fileSize: 3 * 1024 * 1024, 
+        fileSize: 3 * 1024 * 1024,
       },
     }),
   )
@@ -381,7 +432,6 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     try {
-      
       if (files && files.length > 0) {
         files.forEach((file, index) => {
           this.logger.log(`    ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.mimetype} - ${file.size} bytes`);
@@ -390,10 +440,14 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       
       const result = await this.employeeService.create(dto, req.user.companyId, files);
       this.logger.log(`تم إنشاء الموظف: ${result.data?.id}`);
+      
+      // تشفير البيانات
+      const encryptedData = this.encryptData(result.data);
+      
       return {
         statusCode: HttpStatus.CREATED,
         message: 'تم إنشاء البطاقة بنجاح',
-        data: result.data,
+        encryptedData: encryptedData, // بيانات مشفرة
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -423,11 +477,17 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       const pageNum = parseInt(page, 10);
       const limitNum = parseInt(limit, 10);
       const result = await this.employeeService.findAll(req.user.companyId, pageNum, limitNum, search);
+      
+      // تشفير البيانات
+      const encryptedData = this.encryptData({
+        data: result.data,
+        meta: result.meta
+      });
+      
       return {
         statusCode: HttpStatus.OK,
         message: 'Employees fetched successfully',
-        data: result.data,
-        meta: result.meta,
+        encryptedData: encryptedData, // بيانات مشفرة
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -445,10 +505,14 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
     try {
       const result = await this.employeeService.findOne(id);
       if (!result.data) throw new BadRequestException('Employee not found');
+
+      // تشفير البيانات
+      const encryptedData = this.encryptData(result.data);
+      
       return {
         statusCode: HttpStatus.OK,
         message: 'Employee fetched successfully',
-        data: result.data,
+        encryptedData: encryptedData, // بيانات مشفرة
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -468,10 +532,10 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       storage: memoryStorage(),
       fileFilter: (req, file, cb) => {
         const allowedTypes = [
-          'image/jpeg', 
-          'image/png', 
+          'image/jpeg',
+          'image/png',
           'image/webp',
-          'application/pdf' 
+          'application/pdf'
         ];
         
         if (allowedTypes.includes(file.mimetype)) {
@@ -491,22 +555,25 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateEmployeeDto,
-    @Req() req: CompanyRequest, 
+    @Req() req: CompanyRequest,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     try {
-      
       if (files && files.length > 0) {
         files.forEach((file, index) => {
           this.logger.log(`    ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.mimetype} - ${file.size} bytes`);
         });
       }
       
-      const result = await this.employeeService.update(id, dto, req.user.companyId, files); 
+      const result = await this.employeeService.update(id, dto, req.user.companyId, files);
+      
+      // تشفير البيانات
+      const encryptedData = this.encryptData(result.data);
+      
       return {
         statusCode: HttpStatus.OK,
         message: 'تم تحديث بيانات البطاقة بنجاح',
-        data: result.data,
+        encryptedData: encryptedData, // بيانات مشفرة
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -584,20 +651,23 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
         message += ` وتم رفض ${limitSkipped} موظف بسبب تجاوز الحد في الخطة`;
       }
       
+      // تشفير البيانات
+      const encryptedData = this.encryptData({
+        imported: result.imported,
+        skipped: result.skipped,
+        summary: {
+          totalImported: result.count,
+          totalSkipped: result.skipped.length,
+          limitReached: result.limitReached,
+          limitSkippedCount: result.skipped.filter(s => s.includes('subscription limit reached')).length,
+          successRate: Math.round((result.count / (result.count + result.skipped.length)) * 100)
+        }
+      });
+      
       return {
         statusCode: HttpStatus.CREATED,
         message: message,
-        data: {
-          imported: result.imported,
-          skipped: result.skipped,
-          summary: {
-            totalImported: result.count,
-            totalSkipped: result.skipped.length,
-            limitReached: result.limitReached,
-            limitSkippedCount: result.skipped.filter(s => s.includes('subscription limit reached')).length,
-            successRate: Math.round((result.count / (result.count + result.skipped.length)) * 100)
-          }
-        },
+        encryptedData: encryptedData, // بيانات مشفرة
       };
     } catch (error: unknown) {
       console.error('Excel import error:', error);
@@ -639,21 +709,24 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
         this.visitService.getCountryStats(id),
       ]);
 
+      // تشفير جميع البيانات
+      const encryptedData = this.encryptData({
+        employee: employee.data,
+        analytics: {
+          totalVisits,
+          dailyVisits,
+          deviceStats,
+          browserStats,
+          osStats,
+          sourceStats,
+          countryStats,
+        }
+      });
+
       return {
         statusCode: HttpStatus.OK,
         message: 'Employee analytics fetched successfully',
-        data: {
-          employee: employee.data,
-          analytics: {
-            totalVisits,
-            dailyVisits,
-            deviceStats,
-            browserStats,
-            osStats,
-            sourceStats,
-            countryStats,
-          }
-        },
+        encryptedData: encryptedData, // جميع البيانات مشفرة
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';

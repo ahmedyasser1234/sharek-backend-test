@@ -77,14 +77,7 @@ export class FileUploadService {
 
       const detectedFontType = this.detectFontType(fileExtension);
       
-      this.logger.log(`تم رفع الخط بنجاح: 
-        المسار: ${filePath}
-        الحجم: ${file.size} bytes
-        الامتداد: ${fileExtension}
-        نوع MIME: ${file.mimetype}
-        نوع الخط: ${detectedFontType}
-      `);
-
+     
       return { 
         fileName: uniqueFileName, 
         filePath, 
@@ -113,14 +106,12 @@ export class FileUploadService {
       
       await fs.promises.unlink(filePath);
       
-      this.logger.log(`تم حذف الخط: ${filePath}`);
       
       const dirPath = path.dirname(filePath);
       try {
         const files = await fs.promises.readdir(dirPath);
         if (files.length === 0) {
           await fs.promises.rmdir(dirPath);
-          this.logger.log(`تم حذف المجلد الفارغ: ${dirPath}`);
         }
       } catch {
         // تجاهل خطأ المجلد غير الفارغ - تم إزالة المعلمة غير المستخدمة
