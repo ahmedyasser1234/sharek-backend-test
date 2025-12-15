@@ -51,6 +51,7 @@ import type {
   SupadminWithData,
   ManagerWithoutPassword,
 } from './supadmin.service';
+import { Employee } from 'employee/entities/employee.entity';
 
 interface CustomRequest extends Request {
   socket?: {
@@ -859,6 +860,24 @@ async getPaymentProofDetails(
   if (!supadminId) throw new UnauthorizedException('غير مصرح');
 
   return this.supadminService.getPaymentProofDetails(supadminId, id);
+}
+
+
+@Get('companies/:companyId/employees')
+@UseGuards(SupadminJwtGuard)
+@ApiBearerAuth()
+@ApiOperation({ 
+  summary: 'عرض موظفي الشركة',
+  description: 'يعرض قائمة بجميع موظفي الشركة المحددة'
+})
+async getEmployeesByCompany(
+  @Param('companyId') companyId: string,
+  @Req() req: SupadminRequest
+): Promise<Employee[]> {
+  const supadminId = req.supadminId;
+  if (!supadminId) throw new UnauthorizedException('غير مصرح');
+
+  return this.supadminService.getEmployeesByCompany(supadminId, companyId);
 }
 
 }

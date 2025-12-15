@@ -2574,4 +2574,46 @@ async getPaymentProofDetails(
   }
 }
 
+
+async getEmployeesByCompany(
+  supadminId: string,
+  companyId: string
+): Promise<Employee[]> {
+  const supadmin = await this.supadminRepo.findOne({
+    where: { id: supadminId }
+  });
+
+  if (!supadmin || !this.hasPermission(supadmin, 'manage_companies')) {
+    throw new ForbiddenException('غير مصرح - لا تملك صلاحية عرض موظفي الشركات');
+  }
+
+  try {
+    const company = await this.companyRepo.findOne({
+      where: { id: companyId }
+    });
+
+    if (!company) {
+      throw new NotFoundException('الشركة غير موجودة');
+    }
+
+    const employees = await this.employeeRepo.find({
+      where: { company: { id: companyId } },
+      relations: ['company']
+    });
+
+    this.logger.log(`تم جلب ${employees.length} موظف للشركة ${companyId} بواسطة المسؤول الأعلى ${supadmin.email}`);
+    
+    return employees;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    this.logger.error(`فشل جلب موظفي الشركة ${companyId}: ${errorMessage}`);
+    
+    if (error instanceof NotFoundException) {
+      throw error;
+    }
+    
+    throw new InternalServerErrorException('فشل جلب الموظفين');
+  }
+}
+
 }
