@@ -13,7 +13,7 @@ export class CleanupService {
     try {
       await this.activityTracker.cleanupOldActivities();
     } catch (error) {
-      this.logger.error(` فشل تنظيف الجلسات: ${error}`);
+      this.logger.error(`فشل تنظيف الجلسات: ${error}`);
     }
   }
 }

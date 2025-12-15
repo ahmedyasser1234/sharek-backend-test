@@ -31,11 +31,9 @@ export class PaymentController {
     @Body() body: { provider: PaymentProvider; planId: string; companyId: string },
   ): Promise<{ url: string }> {
     try {
-      this.logger.log(` طلب إنشاء رابط دفع: الشركة ${body.companyId} - الخطة ${body.planId} - المزود ${body.provider}`);
-
       const plan = await this.planRepo.findOne({ where: { id: body.planId } });
       if (!plan) {
-        this.logger.warn(` الخطة غير موجودة: ${body.planId}`);
+        this.logger.error(`الخطة غير موجودة: ${body.planId}`);
         throw new NotFoundException('الخطة غير موجودة');
       }
 
@@ -45,11 +43,10 @@ export class PaymentController {
         body.companyId,
       );
 
-      this.logger.log(` تم إنشاء رابط الدفع بنجاح: ${url}`);
       return { url };
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      this.logger.error(` فشل إنشاء رابط الدفع: ${msg}`);
+      this.logger.error(`فشل إنشاء رابط الدفع: ${msg}`);
       if (err instanceof NotFoundException) throw err;
       throw new HttpException('فشل إنشاء رابط الدفع', HttpStatus.INTERNAL_SERVER_ERROR);
     }

@@ -54,7 +54,7 @@ export class PaymentService {
     private readonly paymentProofRepo: Repository<PaymentProof>,
     private readonly cloudinaryService: CloudinaryService,
     private readonly notificationService: NotificationService,
-    @Inject(forwardRef(() => SubscriptionService)) // إضافة Inject مع forwardRef
+    @Inject(forwardRef(() => SubscriptionService))
     private readonly subscriptionService: SubscriptionService,
   ) {}
 
@@ -282,7 +282,7 @@ export class PaymentService {
     });
 
     if (!proof) {
-      this.logger.warn(`طلب غير موجود: ${proofId}`);
+      this.logger.error(`طلب غير موجود: ${proofId}`);
       throw new NotFoundException('الطلب غير موجود');
     }
 
@@ -304,8 +304,6 @@ export class PaymentService {
     }
     
     await this.paymentProofRepo.save(proof);
-
-    this.logger.log(` تم قبول طلب التحويل: ${proofId} - الشركة: ${proof.company.name}`);
 
     await this.notificationService.notifyCompanySubscriptionApproved({
       id: proof.id,
@@ -346,7 +344,7 @@ export class PaymentService {
     });
 
     if (!proof) {
-      this.logger.warn(`طلب غير موجود: ${proofId}`);
+      this.logger.error(`طلب غير موجود: ${proofId}`);
       throw new NotFoundException('الطلب غير موجود');
     }
 
@@ -355,8 +353,6 @@ export class PaymentService {
     proof.reviewed = true;
     proof.decisionNote = reason;
     await this.paymentProofRepo.save(proof);
-
-    this.logger.log(` تم رفض طلب التحويل: ${proofId} - الشركة: ${proof.company.name} - السبب: ${reason}`);
 
     await this.notificationService.notifyCompanySubscriptionRejected({
       id: proof.id,

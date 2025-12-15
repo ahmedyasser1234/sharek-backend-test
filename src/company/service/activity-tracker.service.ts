@@ -6,7 +6,7 @@ import { CompanyActivity } from '../entities/company-activity.entity';
 @Injectable()
 export class ActivityTrackerService {
   private readonly logger = new Logger(ActivityTrackerService.name);
-  private readonly INACTIVITY_THRESHOLD = 30 * 60 * 1000; 
+  private readonly INACTIVITY_THRESHOLD = 30 * 60 * 1000;
 
   constructor(
     @InjectRepository(CompanyActivity)
@@ -36,7 +36,7 @@ export class ActivityTrackerService {
 
       await this.activityRepo.save(activity);
     } catch (error) {
-      this.logger.error(` فشل تسجيل النشاط للشركة ${companyId}: ${error}`);
+      this.logger.error(`فشل تسجيل النشاط للشركة ${companyId}: ${error}`);
     }
   }
 
@@ -47,7 +47,7 @@ export class ActivityTrackerService {
       });
 
       if (!activity) {
-        return false; 
+        return false;
       }
 
       const now = Date.now();
@@ -58,8 +58,8 @@ export class ActivityTrackerService {
       
       return isInactive;
     } catch (error) {
-      this.logger.error(` خطأ في التحقق من النشاط للشركة ${companyId}: ${error}`);
-      return false; 
+      this.logger.error(`خطأ في التحقق من النشاط للشركة ${companyId}: ${error}`);
+      return false;
     }
   }
 
@@ -70,7 +70,7 @@ export class ActivityTrackerService {
         { isOnline: false, lastActivity: new Date() }
       );
     } catch (error) {
-      this.logger.error(` فشل تعيين حالة غير متصل للشركة ${companyId}: ${error}`);
+      this.logger.error(`فشل تعيين حالة غير متصل للشركة ${companyId}: ${error}`);
     }
   }
 
@@ -78,7 +78,7 @@ export class ActivityTrackerService {
     try {
       await this.recordActivity(companyId, 'login');
     } catch (error) {
-      this.logger.error(` فشل تعيين حالة متصل للشركة ${companyId}: ${error}`);
+      this.logger.error(`فشل تعيين حالة متصل للشركة ${companyId}: ${error}`);
     }
   }
 
@@ -92,14 +92,14 @@ export class ActivityTrackerService {
         }
       });
     } catch (error) {
-      this.logger.error(` فشل جلب الجلسات النشطة: ${error}`);
+      this.logger.error(`فشل جلب الجلسات النشطة: ${error}`);
       return [];
     }
   }
 
   async cleanupOldActivities(): Promise<number> {
     try {
-      const threshold = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)); 
+      const threshold = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
       const result = await this.activityRepo
         .createQueryBuilder()
         .delete()
@@ -108,7 +108,7 @@ export class ActivityTrackerService {
 
       return result.affected || 0;
     } catch (error) {
-      this.logger.error(` فشل تنظيف سجلات النشاط القديمة: ${error}`);
+      this.logger.error(`فشل تنظيف سجلات النشاط القديمة: ${error}`);
       return 0;
     }
   }

@@ -87,12 +87,10 @@ export class NotificationService {
         data
       });
       
-      const savedNotification = await this.notificationRepo.save(notification);
-      this.logger.log(` تم حفظ إشعار ${type} لـ ${userType}: ${finalUserId}`);
-      return savedNotification;
+      return await this.notificationRepo.save(notification);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل حفظ إشعار ${type}: ${errorMessage}`);
+      this.logger.error(`فشل حفظ إشعار ${type}: ${errorMessage}`);
       throw error;
     }
   }
@@ -129,7 +127,7 @@ export class NotificationService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل إرسال إشعار للأدمن: ${errorMessage}`);
+      this.logger.error(`فشل إرسال إشعار للأدمن: ${errorMessage}`);
     }
   }
 
@@ -142,8 +140,6 @@ export class NotificationService {
     data?: Record<string, unknown>
   ): Promise<void> {
     try {
-      this.logger.log(` محاولة إرسال إشعار للشركة: ${companyId} - ${title}`);
-
       const notification = await this.saveNotification(
         companyId,
         'company',
@@ -167,14 +163,12 @@ export class NotificationService {
       const sent = this.notificationGateway.sendToCompany(companyId, type, notificationData);
 
       if (!sent) {
-        this.logger.warn(` الشركة ${companyId} غير متصلة - الإشعار مخزن للعرض لاحقاً`);
-      } else {
-        this.logger.log(` تم إرسال إشعار للشركة: ${companyId} - ${type}`);
+        this.logger.error(`الشركة ${companyId} غير متصلة - الإشعار مخزن للعرض لاحقاً`);
       }
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل إرسال إشعار للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل إرسال إشعار للشركة ${companyId}: ${errorMessage}`);
     }
   }
 
@@ -262,11 +256,9 @@ export class NotificationService {
 
   async notifyCompanySubscriptionApproved(proof: ProofData): Promise<void> {
     if (!proof.company.id) {
-      this.logger.warn(` لا يمكن إرسال إشعار موافقة - company.id غير موجود`);
+      this.logger.error(`لا يمكن إرسال إشعار موافقة - company.id غير موجود`);
       return;
     }
-
-    this.logger.log(` إرسال إشعار موافقة للشركة: ${proof.company.id} - ${proof.company.name}`);
 
     const data: Record<string, unknown> = {
       companyName: proof.company.name,
@@ -286,11 +278,9 @@ export class NotificationService {
 
   async notifyCompanySubscriptionRejected(proof: ProofData): Promise<void> {
     if (!proof.company.id) {
-      this.logger.warn(` لا يمكن إرسال إشعار رفض - company.id غير موجود`);
+      this.logger.error(`لا يمكن إرسال إشعار رفض - company.id غير موجود`);
       return;
     }
-
-    this.logger.log(` إرسال إشعار رفض للشركة: ${proof.company.id} - ${proof.company.name}`);
 
     const data: Record<string, unknown> = {
       companyName: proof.company.name,
@@ -311,7 +301,7 @@ export class NotificationService {
 
   async notifyCompanySubscriptionExtended(subscription: SubscriptionData): Promise<void> {
     if (!subscription.company.id) {
-      this.logger.warn(`لا يمكن إرسال إشعار تمديد - company.id غير موجود`);
+      this.logger.error(`لا يمكن إرسال إشعار تمديد - company.id غير موجود`);
       return;
     }
 
@@ -334,7 +324,7 @@ export class NotificationService {
 
   async notifyCompanySubscriptionCancelled(company: CompanyData): Promise<void> {
     if (!company.id) {
-      this.logger.warn(`لا يمكن إرسال إشعار إلغاء - company.id غير موجود`);
+      this.logger.error(`لا يمكن إرسال إشعار إلغاء - company.id غير موجود`);
       return;
     }
 
@@ -419,7 +409,6 @@ export class NotificationService {
     }
 
     await this.notificationRepo.delete(notificationId);
-    this.logger.log(` تم حذف الإشعار: ${notificationId}`);
   }
 
   async deleteAllUserNotifications(userId: string, userType: 'admin' | 'company'): Promise<{ deletedCount: number }> {
@@ -429,8 +418,6 @@ export class NotificationService {
       userId: finalUserId,
       userType
     });
-
-    this.logger.log(` تم حذف ${result.affected} إشعار لـ ${userType}: ${finalUserId}`);
     
     return { deletedCount: result.affected || 0 };
   }
@@ -443,8 +430,6 @@ export class NotificationService {
       userType,
       isRead: true
     });
-
-    this.logger.log(` تم حذف ${result.affected} إشعار مقروء لـ ${userType}: ${finalUserId}`);
     
     return { deletedCount: result.affected || 0 };
   }
@@ -458,8 +443,6 @@ export class NotificationService {
       .delete()
       .where('createdAt < :cutoffDate', { cutoffDate })
       .execute();
-
-    this.logger.log(` تم حذف ${result.affected} إشعار أقدم من ${olderThanDays} يوم`);
     
     return { deletedCount: result.affected || 0 };
   }

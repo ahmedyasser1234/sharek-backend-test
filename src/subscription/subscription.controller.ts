@@ -4,7 +4,6 @@ import {
   Get,
   Post,
   Param,
-  Logger,
   HttpException,
   HttpStatus,
   NotFoundException,
@@ -61,8 +60,6 @@ interface DebugSubscriptionResponse {
 @ApiTags('Subscription')
 @Controller()
 export class SubscriptionController {
-  private readonly logger = new Logger(SubscriptionController.name);
-
   constructor(
     private readonly subscriptionService: SubscriptionService,
     private readonly companyService: CompanyService,
@@ -77,7 +74,6 @@ export class SubscriptionController {
       return await this.subscriptionService.getPlans();
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب الخطط: ${msg}`);
       throw new HttpException(`فشل جلب الخطط: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -95,7 +91,6 @@ export class SubscriptionController {
       return await this.subscriptionService.subscribe(companyId, planId, false);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل الاشتراك: ${msg}`);
       
       if (error instanceof BadRequestException) {
         throw new HttpException(`فشل الاشتراك: ${msg}`, HttpStatus.BAD_REQUEST);
@@ -116,7 +111,6 @@ export class SubscriptionController {
       return await this.subscriptionService.getCompanySubscription(companyId);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب الاشتراك: ${msg}`);
       throw new HttpException(`فشل جلب الاشتراك: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -151,7 +145,6 @@ export class SubscriptionController {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب استخدام الشركة: ${msg}`);
       throw new HttpException(`فشل جلب استخدام الشركة: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -215,8 +208,6 @@ export class SubscriptionController {
       } else if (typeof error === 'string') {
         errorMessage = error;
       }
-    
-      this.logger.error(`فشل الاشتراك اليدوي: ${errorMessage}`);
       
       if (error instanceof HttpException) {
         throw error;
@@ -240,7 +231,6 @@ export class SubscriptionController {
       return result;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل التحقق من تغيير الخطة: ${msg}`);
       throw new HttpException(`فشل التحقق من تغيير الخطة: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -259,7 +249,6 @@ export class SubscriptionController {
       return result;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل طلب تغيير الخطة: ${msg}`);
       throw new HttpException(`فشل طلب تغيير الخطة: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -278,7 +267,6 @@ export class SubscriptionController {
       return result;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل تغيير الخطة: ${msg}`);
       throw new HttpException(`فشل تغيير الخطة: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
@@ -293,7 +281,6 @@ export class SubscriptionController {
       return debugResult as DebugSubscriptionResponse;
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل فحص حالة الاشتراك: ${msg}`);
       throw new HttpException(`فشل فحص حالة الاشتراك: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }

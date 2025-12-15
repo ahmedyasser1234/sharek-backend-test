@@ -96,7 +96,6 @@ export class PlanService {
       await this.planRepo.save(updatedPlans);
       return { updated: updatedPlans.length };
     } catch (err) {
-      console.error('خطأ أثناء التحديث:', err);
       throw new HttpException('فشل تحديث الخطط القديمة', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }

@@ -107,8 +107,6 @@ export class AdminSubscriptionController {
     @Param('planId') planId: string,
     @Req() req: ExtendedAdminRequest
   ) {
-    this.logger.log(`[subscribeCompanyToPlan] طلب اشتراك جديد من الأدمن: الشركة ${companyId} في الخطة ${planId}`);
-    
     try {
       let adminEmail: string | undefined;
       const adminId = req.user?.adminId;
@@ -130,7 +128,6 @@ export class AdminSubscriptionController {
         adminEmail
       );
       
-      this.logger.log(`[subscribeCompanyToPlan] تم الاشتراك بنجاح: الشركة ${companyId} في الخطة ${planId}`);
       return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -157,8 +154,6 @@ export class AdminSubscriptionController {
     @Req() req: ExtendedAdminRequest,
     @Body() body?: { reason?: string }
   ) {
-    this.logger.log(`[cancelSubscription] استلام طلب إلغاء اشتراك للشركة: ${companyId}`);
-    
     try {
       const adminId = req.user?.adminId;
       if (!adminId) throw new UnauthorizedException('غير مصرح');
@@ -166,24 +161,17 @@ export class AdminSubscriptionController {
       let adminEmail: string | undefined;
       try {
         adminEmail = await this.subscriptionService.getAdminEmail(adminId);
-        this.logger.log(`[cancelSubscription] بريد الأدمن: ${adminEmail || 'غير متاح'}`);
       } catch (error) {
         this.logger.warn(`[cancelSubscription] فشل الحصول على بريد الأدمن: ${error}`);
         adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
-        this.logger.log(`[cancelSubscription] استخدام البريد الافتراضي: ${adminEmail}`);
       }
       
-      const startTime = Date.now();
       const result = await this.subscriptionService.cancelSubscription(
         companyId, 
         adminId, 
         adminEmail, 
         body?.reason
       );
-      const endTime = Date.now();
-      
-      this.logger.log(`[cancelSubscription] وقت تنفيذ العملية: ${endTime - startTime}ms`);
-      this.logger.log(`[cancelSubscription] تم معالجة طلب إلغاء الاشتراك بنجاح للشركة: ${companyId}`);
       
       return result;
     } catch (error: unknown) {
@@ -207,19 +195,15 @@ export class AdminSubscriptionController {
     @Req() req: ExtendedAdminRequest
   ) {
     try {
-      this.logger.log(`[extendSubscription] طلب تمديد اشتراك الشركة: ${companyId}`);
-      
       const adminId = req.user?.adminId;
       if (!adminId) throw new UnauthorizedException('غير مصرح');
       
       let adminEmail: string | undefined;
       try {
         adminEmail = await this.subscriptionService.getAdminEmail(adminId);
-        this.logger.log(`[extendSubscription] بريد الأدمن: ${adminEmail || 'غير متاح'}`);
       } catch (error) {
         this.logger.warn(`[extendSubscription] فشل الحصول على بريد الأدمن: ${error}`);
         adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
-        this.logger.log(`[extendSubscription] استخدام البريد الافتراضي: ${adminEmail}`);
       }
       
       const result = await this.subscriptionService.extendSubscription(
@@ -229,7 +213,6 @@ export class AdminSubscriptionController {
         365
       );
       
-      this.logger.log(`[extendSubscription] تم تمديد الاشتراك بنجاح للشركة: ${companyId}`);
       return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -246,24 +229,12 @@ export class AdminSubscriptionController {
     @Req() req: ExtendedAdminRequest
   ) {
     try {
-      console.log('===========================================');
-      console.log(' [DEBUG] changePlan called!');
-      console.log('companyId:', companyId);
-      console.log('body:', body);
-      console.log('===========================================');
-      
-      this.logger.log(`[changePlan] === بدء طلب تغيير الخطة ===`);
-      this.logger.log(`[changePlan] companyId: ${companyId}`);
-      this.logger.log(`[changePlan] body: ${JSON.stringify(body)}`);
-      
       if (!body || !body.newPlanId) {
         this.logger.error(`[changePlan] newPlanId مفقود في body`);
         throw new BadRequestException('معرف الخطة الجديدة مطلوب في body');
       }
       
       const adminOverride = body.adminOverride !== undefined ? body.adminOverride : true;
-      
-      this.logger.log(`[changePlan] استخدام adminOverride = ${adminOverride}`);
       
       let adminEmail = body.adminEmail;
       if (!adminEmail) {
@@ -281,17 +252,12 @@ export class AdminSubscriptionController {
         }
       }
       
-      console.log(' [DEBUG] Calling changePlanDirectly...');
       const result = await this.subscriptionService.changePlanDirectly(
         companyId, 
         body.newPlanId, 
         adminOverride,
         adminEmail
       );
-      console.log(' [DEBUG] Result:', result);
-      
-      this.logger.log(`[changePlan] === نجاح تغيير الخطة ===`);
-      this.logger.log(`[changePlan] النتيجة: ${JSON.stringify(result)}`);
       
       return {
         success: true,
@@ -300,8 +266,6 @@ export class AdminSubscriptionController {
       };
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      
-      console.log(' [DEBUG] ERROR:', errorMessage);
       this.logger.error(`[changePlan] === فشل تغيير الخطة ===`);
       this.logger.error(`[changePlan] الشركة: ${companyId}`);
       this.logger.error(`[changePlan] الخطة الجديدة: ${body?.newPlanId}`);
@@ -327,8 +291,6 @@ export class AdminSubscriptionController {
     @Req() req: ExtendedAdminRequest
   ) {
     try {
-      this.logger.log(`[changePlanOld] طلب تغيير خطة (طريقة قديمة): الشركة ${companyId} إلى ${newPlanId}`);
-      
       let adminEmail: string | undefined;
       const adminId = req.user?.adminId;
       if (adminId) {
@@ -347,7 +309,6 @@ export class AdminSubscriptionController {
         adminEmail
       );
       
-      this.logger.log(`[changePlanOld] تم تغيير الخطة بنجاح للشركة: ${companyId}`);
       return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -364,9 +325,7 @@ export class AdminSubscriptionController {
     @Param('id') companyId: string
   ) {
     try {
-      this.logger.log(`[getSubscriptionHistory] جلب سجل اشتراكات الشركة: ${companyId}`);
       const result = await this.subscriptionService.getSubscriptionHistory(companyId);
-      this.logger.log(`[getSubscriptionHistory] تم جلب ${result.length} اشتراك في السجل`);
       return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -386,8 +345,6 @@ export class AdminSubscriptionController {
     @Req() req: ExtendedAdminRequest
   ) {
     try {
-      this.logger.log(`[activateSubscriptionManually] تفعيل يدوي للشركة ${companyId} في الخطة ${planId}`);
-      
       let adminEmail: string | undefined;
       const adminId = req.user?.adminId;
       if (adminId) {
@@ -408,7 +365,6 @@ export class AdminSubscriptionController {
         adminEmail
       );
       
-      this.logger.log(`[activateSubscriptionManually] تم التفعيل اليدوي بنجاح`);
       return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -427,9 +383,7 @@ export class AdminSubscriptionController {
     @Param('newPlanId') newPlanId: string,
   ) {
     try {
-      this.logger.log(`[validatePlanChange] التحقق من تغيير خطة الشركة ${companyId} إلى ${newPlanId}`);
       const result = await this.subscriptionService.validatePlanChange(companyId, newPlanId);
-      this.logger.log(`[validatePlanChange] نتيجة التحقق: ${result.canChange ? 'يمكن التغيير' : 'لا يمكن التغيير'}`);
       return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -443,8 +397,6 @@ export class AdminSubscriptionController {
   @ApiParam({ name: 'id', description: 'معرف الشركة' })
   async getCurrentStatus(@Param('id') companyId: string) {
     try {
-      this.logger.log(`[getCurrentStatus] التحقق من حالة الشركة: ${companyId}`);
-      
       const company = await this.companyService.findById(companyId);
       if (!company) {
         throw new NotFoundException('الشركة غير موجودة');
@@ -502,7 +454,6 @@ export class AdminSubscriptionController {
     }
   }
 
-
   @Get('manual-proofs')
   @ApiOperation({ summary: 'عرض جميع طلبات التحويل البنكي (بجميع الحالات)' })
   @ApiQuery({ name: 'status', required: false, enum: PaymentProofStatus, description: 'فلتر حسب الحالة' })
@@ -552,7 +503,6 @@ export class AdminSubscriptionController {
         approvedById: proof.approvedById,
       }));
 
-      this.logger.log(`[getManualTransferProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي`);
       return safeProofs;
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -589,7 +539,6 @@ export class AdminSubscriptionController {
         approvedById: proof.approvedById,
       }));
 
-      this.logger.log(`[getPendingManualProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي معلق`);
       return safeProofs;
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -630,7 +579,6 @@ export class AdminSubscriptionController {
         approvedById: proof.approvedById,
       };
 
-      this.logger.log(`[getManualProofDetails] تم جلب تفاصيل طلب التحويل: ${proofId}`);
       return safeProof;
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -653,8 +601,6 @@ export class AdminSubscriptionController {
     @Body() body?: { approvedById?: string }
   ): Promise<{ message: string }> {
     try {
-      this.logger.log(`[approveProof] محاولة قبول طلب التحويل: ${proofId}`);
-      
       const proof = await this.proofRepo.findOne({
         where: { id: proofId },
         relations: ['company', 'plan'],
@@ -673,7 +619,6 @@ export class AdminSubscriptionController {
         body?.approvedById
       );
       
-      this.logger.log(`[approveProof] تم قبول الطلب بنجاح: ${proofId}`);
       return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -696,8 +641,6 @@ export class AdminSubscriptionController {
     @Body() body: { reason: string }
   ): Promise<{ message: string }> {
     try {
-      this.logger.log(`[rejectProof] محاولة رفض طلب التحويل: ${proofId}`);
-      
       const proof = await this.proofRepo.findOne({
         where: { id: proofId },
         relations: ['company', 'plan'],
@@ -713,7 +656,6 @@ export class AdminSubscriptionController {
 
       const result = await this.paymentService.rejectProof(proofId, body.reason);
       
-      this.logger.log(`[rejectProof] تم رفض الطلب بنجاح: ${proofId}`);
       return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -744,7 +686,6 @@ export class AdminSubscriptionController {
         where: { status: PaymentProofStatus.PENDING }
       });
       
-      this.logger.log(`[getPendingProofsCount] عدد الطلبات المعلقة: ${count}`);
       return { count };
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
@@ -845,7 +786,6 @@ export class AdminSubscriptionController {
         approvedById: proof.approvedById,
       }));
 
-      this.logger.log(`[getFilteredManualProofs] تم جلب ${safeProofs.length} طلب تحويل بنكي`);
       return safeProofs;
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);

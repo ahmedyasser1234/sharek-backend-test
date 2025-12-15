@@ -38,20 +38,14 @@ export class CardService {
     
     if (card && card.uniqueUrl) {
       uniqueUrl = card.uniqueUrl;
-      this.logger.log(`استخدام الـ uniqueUrl الحالي: ${uniqueUrl}`);
     } else {
       uniqueUrl = randomUUID();
-      this.logger.log(`إنشاء uniqueUrl جديد: ${uniqueUrl}`);
     }
 
     const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}?source=link`;
     const qrCode = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}?source=qr`;
 
-    this.logger.log(`رابط البطاقة العادي: ${cardUrl}`);
-    this.logger.log(`رابط QR Code المميز: ${qrCode}`);
-
     if (!employee.id) {
-      this.logger.error('لا يمكن إنشاء البطاقة: employee.id غير موجود');
       throw new Error('employee.id مطلوب لإنشاء البطاقة');
     }
 
@@ -97,16 +91,12 @@ export class CardService {
       backgroundImage: extra?.backgroundImage !== undefined ? extra.backgroundImage : currentBackgroundImage,
     };
 
-    this.logger.log(`إعدادات البطاقة - backgroundImage: ${cardData.backgroundImage || 'سيتم الحفاظ على القيمة الحالية'}`);
-
     if (card) {
       Object.assign(card, cardData);
       await this.cardRepo.save(card);
-      this.logger.log(`تم تحديث الكارد الموجود للموظف: ${employee.id}`);
     } else {
       card = this.cardRepo.create(cardData);
       await this.cardRepo.save(card);
-      this.logger.log(`تم إنشاء كارد جديد للموظف: ${employee.id}`);
     }
 
     return {
@@ -141,9 +131,6 @@ export class CardService {
       const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${currentUniqueUrl}?source=link`;
       const qrCode = `https://sharke1.netlify.app/${finalDesignId}/${currentUniqueUrl}?source=qr`;
 
-      this.logger.log(`رابط البطاقة العادي (تحديث): ${cardUrl}`);
-      this.logger.log(`رابط QR Code المميز (تحديث): ${qrCode}`);
-
       const updateData: Partial<EmployeeCard> = {
         uniqueUrl: currentUniqueUrl,
         qrCode: qrCode,
@@ -165,8 +152,6 @@ export class CardService {
         cardStyleSection: extra?.cardStyleSection !== undefined ? extra.cardStyleSection : existingCard.cardStyleSection,
         backgroundImage: extra?.backgroundImage !== undefined ? extra.backgroundImage : existingCard.backgroundImage,
       };
-
-      this.logger.log(`تم تحديث بطاقة الموظف ${employee.id} مع الحفاظ على الـ uniqueUrl: ${currentUniqueUrl}`);
 
       Object.assign(existingCard, updateData);
       await this.cardRepo.save(existingCard);

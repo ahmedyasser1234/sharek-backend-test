@@ -27,13 +27,11 @@ export class SubscriptionGuard implements CanActivate {
       const subscription = await this.subscriptionService.getCompanySubscription(companyId);
       
       if (!subscription) {
-        this.logger.warn(`No active subscription found for company: ${companyId}`);
         throw new ForbiddenException('No active subscription');
       }
 
       const now = new Date();
       if (subscription.endDate < now) {
-        this.logger.warn(`Subscription expired for company: ${companyId}`);
         throw new ForbiddenException('Subscription expired');
       }
 
@@ -41,11 +39,9 @@ export class SubscriptionGuard implements CanActivate {
       const current = await this.subscriptionService.getCurrentEmployeeCount(companyId);
 
       if (current >= allowed) {
-        this.logger.warn(`Employee limit exceeded for company: ${companyId} (${current}/${allowed})`);
         throw new ForbiddenException('Employee limit exceeded');
       }
 
-      this.logger.debug(`Subscription check passed for company: ${companyId} (${current}/${allowed} employees)`);
       return true;
 
     } catch (error) {

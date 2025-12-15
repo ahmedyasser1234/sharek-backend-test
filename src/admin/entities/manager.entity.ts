@@ -1,4 +1,3 @@
-// src/admin/entities/manager.entity.ts
 import { 
   Entity, 
   PrimaryGeneratedColumn, 

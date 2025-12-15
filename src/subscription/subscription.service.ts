@@ -161,7 +161,6 @@ export class SubscriptionService {
         subject,
         html,
       });
-      this.logger.log(` تم إرسال الإيميل إلى: ${to}`);
     } catch (error) {
       this.logger.error(` فشل إرسال الإيميل:`, error);
     }
@@ -320,7 +319,6 @@ export class SubscriptionService {
       `;
 
       await this.sendEmail(companyEmail, subject, html);
-      this.logger.log(` تم إرسال إيميل ${actionText[action]} للشركة ${companyName}`);
     } catch (error) {
       this.logger.error(` فشل إرسال إيميل الإجراء ${action}:`, error);
     }
@@ -344,11 +342,8 @@ export class SubscriptionService {
             sub.status = SubscriptionStatus.EXPIRED;
             await this.subscriptionRepo.save(sub);
             deactivatedCount++;
-            this.logger.log(` تم إلغاء تفعيل الاشتراك ${sub.id} للشركة ${companyId}`);
           }
         }
-        
-        this.logger.log(` تم إلغاء تفعيل ${deactivatedCount} اشتراك قديم للشركة ${companyId}`);
         
         return {
           deactivatedCount
@@ -382,8 +377,6 @@ export class SubscriptionService {
     adminEmail?: string
   ): Promise<SubscriptionResponse> {
     try {
-      this.logger.log(`[subscribe] بدء الاشتراك: الشركة ${companyId} في الخطة ${planId}`);
-
       const company = await this.companyRepo.findOne({ 
         where: { id: companyId },
         relations: ['subscriptions'] 
@@ -426,10 +419,6 @@ export class SubscriptionService {
         const newPlanMax = Number(newPlan.maxEmployees) || 0;
         const newPlanPrice = Number(newPlan.price) || 0;
 
-        this.logger.log(`[subscribe] مقارنة الخطط:`);
-        this.logger.log(`[subscribe] الحالية: ${currentPlan.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
-        this.logger.log(`[subscribe] الجديدة: ${newPlan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
-
         const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
         const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
                                   (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
@@ -450,14 +439,6 @@ export class SubscriptionService {
             `الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال)`
           );
         }
-        
-        if (newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice) {
-          this.logger.log(`[subscribe] الشركة ${companyId} تطلب التجديد في نفس الخطة`);
-        }
-        
-        if (newPlanMax > currentPlanMax || newPlanPrice > currentPlanPrice) {
-          this.logger.log(`[subscribe] الشركة ${companyId} تطلب الترقية من ${currentPlan.name} إلى ${newPlan.name}`);
-        }
       }
 
       let isNewSubscription = false;
@@ -466,8 +447,6 @@ export class SubscriptionService {
       let finalMessage = '';
 
       if (existingActiveSubscription) {
-        this.logger.log(`[subscribe] يوجد اشتراك نشط بالفعل للشركة ${companyId}، سيتم تحديثه`);
-        
         const isSamePlan = existingActiveSubscription.plan?.id === newPlan.id;
         
         if (isSamePlan) {
@@ -491,12 +470,10 @@ export class SubscriptionService {
         
         if (activatedBySellerId) {
           existingActiveSubscription.activatedBySellerId = activatedBySellerId;
-          this.logger.log(`[subscribe] تم تسجيل البائع ${activatedBySellerId} كمفعل للاشتراك`);
         }
         
         if (activatedByAdminId) {
           existingActiveSubscription.activatedByAdminId = activatedByAdminId;
-          this.logger.log(`[subscribe] تم تسجيل الأدمن ${activatedByAdminId} كمفعل للاشتراك`);
         }
 
         savedSubscription = await this.subscriptionRepo.save(existingActiveSubscription);
@@ -525,8 +502,6 @@ export class SubscriptionService {
           finalMessage = 'تم تحديث الاشتراك يدويًا بواسطة الأدمن';
         }
 
-        this.logger.log(`[subscribe] تم تحديث الاشتراك بنجاح للشركة ${companyId} في الخطة ${newPlan.name}`);
-
       } else {
         isNewSubscription = true;
         const startDate = new Date();
@@ -545,12 +520,10 @@ export class SubscriptionService {
 
         if (activatedBySellerId) {
           subscriptionData.activatedBySellerId = activatedBySellerId;
-          this.logger.log(`[subscribe] تم تسجيل البائع ${activatedBySellerId} كمفعل للاشتراك`);
         }
         
         if (activatedByAdminId) {
           subscriptionData.activatedByAdminId = activatedByAdminId;
-          this.logger.log(`[subscribe] تم تسجيل الأدمن ${activatedByAdminId} كمفعل للاشتراك`);
         }
 
         const subscription = this.subscriptionRepo.create(subscriptionData);
@@ -579,11 +552,8 @@ export class SubscriptionService {
         } else if (isAdminOverride) {
           finalMessage = 'تم تفعيل الاشتراك يدويًا بواسطة الأدمن';
         }
-
-        this.logger.log(`[subscribe] تم إنشاء اشتراك جديد للشركة ${companyId} في الخطة ${newPlan.name}`);
       }
 
-      // إرسال البريد الإلكتروني إذا كان هناك override بواسطة الأدمن
       if (isAdminOverride && adminEmail) {
         const endDateStr = savedSubscription.endDate.toLocaleDateString('ar-SA');
         let details = '';
@@ -607,7 +577,6 @@ export class SubscriptionService {
         );
       }
 
-      // إذا كان هناك سعر، نعيد رابط الدفع
       if (planPrice > 0 && !isAdminOverride && isNewSubscription) {
         const provider = newPlan.paymentProvider;
         if (!provider) {
@@ -619,8 +588,6 @@ export class SubscriptionService {
           newPlan,
           companyId,
         );
-
-        this.logger.log(`[subscribe] تم إنشاء رابط دفع للشركة ${companyId}: ${checkoutUrl}`);
 
         return {
           message: 'يتطلب إتمام عملية الدفع',
@@ -637,7 +604,7 @@ export class SubscriptionService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'خطأ غير معروف';
-      this.logger.error(`[subscribe] فشل الاشتراك للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل الاشتراك للشركة ${companyId}: ${errorMessage}`);
       
       if (error instanceof NotFoundException || error instanceof BadRequestException) {
         throw error;
@@ -649,20 +616,14 @@ export class SubscriptionService {
 
   async changeSubscriptionPlan(companyId: string, newPlanId: string, adminEmail?: string): Promise<PlanChangeResult> {
     try {
-      this.logger.log(`[changeSubscriptionPlan] بدء تغيير الخطة: الشركة ${companyId} إلى الخطة ${newPlanId}`);
-
       const validation = await this.validatePlanChange(companyId, newPlanId);
-      this.logger.log(`[changeSubscriptionPlan] نتيجة التحقق: ${validation.canChange ? 'يمكن التغيير' : 'لا يمكن التغيير'} - ${validation.message}`);
       
       if (!validation.canChange) {
         throw new BadRequestException(validation.message);
       }
 
       const currentSubscription = await this.getCompanySubscription(companyId);
-      this.logger.log(`[changeSubscriptionPlan] الاشتراك الحالي: ${currentSubscription ? `موجود - الخطة: ${currentSubscription.plan?.name}` : 'غير موجود'}`);
-      
       const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
-      this.logger.log(`[changeSubscriptionPlan] الخطة الجديدة: ${newPlan ? `موجودة - ${newPlan.name}` : 'غير موجودة'}`);
       
       if (!currentSubscription || !newPlan) {
         throw new NotFoundException('الاشتراك أو الخطة غير موجودة');
@@ -672,17 +633,12 @@ export class SubscriptionService {
       const newPlanPrice = Number(newPlan.price) || 0;
       const currentPlanMax = Number(currentSubscription.plan?.maxEmployees) || 0;
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
-
-      this.logger.log(`[changeSubscriptionPlan] مقارنة الخطط:`);
-      this.logger.log(`[changeSubscriptionPlan] الخطة الحالية: ${currentSubscription.plan?.name} - الموظفين: ${currentPlanMax} - السعر: ${currentPlanPrice}`);
-      this.logger.log(`[changeSubscriptionPlan] الخطة الجديدة: ${newPlan.name} - الموظفين: ${newPlanMax} - السعر: ${newPlanPrice}`);
       
       const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
       const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
                                 (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
       
       if (isDowngrading) {
-        this.logger.warn(`[changeSubscriptionPlan] محاولة النزول إلى خطة أقل - مرفوض`);
         throw new BadRequestException(
           `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} ` +
           `(${currentPlanMax} موظف - ${currentPlanPrice} ريال) ` +
@@ -693,7 +649,6 @@ export class SubscriptionService {
       
       if (isPartialDowngrade) {
         const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
-        this.logger.warn(`[changeSubscriptionPlan] محاولة النزول الجزئي - مرفوض`);
         throw new BadRequestException(
           `غير مسموح بالانتقال إلى خطة ${newPlan.name} لأنها أقل في ${reason}. ` +
           `(الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال, ` +
@@ -705,9 +660,6 @@ export class SubscriptionService {
         currentSubscription.plan?.id === newPlan.id ||
         (newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice);
       
-      this.logger.log(`[changeSubscriptionPlan] هل هي نفس الخطة؟ ${isSamePlan ? 'نعم' : 'لا'}`);
-      
-      this.logger.log(`[changeSubscriptionPlan] تحديث الخطة من ${currentSubscription.plan?.name} إلى ${newPlan.name}`);
       currentSubscription.plan = newPlan;
       currentSubscription.price = newPlan.price;
       currentSubscription.customMaxEmployees = newPlan.maxEmployees;
@@ -716,20 +668,14 @@ export class SubscriptionService {
         const newEndDate = new Date(currentSubscription.endDate);
         newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
         currentSubscription.endDate = newEndDate;
-        this.logger.log(`[changeSubscriptionPlan] نفس الخطة - إضافة ${newPlan.durationInDays} يوم إلى تاريخ الانتهاء`);
       } else {
-        const oldStartDate = currentSubscription.startDate;
-        const oldEndDate = currentSubscription.endDate;
         currentSubscription.startDate = new Date();
         const newEndDate = new Date();
         newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
         currentSubscription.endDate = newEndDate;
-        this.logger.log(`[changeSubscriptionPlan] خطة جديدة - بدء فترة جديدة: ${currentSubscription.startDate.toISOString()} إلى ${newEndDate.toISOString()}`);
-        this.logger.log(`[changeSubscriptionPlan] الفترة القديمة: ${oldStartDate.toISOString()} إلى ${oldEndDate.toISOString()}`);
       }
 
       const updatedSubscription = await this.subscriptionRepo.save(currentSubscription);
-      this.logger.log(`[changeSubscriptionPlan] تم حفظ الاشتراك المحدث: ${updatedSubscription.id}`);
 
       await this.companyRepo
         .createQueryBuilder()
@@ -739,8 +685,6 @@ export class SubscriptionService {
         })
         .where('id = :id', { id: companyId })
         .execute();
-
-      this.logger.log(`[changeSubscriptionPlan] تم تحديث معلومات الشركة ${companyId}`);
 
       const company = await this.companyRepo.findOne({ where: { id: companyId } });
       if (company && adminEmail) {
@@ -778,36 +722,20 @@ export class SubscriptionService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[changeSubscriptionPlan] فشل تغيير الخطة للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل تغيير الخطة للشركة ${companyId}: ${errorMessage}`);
       throw error;
     }
   }
 
   async changePlanDirectly(companyId: string, newPlanId: string, adminOverride = false, adminEmail?: string): Promise<PlanChangeResult> {
     try {
-      this.logger.log(`[changePlanDirectly] === بدء تغيير الخطة ===`);
-      this.logger.log(`[changePlanDirectly] الشركة: ${companyId}`);
-      this.logger.log(`[changePlanDirectly] الخطة الجديدة: ${newPlanId}`);
-      this.logger.log(`[changePlanDirectly] adminOverride: ${adminOverride}`);
-      this.logger.log(`[changePlanDirectly] adminEmail: ${adminEmail || 'غير محدد'}`);
-
       const currentSubscription = await this.getCompanySubscription(companyId);
-      this.logger.log(`[changePlanDirectly] الاشتراك الحالي: ${currentSubscription ? 'موجود' : 'غير موجود'}`);
-      if (currentSubscription) {
-        this.logger.log(`[changePlanDirectly] الخطة الحالية: ${currentSubscription.plan?.name}`);
-        this.logger.log(`[changePlanDirectly] حالة الاشتراك: ${currentSubscription.status}`);
-        this.logger.log(`[changePlanDirectly] تاريخ الانتهاء: ${currentSubscription.endDate.toISOString()}`);
-      }
-
       const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
       if (!newPlan) {
         throw new NotFoundException('الخطة غير موجودة');
       }
-      this.logger.log(`[changePlanDirectly] الخطة الجديدة موجودة: ${newPlan.name}`);
 
       if (!currentSubscription) {
-        this.logger.log(`[changePlanDirectly] لا يوجد اشتراك حالي، إنشاء اشتراك جديد`);
-        
         const subscriptionResult = await this.subscribe(companyId, newPlanId, true, undefined, undefined, adminEmail);
         
         const newSubscription = subscriptionResult.subscription;
@@ -819,12 +747,6 @@ export class SubscriptionService {
         const currentEmployees = await this.employeeRepo.count({
           where: { company: { id: companyId } }
         });
-        
-        this.logger.log(`[changePlanDirectly] === تم إنشاء اشتراك جديد بنجاح ===`);
-        this.logger.log(`[changePlanDirectly] الاشتراك الجديد ID: ${newSubscription.id}`);
-        this.logger.log(`[changePlanDirectly] الخطة: ${newPlan.name}`);
-        this.logger.log(`[changePlanDirectly] عدد الموظفين: ${currentEmployees}`);
-        this.logger.log(`[changePlanDirectly] تاريخ الانتهاء: ${newSubscription.endDate.toISOString()}`);        
         
         return {
           message: 'تم إنشاء وتفعيل الاشتراك الجديد بنجاح',
@@ -850,17 +772,11 @@ export class SubscriptionService {
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
       const newPlanPrice = Number(newPlan.price) || 0;
 
-      this.logger.log(`[changePlanDirectly] === مقارنة الخطط ===`);
-      this.logger.log(`[changePlanDirectly] الخطة الحالية: ${currentPlan?.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
-      this.logger.log(`[changePlanDirectly] الخطة الجديدة: ${newPlan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
-
-      
       const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
       const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
                                 (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
       
       if ((isDowngrading || isPartialDowngrade) && !adminOverride) {
-        this.logger.warn(`[changePlanDirectly] محاولة النزول إلى خطة أقل - مرفوض`);
         throw new BadRequestException(
           `غير مسموح بالانتقال إلى خطة أقل. ` +
           `الخطة الحالية: ${currentPlan?.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) ` +
@@ -872,21 +788,12 @@ export class SubscriptionService {
         where: { company: { id: companyId } }
       });
       
-      this.logger.log(`[changePlanDirectly] عدد الموظفين الحاليين: ${currentEmployees}`);
-      
       if (currentEmployees > newPlanMax && !adminOverride) {
-        this.logger.warn(`[changePlanDirectly] عدد الموظفين ${currentEmployees} يتجاوز حد الخطة الجديدة ${newPlanMax} - مرفوض`);
         throw new BadRequestException(
           `لا يمكن الانتقال إلى الخطة ${newPlan.name} لأنها تدعم فقط ${newPlanMax} موظف ` +
           `بينما لديك حالياً ${currentEmployees} موظف`
         );
       }
-
-      this.logger.log(`[changePlanDirectly] === تحديث الاشتراك ===`);
-      
-      const oldStartDate = currentSubscription.startDate;
-      const oldEndDate = currentSubscription.endDate;
-      const oldStatus = currentSubscription.status;
       
       currentSubscription.plan = newPlan;
       currentSubscription.price = newPlan.price;
@@ -899,22 +806,15 @@ export class SubscriptionService {
         const newEndDate = new Date(currentSubscription.endDate);
         newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
         currentSubscription.endDate = newEndDate;
-        this.logger.log(`[changePlanDirectly] نفس الخطة - إضافة ${newPlan.durationInDays} يوم`);
       } else {
         currentSubscription.startDate = new Date();
         const newEndDate = new Date();
         newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
         currentSubscription.endDate = newEndDate;
-        this.logger.log(`[changePlanDirectly] خطة جديدة - فترة جديدة`);
       }
       
-      this.logger.log(`[changePlanDirectly] قبل الحفظ - startDate: ${oldStartDate.toISOString()}, endDate: ${oldEndDate.toISOString()}, status: ${oldStatus}`);
-      this.logger.log(`[changePlanDirectly] بعد التحديث - startDate: ${currentSubscription.startDate.toISOString()}, endDate: ${currentSubscription.endDate.toISOString()}, status: ${currentSubscription.status}`);
       const updatedSubscription = await this.subscriptionRepo.save(currentSubscription);
-      this.logger.log(`[changePlanDirectly] تم حفظ الاشتراك المحدث: ${updatedSubscription.id}`);
 
-      this.logger.log(`[changePlanDirectly] === تحديث بيانات الشركة ===`);
-      
       await this.companyRepo
         .createQueryBuilder()
         .update(Company)
@@ -926,14 +826,10 @@ export class SubscriptionService {
         })
         .where('id = :id', { id: companyId })
         .execute();
-      
-      this.logger.log(`[changePlanDirectly] تم تحديث بيانات الشركة ${companyId}`);
 
       if (adminOverride) {
         await this.updateRelatedPaymentProof(companyId, newPlanId);
       }
-
-      this.logger.log(`[changePlanDirectly] === تم تغيير الخطة بنجاح ===`);
       
       const message = isSamePlan ? 'تم تجديد الاشتراك بنجاح' : 'تم تغيير الخطة بنجاح';
       
@@ -973,22 +869,14 @@ export class SubscriptionService {
       
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const stackTrace = error instanceof Error ? error.stack : 'No stack trace';
-      
-      this.logger.error(`[changePlanDirectly] === فشل تغيير الخطة ===`);
-      this.logger.error(`[changePlanDirectly] الخطأ: ${errorMessage}`);
-      this.logger.error(`[changePlanDirectly] Stack Trace: ${stackTrace}`);
-      
+      this.logger.error(`فشل تغيير الخطة: ${errorMessage}`);
       throw error;
     }
   }
 
   async requestPlanChange(companyId: string, newPlanId: string): Promise<PlanChangeRequestResult> {
     try {
-      this.logger.log(`[requestPlanChange] طلب تغيير الخطة: الشركة ${companyId} إلى ${newPlanId}`);
-      
       const validation = await this.validatePlanChange(companyId, newPlanId);
-      this.logger.log(`[requestPlanChange] نتيجة التحقق: ${validation.canChange ? 'يمكن التغيير' : 'لا يمكن التغيير'} - ${validation.message}`);
       
       if (!validation.canChange) {
         return {
@@ -1018,8 +906,6 @@ export class SubscriptionService {
       const daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
       const newDurationInDays = daysRemaining + 365;
 
-      this.logger.log(`[requestPlanChange] طلب ناجح - الأيام المتبقية: ${daysRemaining}, المدة الجديدة: ${newDurationInDays} يوم`);
-
       return {
         success: true,
         message: validation.message,
@@ -1039,7 +925,7 @@ export class SubscriptionService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[requestPlanChange] فشل طلب تغيير الخطة للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل طلب تغيير الخطة للشركة ${companyId}: ${errorMessage}`);
       throw error;
     }
   }
@@ -1061,13 +947,10 @@ export class SubscriptionService {
         latestProof.reviewed = true;
         latestProof.rejected = false;
         await this.paymentProofRepo.save(latestProof);
-        this.logger.log(`[updateRelatedPaymentProof] تم تحديث حالة إثبات الدفع للشركة ${companyId}`);
-      } else {
-        this.logger.warn(`[updateRelatedPaymentProof] لم يتم العثور على إثبات دفع معلق للشركة ${companyId} والخطة ${planId}`);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[updateRelatedPaymentProof] فشل تحديث حالة إثبات الدفع: ${errorMessage}`);
+      this.logger.error(`فشل تحديث حالة إثبات الدفع: ${errorMessage}`);
     }
   }
 
@@ -1090,15 +973,11 @@ export class SubscriptionService {
 
   async updateCompanyEmployeeLimit(companyId: string, newLimit: number): Promise<any> {
     try {
-      this.logger.log(`[updateCompanyEmployeeLimit] تحديث حد الموظفين للشركة ${companyId} إلى ${newLimit}`);
-      
       const subscription = await this.getCompanySubscription(companyId);
       if (!subscription) throw new NotFoundException('لا يوجد اشتراك للشركة');
 
       subscription.customMaxEmployees = newLimit;
       await this.subscriptionRepo.save(subscription);
-
-      this.logger.log(`[updateCompanyEmployeeLimit] تم تعديل الحد المسموح للموظفين إلى ${newLimit}`);
 
       return {
         message: `تم تعديل الحد المسموح للموظفين إلى ${newLimit}`,
@@ -1106,15 +985,13 @@ export class SubscriptionService {
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`[updateCompanyEmployeeLimit] فشل تعديل الحد للموظفين للشركة ${companyId}: ${msg}`);
+      this.logger.error(`فشل تعديل الحد للموظفين للشركة ${companyId}: ${msg}`);
       throw new InternalServerErrorException('فشل تعديل الحد للموظفين');
     }
   }
   
   async getCompanySubscription(companyId: string): Promise<CompanySubscription | null> {
     try {
-      this.logger.debug(`[getCompanySubscription] جلب اشتراك الشركة ${companyId}`);
-      
       const subscription = await this.subscriptionRepo
         .createQueryBuilder('sub')
         .leftJoinAndSelect('sub.plan', 'plan')
@@ -1128,8 +1005,6 @@ export class SubscriptionService {
         .getOne();
 
       if (!subscription) {
-        this.logger.debug(`[getCompanySubscription] لا يوجد اشتراك نشط للشركة: ${companyId}`);
-        
         await this.syncCompanySubscriptionStatus(companyId);
         
         return await this.subscriptionRepo
@@ -1145,20 +1020,17 @@ export class SubscriptionService {
           .getOne();
       }
 
-      this.logger.debug(`[getCompanySubscription] تم العثور على اشتراك نشط للشركة: ${companyId}, الخطة: ${subscription.plan?.name}`);
       return subscription;
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`[getCompanySubscription] فشل جلب الاشتراك للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل جلب الاشتراك للشركة ${companyId}: ${errorMessage}`);
       throw new InternalServerErrorException('Failed to get subscription');
     }
   }
 
   async getAllowedEmployees(companyId: string): Promise<{ maxAllowed: number; remaining: number; current: number }> {
     try {
-      this.logger.debug(`[getAllowedEmployees] التحقق من الحد المسموح للموظفين للشركة: ${companyId}`);
-      
       const activeSubscription = await this.subscriptionRepo.findOne({
         where: { 
           company: { id: companyId },
@@ -1168,7 +1040,6 @@ export class SubscriptionService {
       });
 
       if (!activeSubscription) {
-        this.logger.warn(`[getAllowedEmployees] الشركة ${companyId} ليس لديها اشتراك نشط`);
         return { maxAllowed: 0, remaining: 0, current: 0 };
       }
 
@@ -1179,8 +1050,6 @@ export class SubscriptionService {
       const maxAllowed = activeSubscription.customMaxEmployees ?? activeSubscription.plan?.maxEmployees ?? 0;
       const remaining = Math.max(0, maxAllowed - currentEmployees);
 
-      this.logger.debug(`[getAllowedEmployees] النتيجة: ${currentEmployees}/${maxAllowed} موظف، المتبقي: ${remaining}`);
-
       return { 
         maxAllowed, 
         remaining, 
@@ -1189,15 +1058,13 @@ export class SubscriptionService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`[getAllowedEmployees] فشل حساب الحد المسموح للموظفين للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل حساب الحد المسموح للموظفين للشركة ${companyId}: ${errorMessage}`);
       throw new InternalServerErrorException('فشل حساب الحد المسموح للموظفين');
     }
   }
 
   async canAddEmployee(companyId: string): Promise<{ canAdd: boolean; allowed: number; current: number; maxAllowed: number }> {
     try {
-      this.logger.debug(`[canAddEmployee] التحقق من إمكانية إضافة موظف للشركة: ${companyId}`);
-      
       const activeSubscription = await this.subscriptionRepo.findOne({
         where: { 
           company: { id: companyId },
@@ -1207,7 +1074,6 @@ export class SubscriptionService {
       });
 
       if (!activeSubscription) {
-        this.logger.warn(`[canAddEmployee] الشركة ${companyId} ليس لديها اشتراك نشط`);
         return { canAdd: false, allowed: 0, current: 0, maxAllowed: 0 };
       }
 
@@ -1219,8 +1085,6 @@ export class SubscriptionService {
       const remaining = Math.max(0, maxAllowed - currentEmployees);
       const canAdd = remaining > 0;
 
-      this.logger.debug(`[canAddEmployee] النتيجة: يمكن الإضافة؟ ${canAdd}, المتبقي: ${remaining}`);
-
       return { 
         canAdd, 
         allowed: remaining, 
@@ -1230,21 +1094,17 @@ export class SubscriptionService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`[canAddEmployee] فشل التحقق من إمكانية إضافة موظف: ${errorMessage}`);
+      this.logger.error(`فشل التحقق من إمكانية إضافة موظف: ${errorMessage}`);
       throw new InternalServerErrorException('فشل التحقق من إمكانية إضافة موظف');
     }
   }
 
   async getUsage(companyId: string): Promise<any> {
     try {
-      this.logger.debug(`[getUsage] حساب استخدام الشركة ${companyId}`);
-      
       const { canAdd, allowed, current, maxAllowed } = await this.canAddEmployee(companyId);
       const subscription = await this.getCompanySubscription(companyId);
       const now = new Date();
       const isExpired: boolean = subscription ? new Date(subscription.endDate) < now : true;
-
-      this.logger.debug(`[getUsage] النتيجة: منتهي؟ ${isExpired}, يمكن الإضافة؟ ${canAdd}`);
 
       return {
         allowed: allowed,        
@@ -1257,7 +1117,7 @@ export class SubscriptionService {
       };
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[getUsage] فشل حساب استخدام الشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل حساب استخدام الشركة ${companyId}: ${errorMessage}`);
       throw new InternalServerErrorException('فشل حساب الاستخدام');
     }
   }
@@ -1269,8 +1129,6 @@ export class SubscriptionService {
     reason?: string
   ): Promise<CancelSubscriptionResult> {
     try {
-      this.logger.log(`[cancelSubscription] إلغاء اشتراك الشركة ${companyId}`);
-      
       const { deactivatedCount } = await this.deactivateOldSubscriptions(companyId);
 
       await this.companyRepo
@@ -1320,12 +1178,11 @@ export class SubscriptionService {
         note: 'الشركة لن تتمكن من إضافة موظفين جدد حتى تشترك في خطة جديدة. يمكن استرجاع الاشتراكات السابقة من سجل الاشتراكات.'
       };
 
-      this.logger.log(`[cancelSubscription] تم إلغاء اشتراك الشركة ${companyId} وإلغاء تفعيل ${deactivatedCount} اشتراك`);
       return result;
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[cancelSubscription] فشل إلغاء الاشتراكات للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل إلغاء الاشتراكات للشركة ${companyId}: ${errorMessage}`);
       throw new InternalServerErrorException('حدث خطأ أثناء إلغاء الاشتراك');
     }
   }
@@ -1337,8 +1194,6 @@ export class SubscriptionService {
     extraDays: number = 365
   ): Promise<ExtendSubscriptionResult> {
     try {
-      this.logger.log(`[extendSubscription] تمديد اشتراك الشركة ${companyId} لمدة ${extraDays} يوم`);
-      
       const { activeSubscription } = await this.validateCompanySubscription(companyId);
       
       if (!activeSubscription) {
@@ -1349,10 +1204,7 @@ export class SubscriptionService {
       const currentEmployeeCount = allowedEmployees.current;
       const maxAllowed = allowedEmployees.maxAllowed;
 
-      this.logger.log(`[extendSubscription] عدد الموظفين: ${currentEmployeeCount}/${maxAllowed}`);
-
       if (currentEmployeeCount > maxAllowed) {
-        this.logger.warn(`[extendSubscription] عدد الموظفين ${currentEmployeeCount} يتجاوز الحد ${maxAllowed} - مرفوض`);
         throw new BadRequestException(
           `لا يمكن تمديد الاشتراك - عدد الموظفين الحاليين (${currentEmployeeCount}) ` +
           `يتجاوز الحد المسموح (${maxAllowed})`
@@ -1370,8 +1222,6 @@ export class SubscriptionService {
       
       const daysRemainingAfter = daysRemainingBefore + totalDaysAdded;
       
-      this.logger.log(`[extendSubscription] الأيام المتبقية قبل: ${daysRemainingBefore}، بعد: ${daysRemainingAfter}، المضاف: ${totalDaysAdded}`);
-      
       activeSubscription.endDate = newEndDate;
       
       const updatedSubscription = await this.subscriptionRepo.save(activeSubscription);
@@ -1386,8 +1236,6 @@ export class SubscriptionService {
         })
         .where('id = :id', { id: companyId })
         .execute();
-
-      this.logger.log(`[extendSubscription] تم تمديد اشتراك الشركة ${companyId} حتى ${newEndDate.toDateString()} (تمت إضافة ${extraDays} يوم)`);
 
       const company = await this.companyRepo.findOne({ where: { id: companyId } });
       if (company && adminEmail) {
@@ -1424,21 +1272,16 @@ export class SubscriptionService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[extendSubscription] فشل تجديد الاشتراك للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل تجديد الاشتراك للشركة ${companyId}: ${errorMessage}`);
       throw error;
     }
   }
 
   async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChangeValidation> {
     try {
-      this.logger.log(`[validatePlanChange] التحقق من تغيير الخطة: الشركة ${companyId} إلى ${newPlanId}`);
-      
       const currentSubscription = await this.getCompanySubscription(companyId);
-      this.logger.log(`[validatePlanChange] الاشتراك الحالي: ${currentSubscription ? `موجود` : 'غير موجود'}`);
       
       if (!currentSubscription) {
-        this.logger.log(`[validatePlanChange] لا يوجد اشتراك حالي، السماح بالاشتراك الجديد`);
-        
         const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
         if (!newPlan) {
           throw new NotFoundException('الخطة الجديدة غير موجودة');
@@ -1457,8 +1300,6 @@ export class SubscriptionService {
         } else {
           message = `لا يمكن الاشتراك في الخطة ${newPlan.name} (${newPlan.maxEmployees} موظف) لأن لديك ${currentEmployees} موظف`;
         }
-        
-        this.logger.log(`[validatePlanChange] نتيجة التحقق: ${canChange ? 'يمكن التغيير' : 'لا يمكن التغيير'} - ${message}`);
         
         return {
           canChange,
@@ -1484,11 +1325,6 @@ export class SubscriptionService {
       const currentPlanPrice = Number(currentSubscription.plan?.price) || 0;
       const newPlanPrice = Number(newPlan.price) || 0;
 
-      this.logger.log(`[validatePlanChange] مقارنة:`);
-      this.logger.log(`[validatePlanChange] الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
-      this.logger.log(`[validatePlanChange] الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال`);
-      this.logger.log(`[validatePlanChange] الموظفين الحاليين: ${currentEmployees}`);
-
       let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
       let message = '';
 
@@ -1499,15 +1335,9 @@ export class SubscriptionService {
       
       const isSamePlan = newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice;
       
-      this.logger.log(`[validatePlanChange] تحليل:`);
-      this.logger.log(`[validatePlanChange] هل هي تنزيل كامل؟ ${isDowngrading}`);
-      this.logger.log(`[validatePlanChange] هل هي تنزيل جزئي؟ ${isPartialDowngrade}`);
-      this.logger.log(`[validatePlanChange] هل هي نفس الخطة؟ ${isSamePlan}`);
-      
       if (isDowngrading) {
         action = 'DOWNGRADE';
         message = `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) - غير مسموح بالانتقال لخطة أقل في كلا المعيارين`;
-        this.logger.log(`[validatePlanChange] نتيجة: DOWNGRADE - ${message}`);
         return {
           canChange: false,
           message,
@@ -1522,7 +1352,6 @@ export class SubscriptionService {
         message = `غير مسموح بالانتقال إلى خطة ${newPlan.name} لأنها أقل في ${reason}. ` +
                  `(الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال, ` +
                  `الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال)`;
-        this.logger.log(`[validatePlanChange] نتيجة: DOWNGRADE - ${message}`);
         return {
           canChange: false,
           message,
@@ -1534,15 +1363,12 @@ export class SubscriptionService {
       } else if (isSamePlan) {
         action = 'RENEW';
         message = `يمكنك التجديد في نفس الخطة ${newPlan.name}`;
-        this.logger.log(`[validatePlanChange] نتيجة: RENEW - ${message}`);
       } else if (newPlanMax > currentPlanMax || newPlanPrice > currentPlanPrice) {
         action = 'UPGRADE';
         message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف بسعر ${newPlanPrice} ريال`;
-        this.logger.log(`[validatePlanChange] نتيجة: UPGRADE - ${message}`);
       } else {
         action = 'RENEW';
         message = `يمكنك التغيير إلى الخطة ${newPlan.name}`;
-        this.logger.log(`[validatePlanChange] نتيجة: RENEW (مماثلة) - ${message}`);
       }
 
       const canChange = action === 'UPGRADE' || action === 'RENEW';
@@ -1555,29 +1381,24 @@ export class SubscriptionService {
         action
       };
 
-      this.logger.log(`[validatePlanChange] النتيجة النهائية: ${canChange ? 'يمكن التغيير' : 'لا يمكن التغيير'}`);
       return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[validatePlanChange] فشل التحقق من تغيير الخطة: ${errorMessage}`);
+      this.logger.error(`فشل التحقق من تغيير الخطة: ${errorMessage}`);
       throw error;
     }
   }
 
   async canUpgradeToPlan(companyId: string, planId: string): Promise<UpgradeCheckResult> {
     try {
-      this.logger.log(`[canUpgradeToPlan] التحقق من إمكانية الترقية: الشركة ${companyId} إلى ${planId}`);
-      
       const currentSubscription = await this.getCompanySubscription(companyId);
       const newPlan = await this.planRepo.findOne({ where: { id: planId } });
       
       if (!newPlan) {
-        this.logger.log(`[canUpgradeToPlan] الخطة غير موجودة`);
         return { canUpgrade: false, reason: 'الخطة غير موجودة' };
       }
 
       if (!currentSubscription) {
-        this.logger.log(`[canUpgradeToPlan] لا يوجد اشتراك حالي، يمكن الاشتراك`);
         return { 
           canUpgrade: true, 
           reason: 'يمكن الاشتراك في هذه الخطة',
@@ -1588,7 +1409,6 @@ export class SubscriptionService {
       const currentPlan = currentSubscription.plan;
       
       if (currentPlan.id === newPlan.id) {
-        this.logger.log(`[canUpgradeToPlan] نفس الخطة، يمكن التجديد`);
         return { 
           canUpgrade: true, 
           isSamePlan: true,
@@ -1607,7 +1427,6 @@ export class SubscriptionService {
                        newPlanPrice >= currentPlanPrice;
       
       if (!isUpgrade) {
-        this.logger.log(`[canUpgradeToPlan] لا يمكن النزول إلى خطة أقل`);
         return { 
           canUpgrade: false, 
           reason: `لا يمكن النزول إلى خطة أقل. الخطة الحالية: ${currentPlan.name} (${currentPlan.maxEmployees} موظف - ${currentPlan.price} ريال)`,
@@ -1616,7 +1435,6 @@ export class SubscriptionService {
         };
       }
 
-      this.logger.log(`[canUpgradeToPlan] يمكن الترقية`);
       return { 
         canUpgrade: true, 
         reason: 'يمكن الترقية إلى هذه الخطة',
@@ -1625,28 +1443,23 @@ export class SubscriptionService {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[canUpgradeToPlan] Failed to check upgrade: ${errorMessage}`);
+      this.logger.error(`فشل التحقق من الترقية: ${errorMessage}`);
       return { canUpgrade: false, reason: 'خطأ في التحقق' };
     }
   }
 
   async getAvailableUpgrades(companyId: string): Promise<Plan[]> {
     try {
-      this.logger.log(`[getAvailableUpgrades] جلب الخطط المتاحة للشركة ${companyId}`);
-      
       const allPlans = await this.planRepo.find();
       const currentSubscription = await this.getCompanySubscription(companyId);
       
       if (!currentSubscription) {
-        this.logger.log(`[getAvailableUpgrades] لا يوجد اشتراك حالي، كل الخطط متاحة`);
         return allPlans.sort((a, b) => a.maxEmployees - b.maxEmployees);
       }
       
       const currentPlan = currentSubscription.plan;
       const currentPlanMax = Number(currentPlan.maxEmployees) || 0;
       const currentPlanPrice = Number(currentPlan.price) || 0;
-      
-      this.logger.log(`[getAvailableUpgrades] الخطة الحالية: ${currentPlan.name} (${currentPlan.maxEmployees} موظف - ${currentPlan.price} ريال)`);
       
       const availablePlans = allPlans.filter(plan => {
         const planMax = Number(plan.maxEmployees) || 0;
@@ -1656,12 +1469,10 @@ export class SubscriptionService {
                plan.id === currentPlan.id;
       });
       
-      this.logger.log(`[getAvailableUpgrades] عدد الخطط المتاحة: ${availablePlans.length} من ${allPlans.length}`);
-      
       return availablePlans.sort((a, b) => a.maxEmployees - b.maxEmployees);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[getAvailableUpgrades] Failed to get available upgrades: ${errorMessage}`);
+      this.logger.error(`فشل جلب الخطط المتاحة: ${errorMessage}`);
       throw new InternalServerErrorException('فشل جلب الخطط المتاحة');
     }
   }
@@ -1682,37 +1493,31 @@ export class SubscriptionService {
         .orderBy('sub.endDate', 'ASC')
         .getMany();
 
-      this.logger.log(`[getExpiringSubscriptions] تم جلب ${subscriptions.length} اشتراكًا ينتهي خلال ${daysThreshold} يوم`);
       return subscriptions;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[getExpiringSubscriptions] فشل جلب الاشتراكات القريبة من الانتهاء: ${errorMessage}`);
+      this.logger.error(`فشل جلب الاشتراكات القريبة من الانتهاء: ${errorMessage}`);
       throw new InternalServerErrorException('فشل جلب الاشتراكات القريبة من الانتهاء');
     }
   }
 
   async getSubscriptionHistory(companyId: string): Promise<CompanySubscription[]> {
     try {
-      this.logger.log(`[getSubscriptionHistory] جلب سجل اشتراكات الشركة ${companyId}`);
-      
       const subscriptions = await this.subscriptionRepo.find({
         where: { company: { id: companyId } },
         relations: ['plan', 'paymentTransaction', 'activatedBySeller', 'activatedByAdmin'],
         order: { startDate: 'DESC' },
       });
 
-      this.logger.log(`[getSubscriptionHistory] تم جلب ${subscriptions.length} اشتراك في السجل`);
       return subscriptions;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[getSubscriptionHistory] فشل جلب سجل الاشتراكات للشركة ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل جلب سجل الاشتراكات للشركة ${companyId}: ${errorMessage}`);
       throw new InternalServerErrorException('فشل جلب سجل الاشتراكات');
     }
   }
 
   async overrideEmployeeLimit(companyId: string, newMaxEmployees: number): Promise<void> {
-    this.logger.log(`[overrideEmployeeLimit] محاولة تجاوز حدود الموظفين للشركة: ${companyId} إلى ${newMaxEmployees}`);
-    
     const activeSubscriptions = await this.subscriptionRepo.find({
       where: {
         company: { id: companyId },
@@ -1730,12 +1535,9 @@ export class SubscriptionService {
     subscription.customMaxEmployees = newMaxEmployees;
     
     await this.subscriptionRepo.save(subscription);
-    this.logger.log(`[overrideEmployeeLimit] تم تحديث الحد الأقصى للموظفين إلى: ${newMaxEmployees}`);
   }
 
   async autoUpgradeEmployeeLimit(companyId: string, upgradePercentage: number = 50): Promise<void> {
-    this.logger.log(`[autoUpgradeEmployeeLimit] محاولة الترقية التلقائية لحدود الموظفين للشركة: ${companyId}`);
-    
     const activeSubscriptions = await this.subscriptionRepo.find({
       where: {
         company: { id: companyId },
@@ -1758,8 +1560,6 @@ export class SubscriptionService {
     
     subscription.customMaxEmployees = newMax;
     await this.subscriptionRepo.save(subscription);
-    
-    this.logger.log(`[autoUpgradeEmployeeLimit] تمت الترقية التلقائية من ${currentMax} إلى ${newMax} موظف`);
   }
 
   @Cron('0 9 * * *')
@@ -1794,15 +1594,14 @@ export class SubscriptionService {
 
         try {
           await this.sendEmail(companyEmail, subject, message);
-          this.logger.log(`[notifyExpiringSubscriptions] تم إرسال تنبيه إلى ${companyEmail}`);
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-          this.logger.error(`[notifyExpiringSubscriptions] فشل إرسال التنبيه إلى ${companyEmail}: ${errorMessage}`);
+          this.logger.error(`فشل إرسال التنبيه إلى ${companyEmail}: ${errorMessage}`);
         }
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[notifyExpiringSubscriptions] فشل فحص الاشتراكات القريبة من الانتهاء: ${errorMessage}`);
+      this.logger.error(`فشل فحص الاشتراكات القريبة من الانتهاء: ${errorMessage}`);
     }
   }
 
@@ -1818,19 +1617,16 @@ export class SubscriptionService {
       const count = await this.employeeRepo.count({
         where: { company: { id: companyId } }
       });
-      this.logger.debug(`[getCurrentEmployeeCount] عدد موظفي الشركة ${companyId}: ${count}`);
       return count;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`[getCurrentEmployeeCount] Failed to get employee count for company ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل جلب عدد الموظفين للشركة ${companyId}: ${errorMessage}`);
       return 0;
     }
   }
 
   async syncCompanySubscriptionStatus(companyId: string): Promise<void> {
     try {
-      this.logger.log(`[syncCompanySubscriptionStatus] Syncing subscription status for company: ${companyId}`);
-      
       const activeSubscriptions = await this.subscriptionRepo.find({
         where: {
           company: { id: companyId },
@@ -1846,7 +1642,6 @@ export class SubscriptionService {
       });
 
       if (!company) {
-        this.logger.warn(`[syncCompanySubscriptionStatus] Company not found: ${companyId}`);
         return;
       }
 
@@ -1865,8 +1660,6 @@ export class SubscriptionService {
             })
             .where('id = :id', { id: companyId })
             .execute();
-          
-          this.logger.log(`[syncCompanySubscriptionStatus] Synced company ${companyId} status to ACTIVE with plan: ${latestSubscription.plan.name}`);
         }
       } else {
         if (company.subscriptionStatus === 'active') {
@@ -1881,13 +1674,11 @@ export class SubscriptionService {
             })
             .where('id = :id', { id: companyId })
             .execute();
-          
-          this.logger.log(`[syncCompanySubscriptionStatus] Synced company ${companyId} status to INACTIVE - no active subscriptions`);
         }
       }
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`[syncCompanySubscriptionStatus] Failed to sync subscription status for company ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل مزامنة حالة الاشتراك للشركة ${companyId}: ${errorMessage}`);
     }
   }
 
@@ -1895,19 +1686,16 @@ export class SubscriptionService {
     try {
       const subscription = await this.getCompanySubscription(companyId);
       const hasActive = !!subscription;
-      this.logger.debug(`[hasActiveSubscription] الشركة ${companyId} لديها اشتراك نشط؟ ${hasActive}`);
       return hasActive;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`[hasActiveSubscription] Failed to check active subscription for company ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل التحقق من وجود اشتراك نشط للشركة ${companyId}: ${errorMessage}`);
       return false;
     }
   }
 
   async debugSubscriptionStatus(companyId: string): Promise<any> {
     try {
-      this.logger.log(`[debugSubscriptionStatus] تصحيح حالة الاشتراك للشركة ${companyId}`);
-      
       const company = await this.companyRepo.findOne({ 
         where: { id: companyId },
         relations: ['subscriptions', 'subscriptions.plan']
@@ -1953,11 +1741,10 @@ export class SubscriptionService {
         syncNeeded: activeSubscriptions.length > 0 && company.subscriptionStatus !== 'active'
       };
 
-      this.logger.log(`[debugSubscriptionStatus] نتيجة التصحيح: ${JSON.stringify(result, null, 2)}`);
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[debugSubscriptionStatus] Debug failed for company ${companyId}: ${errorMessage}`);
+      this.logger.error(`فشل تصحيح حالة الاشتراك للشركة ${companyId}: ${errorMessage}`);
       return { error: 'Debug failed' };
     }
   }
@@ -1971,7 +1758,7 @@ export class SubscriptionService {
       
       return admin?.email;
     } catch (error) {
-      this.logger.error(`[getAdminEmail] فشل الحصول على بريد الأدمن ${adminId}: ${error}`);
+      this.logger.error(`فشل الحصول على بريد الأدمن ${adminId}: ${error}`);
       return undefined;
     }
   }

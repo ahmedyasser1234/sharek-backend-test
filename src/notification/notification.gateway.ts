@@ -27,24 +27,14 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
   private connectedClients: Map<string, ConnectedClient> = new Map();
 
   handleConnection(client: Socket) {
-    this.logger.log(` عميل متصل: ${client.id}`);
+    // لا توجد رسائل لوج هنا
   }
 
   handleDisconnect(client: Socket) {
-    this.logger.log(` عميل منفصل: ${client.id}`);
-    
     const clientData = this.connectedClients.get(client.id);
     if (clientData) {
       this.connectedClients.delete(client.id);
-      
-      if (clientData.type === 'admin') {
-        this.logger.log(` أدمن منفصل: ${client.id}`);
-      } else if (clientData.type === 'company') {
-        this.logger.log(` شركة منفصلة: ${clientData.companyId} -> ${client.id}`);
-      }
     }
-    
-    this.logConnectionStats();
   }
 
   @SubscribeMessage('register_admin')
@@ -53,9 +43,6 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
       socket: client,
       type: 'admin'
     });
-    
-    this.logger.log(` أدمن مسجل: ${client.id}`);
-    this.logConnectionStats();
     
     client.emit('registration_success', { message: 'تم تسجيل الأدمن بنجاح' });
   }
@@ -67,9 +54,6 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
       type: 'company',
       companyId: companyId
     });
-    
-    this.logger.log(` شركة مسجلة: ${companyId} -> ${client.id}`);
-    this.logConnectionStats();
     
     client.emit('registration_success', { message: 'تم تسجيل الشركة بنجاح' });
   }
@@ -86,38 +70,23 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
         adminCount++;
       }
     });
-    
-    this.logger.log(` تم إرسال إشعار ${event} إلى ${adminCount} أدمن`);
   }
 
   sendToCompany(companyId: string, event: string, data: any) {
     let sent = false;
-    let connectedCompanies: string[] = [];
-    
-    this.logger.log(` البحث عن الشركة ${companyId} بين العملاء المتصلين...`);
-    
-    this.connectedClients.forEach((clientData) => {
-      if (clientData.type === 'company' && clientData.companyId) {
-        connectedCompanies.push(clientData.companyId);
-      }
-    });
-    
-    this.logger.log(`🔍 الشركات المتصلة: ${connectedCompanies.join(', ') || 'لا يوجد'}`);
     
     this.connectedClients.forEach((clientData) => {
       if (clientData.type === 'company' && clientData.companyId === companyId) {
-        this.logger.log(` وجدت الشركة ${companyId} متصلة - إرسال إشعار ${event}`);
         clientData.socket.emit(event, {
           ...data,
           timestamp: new Date(),
         });
         sent = true;
-        this.logger.log(` تم إرسال إشعار ${event} إلى الشركة ${companyId}`);
       }
     });
     
     if (!sent) {
-      this.logger.warn(` الشركة ${companyId} غير متصلة - سيتم تخزين الإشعار في قاعدة البيانات`);
+      this.logger.error(`الشركة ${companyId} غير متصلة - سيتم تخزين الإشعار في قاعدة البيانات`);
     }
     
     return sent;
@@ -135,8 +104,6 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
         companyCount++;
       }
     });
-    
-    this.logger.log(`تم إرسال إشعار ${event} إلى ${companyCount} شركة`);
   }
 
   sendToClient(clientId: string, event: string, data: any) {
@@ -146,7 +113,6 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
         ...data,
         timestamp: new Date(),
       });
-      this.logger.log(`تم إرسال إشعار ${event} إلى العميل ${clientId}`);
     }
   }
 
@@ -175,13 +141,6 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
     return null;
   }
 
-  private logConnectionStats() {
-    const admins = this.getConnectedAdminsCount();
-    const companies = this.getConnectedCompaniesCount();
-    
-    this.logger.log(` إحصائيات الاتصال - الأدمن: ${admins}, الشركات: ${companies}, الإجمالي: ${this.connectedClients.size}`);
-  }
-
   isCompanyConnected(companyId: string): boolean {
     return this.getCompanySocketId(companyId) !== null;
   }
@@ -202,6 +161,6 @@ export class NotificationGateway implements OnGatewayConnection, OnGatewayDiscon
   }
 
   cleanupOldConnections() {
-    this.logger.log(`تنظيف الاتصالات - الحالي: ${this.connectedClients.size} اتصال`);
+    // لا توجد رسائل لوج هنا
   }
 }

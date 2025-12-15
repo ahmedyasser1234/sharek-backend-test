@@ -19,6 +19,7 @@ import { CompanySubscription, SubscriptionStatus } from '../subscription/entitie
 import { Plan } from '../plan/entities/plan.entity';
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { Manager, ManagerRole } from './entities/manager.entity';
+import { ManagerToken } from './entities/manager-token.entity'
 import * as bcrypt from 'bcryptjs';
 import { SupadminJwtService } from './auth/supadmin-jwt.service';
 import { SubscriptionService } from '../subscription/subscription.service';
@@ -138,6 +139,7 @@ export class SupadminService {
     @InjectRepository(Plan) private readonly planRepo: Repository<Plan>,
     @InjectRepository(PaymentProof) private readonly paymentProofRepo: Repository<PaymentProof>,
     @InjectRepository(Manager) private readonly sellerRepo: Repository<Manager>,
+    @InjectRepository(ManagerToken) private readonly managerTokenRepo: Repository<ManagerToken>,
     private readonly supadminJwt: SupadminJwtService,
     private readonly subscriptionService: SubscriptionService,
     private readonly paymentService: PaymentService,
@@ -1045,6 +1047,59 @@ export class SupadminService {
     };
   }
 
+  async getSellerById(
+    supadminId: string,
+    sellerId: string
+  ): Promise<{
+    id: string;
+    email: string;
+    role: string;
+    isActive: boolean;
+    createdAt: Date;
+    companiesCount: number;
+    activeSubscriptionsCount: number;
+    createdBy?: string;
+  }> {
+    const supadmin = await this.supadminRepo.findOne({
+      where: { id: supadminId }
+    });
+
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_sellers')) {
+      throw new ForbiddenException('غير مصرح - لا تملك صلاحية عرض تفاصيل البائعين');
+    }
+
+    const seller = await this.sellerRepo.findOne({
+      where: { id: sellerId },
+      relations: ['createdBy']
+    });
+
+    if (!seller) {
+      throw new NotFoundException('البائع غير موجود');
+    }
+
+    const companiesCount = await this.subRepo.count({
+      where: { activatedBySellerId: seller.id }
+    });
+
+    const activeSubscriptionsCount = await this.subRepo.count({
+      where: { 
+        activatedBySellerId: seller.id,
+        status: SubscriptionStatus.ACTIVE
+      }
+    });
+
+    return {
+      id: seller.id,
+      email: seller.email,
+      role: seller.role,
+      isActive: seller.isActive,
+      createdAt: seller.createdAt,
+      companiesCount,
+      activeSubscriptionsCount,
+      createdBy: seller.createdBy?.email,
+    };
+  }
+
   async createSeller(
     supadminId: string,
     dto: { email: string; password: string }
@@ -1089,6 +1144,64 @@ export class SupadminService {
 
     this.logger.log(`تم إنشاء بائع جديد: ${seller.email} بواسطة المسؤول: ${supadmin.email}`);
     return { success: true, sellerId: seller.id };
+  }
+
+  async updateSeller(
+    supadminId: string,
+    sellerId: string,
+    dto: Partial<{ email: string; password: string; isActive: boolean }>
+  ): Promise<{ success: boolean }> {
+    const supadmin = await this.supadminRepo.findOne({
+      where: { id: supadminId }
+    });
+
+    if (!supadmin || !this.hasPermission(supadmin, 'manage_sellers')) {
+      throw new ForbiddenException('غير مصرح - لا تملك صلاحية تحديث البائعين');
+    }
+
+    const seller = await this.sellerRepo.findOne({
+      where: { id: sellerId }
+    });
+
+    if (!seller) {
+      throw new NotFoundException('البائع غير موجود');
+    }
+
+    // التحقق من البريد الإلكتروني الفريد
+    if (dto.email && dto.email !== seller.email) {
+      const emailExists = await this.sellerRepo.findOne({ 
+        where: { email: dto.email.toLowerCase().trim() } 
+      });
+      if (emailExists) {
+        throw new ConflictException('البريد الإلكتروني مستخدم بالفعل');
+      }
+      dto.email = dto.email.toLowerCase().trim();
+    }
+
+    // تشفير كلمة المرور إذا تم تحديثها
+    if (dto.password) {
+      dto.password = await bcrypt.hash(dto.password, 10);
+    }
+
+    // تحديث بيانات البائع
+    await this.sellerRepo.update(sellerId, dto);
+
+    const action = 'updated';
+    const details = dto.email ? 
+      `تم تحديث بيانات البائع ${seller.email} إلى ${dto.email}` :
+      `تم تحديث بيانات البائع ${seller.email}`;
+    
+    await this.sendSupadminActionEmail(
+      action,
+      details,
+      supadmin.email,
+      dto.email || seller.email,
+      'seller',
+      [seller.email]
+    );
+
+    this.logger.log(`تم تحديث البائع: ${seller.email} بواسطة المسؤول: ${supadmin.email}`);
+    return { success: true };
   }
 
   async toggleSellerStatus(
@@ -1148,18 +1261,46 @@ export class SupadminService {
       throw new NotFoundException('البائع غير موجود');
     }
 
-    await this.sellerRepo.delete(sellerId);
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    await this.sendSupadminActionEmail(
-      'deleted',
-      `تم حذف حساب البائع: ${seller.email}`,
-      supadmin.email,
-      seller.email,
-      'seller'
-    );
-    
-    this.logger.log(`تم حذف البائع: ${seller.email} بواسطة المسؤول: ${supadmin.email}`);
-    return { success: true };
+    try {
+      // 1. حذف جميع التوكنات المرتبطة بالبائع
+      await queryRunner.manager.delete(ManagerToken, { manager: { id: sellerId } });
+      
+      // 2. فصل جميع الاشتراكات عن البائع (تعيين activatedBySeller إلى null)
+      await queryRunner.manager.update(
+        CompanySubscription,
+        { activatedBySeller: { id: sellerId } },
+        { activatedBySeller: null }
+      );
+      
+      // 3. حذف البائع نفسه
+      await queryRunner.manager.delete(Manager, sellerId);
+      
+      // 4. تأكيد العملية
+      await queryRunner.commitTransaction();
+
+      await this.sendSupadminActionEmail(
+        'deleted',
+        `تم حذف حساب البائع: ${seller.email}`,
+        supadmin.email,
+        seller.email,
+        'seller'
+      );
+      
+      this.logger.log(`تم حذف البائع: ${seller.email} بواسطة المسؤول: ${supadmin.email}`);
+      return { success: true };
+      
+    } catch (error: unknown) {
+      await queryRunner.rollbackTransaction();
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      this.logger.error(`فشل حذف البائع: ${errorMessage}`);
+      throw new InternalServerErrorException('فشل في حذف البائع');
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   async getSupadminCompanies(supadminId: string): Promise<CompanyWithEmployeeCount[]> {
@@ -2083,5 +2224,3 @@ async getAllCompanies(
     return false;
   }
 }
-
-
