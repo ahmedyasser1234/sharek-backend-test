@@ -1100,7 +1100,7 @@ export class SupadminService {
     };
   }
 
-  async createSeller(
+async createSeller(
   supadminId: string,
   dto: { email: string; password: string }
 ): Promise<{ success: boolean; sellerId: string }> {
@@ -1112,21 +1112,25 @@ export class SupadminService {
     throw new ForbiddenException('غير مصرح - لا تملك صلاحية إنشاء بائعين');
   }
 
+  // التحقق من البيانات المدخلة
   if (!dto || !dto.email || !dto.password) {
     throw new BadRequestException('البريد الإلكتروني وكلمة المرور مطلوبان');
   }
 
   const normalizedEmail = dto.email.toLowerCase().trim();
   
+  // التحقق من صيغة البريد الإلكتروني
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(normalizedEmail)) {
     throw new BadRequestException('صيغة البريد الإلكتروني غير صحيحة');
   }
 
+  // التحقق من قوة كلمة المرور
   if (dto.password.length < 6) {
     throw new BadRequestException('كلمة المرور يجب أن تكون على الأقل 6 أحرف');
   }
 
+  // التحقق من عدم وجود بائع بنفس البريد
   const existing = await this.sellerRepo.findOne({ 
     where: { email: normalizedEmail } 
   });
@@ -1137,27 +1141,105 @@ export class SupadminService {
 
   const hashedPassword = await bcrypt.hash(dto.password, 10);
   
-  const seller = this.sellerRepo.create({
-    email: normalizedEmail,
-    password: hashedPassword,
-    role: ManagerRole.SELLER,
-    isActive: true,
-    createdBy: supadmin,
-  });
+  try {
+    // إنشاء البائع - بنفس منطق createManager
+    const seller = this.sellerRepo.create({
+      email: normalizedEmail,
+      password: hashedPassword,
+      role: ManagerRole.SELLER,
+      isActive: true,
+      createdBy: supadmin, // إضافة هذا السطر فقط
+    });
 
-  await this.sellerRepo.save(seller);
+    const savedSeller = await this.sellerRepo.save(seller);
+    const sellerId = savedSeller.id;
 
-  await this.sendSupadminActionEmail(
-    'created',
-    `تم إنشاء بائع جديد: ${seller.email} بكلمة مرور مؤقتة: ${dto.password}`,
-    supadmin.email,
-    seller.email,
-    'seller',
-    [seller.email]
-  );
+    if (!sellerId) {
+      throw new InternalServerErrorException('فشل في الحصول على معرف البائع');
+    }
 
-  this.logger.log(`تم إنشاء بائع جديد: ${seller.email} بواسطة المسؤول: ${supadmin.email}`);
-  return { success: true, sellerId: seller.id };
+    this.logger.log(`تم إنشاء بائع جديد: ${savedSeller.email} بواسطة المسؤول الأعلى: ${supadmin.email}`);
+    
+    // إرسال إيميل الإشعار
+    try {
+      await this.sendSupadminActionEmail(
+        'created',
+        `تم إنشاء بائع جديد: ${savedSeller.email} بكلمة مرور مؤقتة: ${dto.password}`,
+        supadmin.email,
+        savedSeller.email,
+        'seller',
+        [savedSeller.email]
+      );
+    } catch (emailError: unknown) {
+      const emailErrorMessage = emailError instanceof Error ? emailError.message : 'Unknown email error';
+      this.logger.warn(`فشل إرسال إيميل البائع الجديد: ${emailErrorMessage}`);
+    }
+
+    return { success: true, sellerId };
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    this.logger.error(`فشل إنشاء البائع: ${errorMessage}`);
+    
+    // إذا كان الخطأ يتعلق بالمفتاح الأجنبي (مشكلة العلاقة)
+    if (errorMessage.includes('foreign key constraint')) {
+      this.logger.warn('خطأ في المفتاح الأجنبي، محاولة طريقة بديلة...');
+      
+      // محاولة إنشاء البائع بدون العلاقة
+      return this.createSellerWithoutRelation(supadmin, normalizedEmail, hashedPassword, dto.password);
+    }
+    
+    throw new InternalServerErrorException('فشل في إنشاء البائع');
+  }
+}
+
+// دالة مساعدة لإنشاء البائع بدون علاقة إذا فشلت العلاقة
+private async createSellerWithoutRelation(
+  supadmin: Supadmin,
+  email: string,
+  hashedPassword: string,
+  plainPassword: string
+): Promise<{ success: boolean; sellerId: string }> {
+  try {
+    // إنشاء البائع بدون العلاقة
+    const seller = this.sellerRepo.create({
+      email: email,
+      password: hashedPassword,
+      role: ManagerRole.SELLER,
+      isActive: true,
+      // لا نضيف createdBy
+    });
+
+    const savedSeller = await this.sellerRepo.save(seller);
+    const sellerId = savedSeller.id;
+
+    if (!sellerId) {
+      throw new InternalServerErrorException('فشل في الحصول على معرف البائع بالطريقة البديلة');
+    }
+
+    this.logger.log(`تم إنشاء بائع جديد بدون علاقة: ${email} بواسطة المسؤول الأعلى: ${supadmin.email}`);
+    
+    try {
+      await this.sendSupadminActionEmail(
+        'created',
+        `تم إنشاء بائع جديد: ${email} بكلمة مرور مؤقتة: ${plainPassword}`,
+        supadmin.email,
+        email,
+        'seller',
+        [email]
+      );
+    } catch (emailError: unknown) {
+      const emailErrorMessage = emailError instanceof Error ? emailError.message : 'Unknown email error';
+      this.logger.warn(`فشل إرسال إيميل: ${emailErrorMessage}`);
+    }
+
+    return { success: true, sellerId };
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    this.logger.error(`فشل الطريقة البديلة: ${errorMessage}`);
+    throw new InternalServerErrorException('فشل في إنشاء البائع حتى بالطريقة البديلة');
+  }
 }
 
  async updateSeller(
