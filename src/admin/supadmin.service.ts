@@ -1101,108 +1101,133 @@ export class SupadminService {
   }
 
   async createSeller(
-    supadminId: string,
-    dto: { email: string; password: string }
-  ): Promise<{ success: boolean; sellerId: string }> {
-    const supadmin = await this.supadminRepo.findOne({
-      where: { id: supadminId }
-    });
+  supadminId: string,
+  dto: { email: string; password: string }
+): Promise<{ success: boolean; sellerId: string }> {
+  const supadmin = await this.supadminRepo.findOne({
+    where: { id: supadminId }
+  });
 
-    if (!supadmin || !this.hasPermission(supadmin, 'manage_sellers')) {
-      throw new ForbiddenException('غير مصرح - لا تملك صلاحية إنشاء بائعين');
+  if (!supadmin || !this.hasPermission(supadmin, 'manage_sellers')) {
+    throw new ForbiddenException('غير مصرح - لا تملك صلاحية إنشاء بائعين');
+  }
+
+  if (!dto || !dto.email || !dto.password) {
+    throw new BadRequestException('البريد الإلكتروني وكلمة المرور مطلوبان');
+  }
+
+  const normalizedEmail = dto.email.toLowerCase().trim();
+  
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(normalizedEmail)) {
+    throw new BadRequestException('صيغة البريد الإلكتروني غير صحيحة');
+  }
+
+  if (dto.password.length < 6) {
+    throw new BadRequestException('كلمة المرور يجب أن تكون على الأقل 6 أحرف');
+  }
+
+  const existing = await this.sellerRepo.findOne({ 
+    where: { email: normalizedEmail } 
+  });
+  
+  if (existing) {
+    throw new ConflictException('البريد الإلكتروني مستخدم بالفعل');
+  }
+
+  const hashedPassword = await bcrypt.hash(dto.password, 10);
+  
+  const seller = this.sellerRepo.create({
+    email: normalizedEmail,
+    password: hashedPassword,
+    role: ManagerRole.SELLER,
+    isActive: true,
+    createdBy: supadmin,
+  });
+
+  await this.sellerRepo.save(seller);
+
+  await this.sendSupadminActionEmail(
+    'created',
+    `تم إنشاء بائع جديد: ${seller.email} بكلمة مرور مؤقتة: ${dto.password}`,
+    supadmin.email,
+    seller.email,
+    'seller',
+    [seller.email]
+  );
+
+  this.logger.log(`تم إنشاء بائع جديد: ${seller.email} بواسطة المسؤول: ${supadmin.email}`);
+  return { success: true, sellerId: seller.id };
+}
+
+ async updateSeller(
+  supadminId: string,
+  sellerId: string,
+  dto: Partial<{ email: string; password: string; isActive: boolean }>
+): Promise<{ success: boolean }> {
+  const supadmin = await this.supadminRepo.findOne({
+    where: { id: supadminId }
+  });
+
+  if (!supadmin || !this.hasPermission(supadmin, 'manage_sellers')) {
+    throw new ForbiddenException('غير مصرح - لا تملك صلاحية تحديث البائعين');
+  }
+
+  const seller = await this.sellerRepo.findOne({
+    where: { id: sellerId }
+  });
+
+  if (!seller) {
+    throw new NotFoundException('البائع غير موجود');
+  }
+
+  if (dto.email && dto.email !== seller.email) {
+    if (!dto.email.trim()) {
+      throw new BadRequestException('البريد الإلكتروني لا يمكن أن يكون فارغاً');
     }
-
+    
     const normalizedEmail = dto.email.toLowerCase().trim();
-    const existing = await this.sellerRepo.findOne({ 
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(normalizedEmail)) {
+      throw new BadRequestException('صيغة البريد الإلكتروني غير صحيحة');
+    }
+    
+    const emailExists = await this.sellerRepo.findOne({ 
       where: { email: normalizedEmail } 
     });
-    
-    if (existing) {
+    if (emailExists) {
       throw new ConflictException('البريد الإلكتروني مستخدم بالفعل');
     }
-
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
-    
-    const seller = this.sellerRepo.create({
-      email: normalizedEmail,
-      password: hashedPassword,
-      role: ManagerRole.SELLER,
-      isActive: true,
-      createdBy: supadmin,
-    });
-
-    await this.sellerRepo.save(seller);
-
-    await this.sendSupadminActionEmail(
-      'created',
-      `تم إنشاء بائع جديد: ${seller.email} بكلمة مرور مؤقتة: ${dto.password}`,
-      supadmin.email,
-      seller.email,
-      'seller',
-      [seller.email]
-    );
-
-    this.logger.log(`تم إنشاء بائع جديد: ${seller.email} بواسطة المسؤول: ${supadmin.email}`);
-    return { success: true, sellerId: seller.id };
+    dto.email = normalizedEmail;
   }
 
-  async updateSeller(
-    supadminId: string,
-    sellerId: string,
-    dto: Partial<{ email: string; password: string; isActive: boolean }>
-  ): Promise<{ success: boolean }> {
-    const supadmin = await this.supadminRepo.findOne({
-      where: { id: supadminId }
-    });
-
-    if (!supadmin || !this.hasPermission(supadmin, 'manage_sellers')) {
-      throw new ForbiddenException('غير مصرح - لا تملك صلاحية تحديث البائعين');
+  if (dto.password) {
+    if (dto.password.length < 6) {
+      throw new BadRequestException('كلمة المرور يجب أن تكون على الأقل 6 أحرف');
     }
-
-    const seller = await this.sellerRepo.findOne({
-      where: { id: sellerId }
-    });
-
-    if (!seller) {
-      throw new NotFoundException('البائع غير موجود');
-    }
-
-    // التحقق من البريد الإلكتروني الفريد
-    if (dto.email && dto.email !== seller.email) {
-      const emailExists = await this.sellerRepo.findOne({ 
-        where: { email: dto.email.toLowerCase().trim() } 
-      });
-      if (emailExists) {
-        throw new ConflictException('البريد الإلكتروني مستخدم بالفعل');
-      }
-      dto.email = dto.email.toLowerCase().trim();
-    }
-
-    // تشفير كلمة المرور إذا تم تحديثها
-    if (dto.password) {
-      dto.password = await bcrypt.hash(dto.password, 10);
-    }
-
-    // تحديث بيانات البائع
-    await this.sellerRepo.update(sellerId, dto);
-
-    const action = 'updated';
-    const details = dto.email ? 
-      `تم تحديث بيانات البائع ${seller.email} إلى ${dto.email}` :
-      `تم تحديث بيانات البائع ${seller.email}`;
-    
-    await this.sendSupadminActionEmail(
-      action,
-      details,
-      supadmin.email,
-      dto.email || seller.email,
-      'seller',
-      [seller.email]
-    );
-
-    this.logger.log(`تم تحديث البائع: ${seller.email} بواسطة المسؤول: ${supadmin.email}`);
-    return { success: true };
+    dto.password = await bcrypt.hash(dto.password, 10);
   }
+
+  await this.sellerRepo.update(sellerId, dto);
+
+  const action = 'updated';
+  const details = dto.email ? 
+    `تم تحديث بيانات البائع ${seller.email} إلى ${dto.email}` :
+    `تم تحديث بيانات البائع ${seller.email}`;
+  
+  await this.sendSupadminActionEmail(
+    action,
+    details,
+    supadmin.email,
+    dto.email || seller.email,
+    'seller',
+    [seller.email]
+  );
+
+  this.logger.log(`تم تحديث البائع: ${seller.email} بواسطة المسؤول: ${supadmin.email}`);
+  return { success: true };
+}
 
   async toggleSellerStatus(
     supadminId: string,

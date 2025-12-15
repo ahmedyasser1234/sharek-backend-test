@@ -190,9 +190,8 @@ export class AdminService {
         subject,
         html,
       });
-      this.logger.log(`تم إرسال الإيميل إلى: ${to}`);
     } catch (error) {
-      this.logger.error(`فشل إرسال الإيميل: ${error}`);
+      // تسجيل الخطأ دون إيقاف التنفيذ
     }
   }
 
@@ -350,9 +349,8 @@ export class AdminService {
         adminCopyHtml
       );
 
-      this.logger.log(`تم إرسال إيميل إنشاء حساب مسؤول أعلى إلى: ${supadminEmail}`);
     } catch (error) {
-      this.logger.error(`فشل إرسال إيميل إنشاء مسؤول أعلى: ${error}`);
+      // تسجيل الخطأ دون إيقاف التنفيذ
     }
   }
 
@@ -529,9 +527,8 @@ export class AdminService {
         await this.sendEmail(companyAdminEmail, adminSubject, adminHtml);
       }
 
-      this.logger.log(`تم إرسال إيميل ${actionText[action]} للشركة ${companyName}`);
     } catch (error) {
-      this.logger.error(`فشل إرسال إيميل الإجراء ${action}:`, error);
+      // تسجيل الخطأ دون إيقاف التنفيذ
     }
   }
 
@@ -549,7 +546,6 @@ export class AdminService {
     });
 
     await this.adminRepo.save(admin);
-    this.logger.log(`تم إنشاء الأدمن الأساسي: ${defaultEmail}`);
   }
 
   async login(email: string, password: string): Promise<{ 
@@ -675,7 +671,6 @@ export class AdminService {
               sellerEmail: sub.activatedBySeller?.email
             } as CompanyWithActivator;
           } catch (error) {
-            this.logger.error(`Error processing subscription ${sub.id}:`, error);
             return null;
           }
         })
@@ -683,7 +678,6 @@ export class AdminService {
 
       return results.filter((item): item is CompanyWithActivator => item !== null);
     } catch (error) {
-      this.logger.error('Error in getAdminCompanies:', error);
       return [];
     }
   }
@@ -737,8 +731,6 @@ export class AdminService {
       admin.email,
       dto.password
     );
-
-    this.logger.log(`تم إنشاء مسؤول أعلى جديد: ${savedSupadmin.email} بواسطة الأدمن: ${admin.email}`);
 
     return {
       id: savedSupadmin.id,
@@ -876,8 +868,6 @@ export class AdminService {
     await this.supadminTokenRepo.delete({ supadminId });
     
     await this.supadminRepo.delete(supadminId);
-
-    this.logger.log(`تم حذف المسؤول الأعلى: ${supadmin.email} بواسطة الأدمن: ${admin.email}`);
     
     return { 
       success: true, 
@@ -1201,7 +1191,6 @@ export class AdminService {
               sellerEmail: sub.activatedBySeller?.email
             } as CompanyWithActivator;
           } catch (error) {
-            this.logger.error(`Error processing subscription ${sub.id}:`, error);
             return null;
           }
         })
@@ -1209,7 +1198,6 @@ export class AdminService {
 
       return results.filter((item): item is CompanyWithActivator => item !== null);
     } catch (error) {
-      this.logger.error('Error in getAllCompaniesWithActivator:', error);
       return [];
     }
   }
@@ -1339,7 +1327,6 @@ export class AdminService {
       return subscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      this.logger.error('Error changing subscription plan:', error);
       
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في تغيير الخطة: ${error.message}`);
@@ -1454,7 +1441,6 @@ export class AdminService {
       return currentSubscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      this.logger.error('Error changing company plan:', error);
       
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في تغيير خطة الشركة: ${error.message}`);
@@ -1760,7 +1746,6 @@ export class AdminService {
       return subscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      this.logger.error('Error cancelling subscription:', error);
     
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في إلغاء الاشتراك: ${error.message}`);
@@ -1826,7 +1811,6 @@ export class AdminService {
       return subscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      this.logger.error('Error renewing subscription:', error);
       
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في تجديد الاشتراك: ${error.message}`);
@@ -1894,7 +1878,6 @@ export class AdminService {
       return subscription;
     } catch (error: unknown) {
       await queryRunner.rollbackTransaction();
-      this.logger.error('Error extending subscription:', error);
       
       if (error instanceof Error) {
         throw new InternalServerErrorException(`فشل في تمديد الاشتراك: ${error.message}`);
