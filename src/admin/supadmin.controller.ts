@@ -25,7 +25,7 @@ import { SupadminService } from './supadmin.service';
 import { SupadminJwtGuard } from './auth/supadmin-jwt.guard';
 import { TokenRefreshInterceptor } from '../common/interceptors/token-refresh.interceptor';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { SubscriptionStatus } from '../subscription/entities/company-subscription.entity';
+import { CompanySubscription, SubscriptionStatus } from '../subscription/entities/company-subscription.entity';
 import { Plan } from '../plan/entities/plan.entity';
 import { ManagerRole } from './entities/manager.entity';
 import { SupadminRole } from './entities/supadmin.entity';
@@ -826,4 +826,21 @@ async updateSeller(
 
     return this.supadminService.exportDatabase(supadminId);
   }
+
+  @Get('subscriptions/:companyId/history')
+@UseGuards(SupadminJwtGuard)
+@ApiBearerAuth()
+@ApiOperation({ 
+  summary: 'عرض سجل اشتراكات الشركة',
+  description: 'يعرض السجل الكامل لاشتراكات الشركة المحددة'
+})
+async getSubscriptionHistory(
+  @Param('companyId') companyId: string,
+  @Req() req: SupadminRequest
+): Promise<CompanySubscription[]> {
+  const supadminId = req.supadminId;
+  if (!supadminId) throw new UnauthorizedException('غير مصرح');
+
+  return this.supadminService.getSubscriptionHistory(supadminId, companyId);
+}
 }

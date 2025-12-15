@@ -2483,4 +2483,43 @@ async subscribeCompanyToPlan(
     }
     return false;
   }
+
+  async getSubscriptionHistory(
+  supadminId: string,
+  companyId: string
+): Promise<CompanySubscription[]> {
+  const supadmin = await this.supadminRepo.findOne({
+    where: { id: supadminId }
+  });
+
+  if (!supadmin || !this.hasPermission(supadmin, 'manage_subscriptions')) {
+    throw new ForbiddenException('غير مصرح - لا تملك صلاحية عرض سجل الاشتراكات');
+  }
+
+  try {
+    const company = await this.companyRepo.findOne({
+      where: { id: companyId }
+    });
+
+    if (!company) {
+      throw new NotFoundException('الشركة غير موجودة');
+    }
+
+    const result = await this.subscriptionService.getSubscriptionHistory(companyId);
+    
+    this.logger.log(`تم جلب سجل الاشتراكات للشركة ${companyId} بواسطة المسؤول الأعلى ${supadmin.email}`);
+    
+    return result;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    this.logger.error(`فشل جلب سجل الاشتراكات للشركة ${companyId}: ${errorMessage}`);
+    
+    if (error instanceof NotFoundException) {
+      throw error;
+    }
+    
+    throw new InternalServerErrorException('فشل جلب سجل الاشتراكات');
+  }
+}
+
 }
