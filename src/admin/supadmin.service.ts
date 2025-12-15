@@ -2522,4 +2522,56 @@ async subscribeCompanyToPlan(
   }
 }
 
+async getPaymentProofDetails(
+  supadminId: string,
+  proofId: string
+): Promise<PaymentProofList> {
+  const supadmin = await this.supadminRepo.findOne({
+    where: { id: supadminId }
+  });
+
+  if (!supadmin || !this.hasPermission(supadmin, 'manage_payments')) {
+    throw new ForbiddenException('غير مصرح - لا تملك صلاحية عرض تفاصيل المدفوعات');
+  }
+
+  try {
+    const proof = await this.paymentProofRepo.findOne({
+      where: { id: proofId },
+      relations: ['company', 'plan'],
+    });
+
+    if (!proof) {
+      throw new NotFoundException('طلب الدفع غير موجود');
+    }
+
+    const safeProof: PaymentProofList = {
+      id: proof.id,
+      companyId: proof.company?.id || 'غير معروف',
+      companyName: proof.company?.name || 'شركة غير معروفة',
+      companyEmail: proof.company?.email || 'بريد غير معروف',
+      planId: proof.plan?.id || 'غير معروف',
+      planName: proof.plan?.name || 'خطة غير معروفة',
+      imageUrl: proof.imageUrl,
+      createdAt: proof.createdAt,
+      status: proof.status,
+      reviewed: proof.reviewed || false,
+      rejected: proof.rejected || false,
+      decisionNote: proof.decisionNote || undefined,
+    };
+
+    this.logger.log(`تم جلب تفاصيل طلب الدفع ${proofId} بواسطة المسؤول الأعلى ${supadmin.email}`);
+    
+    return safeProof;
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    this.logger.error(`فشل تحميل تفاصيل الطلب ${proofId}: ${errorMessage}`);
+    
+    if (err instanceof NotFoundException) {
+      throw err;
+    }
+    
+    throw new InternalServerErrorException('فشل تحميل تفاصيل الطلب');
+  }
+}
+
 }

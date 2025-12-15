@@ -843,4 +843,22 @@ async getSubscriptionHistory(
 
   return this.supadminService.getSubscriptionHistory(supadminId, companyId);
 }
+
+@Get('payments/proofs/:id')
+@UseGuards(SupadminJwtGuard)
+@ApiBearerAuth()
+@ApiOperation({ 
+  summary: 'عرض تفاصيل طلب تحويل بنكي',
+  description: 'يعرض تفاصيل طلب إثبات الدفع البنكي المحدد'
+})
+async getPaymentProofDetails(
+  @Param('id') id: string,
+  @Req() req: SupadminRequest
+): Promise<PaymentProofList> {
+  const supadminId = req.supadminId;
+  if (!supadminId) throw new UnauthorizedException('غير مصرح');
+
+  return this.supadminService.getPaymentProofDetails(supadminId, id);
+}
+
 }
