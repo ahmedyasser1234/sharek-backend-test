@@ -39,7 +39,7 @@ import {
 } from '@nestjs/swagger';
 import { VisitService } from '../visit/visit.service';
 import { CardService } from '../card/card.service';
-import { DigitalCardService } from '../card/digital-card.service';
+import { DigitalCardService } from '../card/digital-card.service'; 
 
 interface CompanyRequest extends Request {
   user: { companyId: string };
@@ -73,11 +73,14 @@ export class EmployeeController {
         throw new BadRequestException('uniqueUrl parameter is required');
       }
 
-      await this.employeeService.getSecondaryImageUrl(uniqueUrl);
+      const result = await this.employeeService.getSecondaryImageUrl(uniqueUrl);
       
       return {
         statusCode: HttpStatus.OK,
         message: 'تم جلب صورة التحميل بنجاح',
+        data: {
+          secondaryImageUrl: result.secondaryImageUrl
+        }
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -94,7 +97,7 @@ export class EmployeeController {
   @Get('by-url')
   async getByUniqueUrl(
     @Query('url') encodedUrl: string,
-    @Query('source') source: string = 'link',
+    @Query('source') source: string = 'link', 
     @Req() req: Request
   ) {
     try {
@@ -108,25 +111,25 @@ export class EmployeeController {
     
       const finalSource = source;
     
-      this.logger.log(`جلب بيانات الموظف من الرابط: ${uniqueUrl} بمصدر: ${finalSource}`);
 
       const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
       if (!result.data) throw new BadRequestException('Employee not found');
 
       return {
         statusCode: HttpStatus.OK,
-        message: 'Employee fetched by URL successfully',
+        message: 'تم جلب بيانات البطاقة بنجاح',
+        data: result.data,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
+      this.logger.error(`فشل جلب البطاقة من الرابط ${encodedUrl}: ${msg}`);
     
       if (error instanceof NotFoundException) {
-        throw error;
-      }
-      throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
+      throw error;
     }
+    throw new InternalServerErrorException('حدث خطأ أثناء جلب البطاقة من الرابط');
   }
+}
 
   @Public()
   @Get('card/:uniqueUrl')
@@ -149,23 +152,23 @@ export class EmployeeController {
         finalSource = req.query.source as string;
       }
 
-      this.logger.log(`جلب بطاقة الموظف: ${uniqueUrl} بمصدر: ${finalSource}`);
-
+ 
       const result = await this.employeeService.findByUniqueUrl(uniqueUrl, finalSource, req);
-      if (!result.data) throw new BadRequestException('Employee card not found');
+      if (!result.data) throw new BadRequestException('البطاقة غير موجودة');
 
       return {
         statusCode: HttpStatus.OK,
-        message: 'Employee card fetched successfully',
+        message: '  تم جلب البطاقة بنجاح',
+        data: result.data,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`فشل جلب بطاقة الموظف ${uniqueUrl}: ${msg}`);
+      this.logger.error(`فشل جلب البطاقة  ${uniqueUrl}: ${msg}`);
       
       if (error instanceof NotFoundException) {
         throw error;
       }
-      throw new InternalServerErrorException('حدث خطأ أثناء جلب بطاقة الموظف');
+      throw new InternalServerErrorException('حدث خطأ أثناء جلب البطاقة ');
     }
   }
 
@@ -175,11 +178,11 @@ export class EmployeeController {
   @ApiResponse({ status: 200, description: 'تم توليد رابط Google Wallet بنجاح' })
   async getGoogleWalletLink(@Param('id', ParseIntPipe) id: number) {
     try {
-      await this.employeeService.generateGoogleWalletLink(id);
-      
+      const result = await this.employeeService.generateGoogleWalletLink(id);
       return {
         statusCode: HttpStatus.OK,
-        message: 'تم توليد رابط Google Wallet بنجاح',
+        message: 'تم توليد رابط محفظه جوجل  بنجاح',
+        data: result,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -187,6 +190,7 @@ export class EmployeeController {
       throw new InternalServerErrorException('حدث خطأ أثناء إنشاء رابط Google Wallet');
     }
   }
+
 
   @Public()
   @Get(':id/google-wallet/redirect')
@@ -240,14 +244,14 @@ export class EmployeeController {
     }
   }
 
-  @Public()
-  @Get(':id/wallet-options')
-  @ApiOperation({ summary: 'خيارات إضافة البطاقة إلى المحافظ الرقمية' })
-  async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
-    try {
-      const employee = await this.employeeService.getEmployeeForWallet(id);
-      
-      const html = `
+ @Public()
+@Get(':id/wallet-options')
+@ApiOperation({ summary: 'خيارات إضافة البطاقة إلى المحافظ الرقمية' })
+async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
+  try {
+    const employee = await this.employeeService.getEmployeeForWallet(id);
+    
+    const html = `
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
@@ -352,10 +356,10 @@ export class EmployeeController {
       storage: memoryStorage(),
       fileFilter: (req, file, cb) => {
         const allowedTypes = [
-          'image/jpeg',
-          'image/png',
+          'image/jpeg', 
+          'image/png', 
           'image/webp',
-          'application/pdf'
+          'application/pdf' 
         ];
         
         if (allowedTypes.includes(file.mimetype)) {
@@ -365,7 +369,7 @@ export class EmployeeController {
         }
       },
       limits: {
-        fileSize: 3 * 1024 * 1024,
+        fileSize: 3 * 1024 * 1024, 
       },
     }),
   )
@@ -377,20 +381,19 @@ export class EmployeeController {
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     try {
-      this.logger.log(`إنشاء موظف جديد للشركة: ${req.user.companyId}`);
       
-      this.logger.log(`عدد الملفات المستلمة في الـ Controller: ${files?.length || 0}`);
       if (files && files.length > 0) {
         files.forEach((file, index) => {
           this.logger.log(`    ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.mimetype} - ${file.size} bytes`);
         });
       }
       
-      await this.employeeService.create(dto, req.user.companyId, files);
-      
+      const result = await this.employeeService.create(dto, req.user.companyId, files);
+      this.logger.log(`تم إنشاء الموظف: ${result.data?.id}`);
       return {
         statusCode: HttpStatus.CREATED,
         message: 'تم إنشاء البطاقة بنجاح',
+        data: result.data,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -419,12 +422,12 @@ export class EmployeeController {
     try {
       const pageNum = parseInt(page, 10);
       const limitNum = parseInt(limit, 10);
-      
-      await this.employeeService.findAll(req.user.companyId, pageNum, limitNum, search);
-      
+      const result = await this.employeeService.findAll(req.user.companyId, pageNum, limitNum, search);
       return {
         statusCode: HttpStatus.OK,
         message: 'Employees fetched successfully',
+        data: result.data,
+        meta: result.meta,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -442,10 +445,10 @@ export class EmployeeController {
     try {
       const result = await this.employeeService.findOne(id);
       if (!result.data) throw new BadRequestException('Employee not found');
-
       return {
         statusCode: HttpStatus.OK,
         message: 'Employee fetched successfully',
+        data: result.data,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -465,10 +468,10 @@ export class EmployeeController {
       storage: memoryStorage(),
       fileFilter: (req, file, cb) => {
         const allowedTypes = [
-          'image/jpeg',
-          'image/png',
+          'image/jpeg', 
+          'image/png', 
           'image/webp',
-          'application/pdf'
+          'application/pdf' 
         ];
         
         if (allowedTypes.includes(file.mimetype)) {
@@ -488,24 +491,22 @@ export class EmployeeController {
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateEmployeeDto,
-    @Req() req: CompanyRequest,
+    @Req() req: CompanyRequest, 
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     try {
-      this.logger.log(`محاولة تحديث الموظف: ${id} للشركة: ${req.user.companyId}`);
       
-      this.logger.log(`عدد الملفات المستلمة في الـ Controller: ${files?.length || 0}`);
       if (files && files.length > 0) {
         files.forEach((file, index) => {
           this.logger.log(`    ${index + 1}. ${file.fieldname} - ${file.originalname} - ${file.mimetype} - ${file.size} bytes`);
         });
       }
       
-      await this.employeeService.update(id, dto, req.user.companyId, files);
-      
+      const result = await this.employeeService.update(id, dto, req.user.companyId, files); 
       return {
         statusCode: HttpStatus.OK,
         message: 'تم تحديث بيانات البطاقة بنجاح',
+        data: result.data,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -526,7 +527,6 @@ export class EmployeeController {
   async remove(@Param('id', ParseIntPipe) id: number) {
     try {
       await this.employeeService.remove(id);
-      
       return {
         statusCode: HttpStatus.OK,
         message: 'تم حذف البطاقة بنجاح',
@@ -587,6 +587,17 @@ export class EmployeeController {
       return {
         statusCode: HttpStatus.CREATED,
         message: message,
+        data: {
+          imported: result.imported,
+          skipped: result.skipped,
+          summary: {
+            totalImported: result.count,
+            totalSkipped: result.skipped.length,
+            limitReached: result.limitReached,
+            limitSkippedCount: result.skipped.filter(s => s.includes('subscription limit reached')).length,
+            successRate: Math.round((result.count / (result.count + result.skipped.length)) * 100)
+          }
+        },
       };
     } catch (error: unknown) {
       console.error('Excel import error:', error);
@@ -610,7 +621,15 @@ export class EmployeeController {
       const employee = await this.employeeService.findOne(id);
       if (!employee.data) throw new NotFoundException('Employee not found');
 
-      await Promise.all([
+      const [
+        totalVisits,
+        dailyVisits,
+        deviceStats,
+        browserStats,
+        osStats,
+        sourceStats,
+        countryStats,
+      ] = await Promise.all([
         this.visitService.getVisitCount(id),
         this.visitService.getDailyVisits(id),
         this.visitService.getDeviceStats(id),
@@ -623,6 +642,18 @@ export class EmployeeController {
       return {
         statusCode: HttpStatus.OK,
         message: 'Employee analytics fetched successfully',
+        data: {
+          employee: employee.data,
+          analytics: {
+            totalVisits,
+            dailyVisits,
+            deviceStats,
+            browserStats,
+            osStats,
+            sourceStats,
+            countryStats,
+          }
+        },
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
