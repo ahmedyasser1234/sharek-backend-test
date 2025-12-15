@@ -627,14 +627,17 @@ export class VisitService {
         [employeeId],
       );
 
+      // إصلاح: استخدام stat.count بدلاً من stat.country
       const formattedStats = stats.map(stat => ({
         country: stat.country,
-        count: parseInt(stat.country || '0')
+        count: parseInt(stat.count || '0', 10)  // إصلاح هنا
       }));
 
+      // فلترة صحيحة
       return formattedStats.filter((stat) => 
         stat.country && 
         stat.country.trim() !== '' &&
+        stat.count > 0 &&
         !stat.country.includes('Undefined') &&
         !stat.country.includes('undefined')
       );
@@ -674,7 +677,7 @@ export class VisitService {
       
       return result.map(item => ({
         day: item.day,
-        count: parseInt(item.count || '0')
+        count: parseInt(item.count || '0', 10)
       }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -698,7 +701,7 @@ export class VisitService {
       
       return result.map(item => ({
         deviceType: item.deviceType,
-        count: parseInt(item.count || '0')
+        count: parseInt(item.count || '0', 10)
       }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -722,7 +725,7 @@ export class VisitService {
       
       return result.map(item => ({
         browser: item.browser,
-        count: parseInt(item.count || '0')
+        count: parseInt(item.count || '0', 10)
       }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -746,7 +749,7 @@ export class VisitService {
       
       return result.map(item => ({
         os: item.os,
-        count: parseInt(item.count || '0')
+        count: parseInt(item.count || '0', 10)
       }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -770,7 +773,7 @@ export class VisitService {
       
       return result.map(item => ({
         source: item.source,
-        count: parseInt(item.count || '0')
+        count: parseInt(item.count || '0', 10)
       }));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -861,12 +864,10 @@ export class VisitService {
     }
   }
 
-
   translateCountryName(countryName: string): string {
     return this.translateCountryToArabic(countryName);
   }
 
-  
   async getDetailedStats(employeeId: number): Promise<{
     totalVisits: number;
     uniqueCountries: number;
@@ -922,6 +923,101 @@ export class VisitService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(` فشل جلب الإحصائيات المفصلة: ${errorMessage}`);
       throw error;
+    }
+  }
+
+  // دالة مساعدة للتحقق من البيانات الفعلية
+  async debugCountryData(employeeId: number): Promise<any> {
+    try {
+      const rawData = await this.visitRepo.find({
+        where: { employee: { id: employeeId } },
+        select: ['country', 'ipAddress', 'visitedAt'],
+        order: { visitedAt: 'DESC' },
+      });
+      
+      this.logger.debug(`عدد الزيارات: ${rawData.length}`);
+      this.logger.debug('الدول الفعلية في قاعدة البيانات:');
+      
+      const countryMap = new Map<string, number>();
+      rawData.forEach(visit => {
+        const count = countryMap.get(visit.country) || 0;
+        countryMap.set(visit.country, count + 1);
+      });
+      
+      return Array.from(countryMap.entries()).map(([country, count]) => ({
+        country,
+        count
+      }));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`خطأ في التحقق من بيانات الدول: ${errorMessage}`);
+      return [];
+    }
+  }
+
+  // دالة للبحث عن الزيارات من IP معين
+  async checkVisitsFromIP(ipAddress: string): Promise<Visit[]> {
+    try {
+      return await this.visitRepo.find({
+        where: { ipAddress },
+        relations: ['employee'],
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`خطأ في البحث عن الزيارات من IP: ${errorMessage}`);
+      return [];
+    }
+  }
+
+  // دالة لتنظيف الزيارات غير الصحيحة
+  async cleanupInvalidVisits(employeeId: number): Promise<void> {
+    try {
+      const result = await this.visitRepo.createQueryBuilder()
+        .delete()
+        .where('"employeeId" = :employeeId', { employeeId })
+        .andWhere('("country" = :country OR "country" = :unknown OR "country" IS NULL OR "country" = :empty)', {
+          country: 'الولايات المتحدة الأمريكية',
+          unknown: 'غير معروف',
+          empty: ''
+        })
+        .execute();
+      
+      this.logger.log(`تم حذف ${result.affected} زيارة غير صحيحة للموظف ${employeeId}`);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`خطأ في تنظيف الزيارات: ${errorMessage}`);
+    }
+  }
+
+  // دالة محسنة لجلب إحصائيات الدول مع فلترة أفضل
+  async getFilteredCountryStats(employeeId: number): Promise<{ country: string; count: number; percentage: number }[]> {
+    try {
+      const totalVisits = await this.getVisitCount(employeeId);
+      const countryStats = await this.getCountryStats(employeeId);
+      
+      // فلترة إضافية لاستبعاد الدول التي قد تكون خاطئة
+      const filteredStats = countryStats.filter(stat => {
+        // استبعاد الدول التي قد تكون نتيجة لخدمات VPN أو بيانات خاطئة
+        const excludedCountries = [
+          'الولايات المتحدة الأمريكية',
+          'غير معروف',
+          'localhost',
+          'Undefined',
+          'undefined',
+          ''
+        ];
+        
+        return !excludedCountries.includes(stat.country) && stat.count > 0;
+      });
+      
+      return filteredStats.map(stat => ({
+        ...stat,
+        percentage: totalVisits > 0 ? Math.round((stat.count / totalVisits) * 100) : 0
+      }));
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`فشل جلب إحصائيات الدول المصفاة: ${errorMessage}`);
+      return [];
     }
   }
 }

@@ -9,13 +9,12 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Manager, ManagerRole } from './entities/manager.entity';
 import { Company } from '../company/entities/company.entity';
 import { Employee } from '../employee/entities/employee.entity';
 import { CompanySubscription, SubscriptionStatus } from '../subscription/entities/company-subscription.entity';
 import { Plan } from '../plan/entities/plan.entity';
-import * as bcrypt from 'bcryptjs';
 import { ManagerToken } from './entities/manager-token.entity';
 import { ManagerJwtService } from './auth/manager-jwt.service';
 import { SubscriptionService } from '../subscription/subscription.service';
@@ -26,6 +25,7 @@ import {
   ExtendSubscriptionResult, 
   PlanChangeValidation 
 } from '../subscription/subscription.service';
+import * as bcrypt from 'bcryptjs';
 
 interface SubscriptionResult {
   message: string;
@@ -141,7 +141,6 @@ export class SellerService {
     role: ManagerRole;
     seller: SellerWithCompanyData;
   }> {
-    // تحويل البريد المدخل إلى lowercase للبحث
     const normalizedEmail = email.toLowerCase().trim();
     
     const seller = await this.sellerRepo.findOne({ 
@@ -306,27 +305,66 @@ export class SellerService {
     employees: number; 
     activeSubscriptions: number 
   }> {
-    let companies = 0;
-    let activeSubs = 0;
+    try {
+      let companies = 0;
+      let activeSubs = 0;
+      let employees = 0;
 
-    if (sellerId) {
-      const sellerSubscriptions = await this.subRepo.find({
-        where: { activatedBySellerId: sellerId },
-        relations: ['company']
-      });
+      if (sellerId) {
+        const sellerExists = await this.sellerRepo.exists({ where: { id: sellerId } });
+        if (!sellerExists) {
+          throw new NotFoundException(`البائع بالمعرف ${sellerId} غير موجود`);
+        }
+
+        const sellerSubscriptions = await this.subRepo.find({
+          where: { activatedBySellerId: sellerId },
+          relations: ['company']
+        });
+        
+        companies = sellerSubscriptions.length;
+        activeSubs = sellerSubscriptions.filter(sub => sub.status === SubscriptionStatus.ACTIVE).length;
+        
+        const companyIds = sellerSubscriptions
+          .filter(sub => sub.company && sub.company.id)
+          .map(sub => sub.company.id);
+        
+        if (companyIds.length > 0) {
+          const uniqueCompanyIds = [...new Set(companyIds)];
+          
+          employees = await this.employeeRepo.count({
+            where: { company: { id: In(uniqueCompanyIds) } }
+          });
+          
+          this.logger.debug(`البائع ${sellerId}: ${companies} شركة، ${employees} موظف، ${activeSubs} اشتراك نشط`);
+        } else {
+          this.logger.debug(`البائع ${sellerId} ليس لديه شركات مرتبطة به`);
+        }
+      } else {
+        companies = await this.companyRepo.count();
+        activeSubs = await this.subRepo.count({
+          where: { status: SubscriptionStatus.ACTIVE },
+        });
+        employees = await this.employeeRepo.count();
+        
+        this.logger.debug(`الإحصائيات العامة: ${companies} شركة، ${employees} موظف، ${activeSubs} اشتراك نشط`);
+      }
+
+      return { 
+        companies, 
+        employees, 
+        activeSubscriptions: activeSubs 
+      };
       
-      companies = sellerSubscriptions.length;
-      activeSubs = sellerSubscriptions.filter(sub => sub.status === SubscriptionStatus.ACTIVE).length;
-    } else {
-      companies = await this.companyRepo.count();
-      activeSubs = await this.subRepo.count({
-        where: { status: SubscriptionStatus.ACTIVE },
-      });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل جلب الإحصائيات لـ sellerId=${sellerId}: ${errorMessage}`);
+      
+      return { 
+        companies: 0, 
+        employees: 0, 
+        activeSubscriptions: 0 
+      };
     }
-
-    const employees = await this.employeeRepo.count();
-
-    return { companies, employees, activeSubscriptions: activeSubs };
   }
 
   async getAllCompaniesWithEmployeeCount(sellerId?: string): Promise<CompanyWithEmployeeCount[]> {
@@ -872,4 +910,305 @@ export class SellerService {
     const permissions = this.getPermissions(seller.role);
     return permissions[permission] === true;
   }
+
+  private getRecentActivityItem(companyName: string, action: string, date: Date): { companyName: string; action: string; date: Date } {
+    return {
+      companyName,
+      action,
+      date
+    };
+  }
+
+  async getSellerDetailedStats(sellerId: string): Promise<{
+    totalCompanies: number;
+    activeCompanies: number;
+    expiredCompanies: number;
+    pendingCompanies: number;
+    cancelledCompanies: number;
+    totalEmployees: number;
+    totalRevenue: number;
+    monthlyRevenue: number;
+    companiesByPlan: Array<{ planName: string; count: number }>;
+    recentActivity: Array<{ companyName: string; action: string; date: Date }>;
+  }> {
+    try {
+      this.logger.log(`جلب إحصائيات تفصيلية للبائع ${sellerId}`);
+      
+      const subscriptions = await this.subRepo.find({
+        where: { activatedBySellerId: sellerId },
+        relations: ['company', 'plan', 'activatedBySeller'],
+      });
+
+      const seller = await this.sellerRepo.findOne({ where: { id: sellerId } });
+      if (!seller) {
+        throw new NotFoundException('البائع غير موجود');
+      }
+
+      const totalCompanies = subscriptions.length;
+      
+      const activeCompanies = subscriptions.filter(
+        sub => sub.status === SubscriptionStatus.ACTIVE
+      ).length;
+      
+      const expiredCompanies = subscriptions.filter(
+        sub => sub.status === SubscriptionStatus.EXPIRED
+      ).length;
+      
+      const pendingCompanies = subscriptions.filter(
+        sub => sub.status === SubscriptionStatus.PENDING
+      ).length;
+      
+      const cancelledCompanies = subscriptions.filter(
+        sub => sub.status === SubscriptionStatus.CANCELLED
+      ).length;
+
+      let totalEmployees = 0;
+      const companyIds = subscriptions
+        .filter(sub => sub.company && sub.company.id)
+        .map(sub => sub.company.id);
+      
+      if (companyIds.length > 0) {
+        const uniqueCompanyIds = [...new Set(companyIds)];
+        totalEmployees = await this.employeeRepo.count({
+          where: { company: { id: In(uniqueCompanyIds) } }
+        });
+      }
+
+      let totalRevenue = 0;
+      let monthlyRevenue = 0;
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+
+      for (const sub of subscriptions) {
+        if (sub.plan && sub.plan.price) {
+          totalRevenue += sub.plan.price;
+          
+          if (sub.startDate) {
+            const subMonth = sub.startDate.getMonth();
+            const subYear = sub.startDate.getFullYear();
+            
+            if (subMonth === currentMonth && subYear === currentYear) {
+              monthlyRevenue += sub.plan.price;
+            }
+          }
+        }
+      }
+
+      const planMap = new Map<string, number>();
+      subscriptions.forEach(sub => {
+        const planName = sub.plan?.name || 'غير معروف';
+        const count = planMap.get(planName) || 0;
+        planMap.set(planName, count + 1);
+      });
+
+      const companiesByPlan = Array.from(planMap.entries()).map(([planName, count]) => ({
+        planName,
+        count
+      }));
+
+      const recentActivity: Array<{ companyName: string; action: string; date: Date }> = [];
+      for (const sub of subscriptions.slice(0, 10)) {
+        if (sub.company) {
+          const activityItem = this.getRecentActivityItem(
+            sub.company.name,
+            this.getSubscriptionAction(sub.status),
+            sub.startDate || sub.createdAt
+          );
+          recentActivity.push(activityItem);
+        }
+      }
+
+      recentActivity.sort((a, b) => b.date.getTime() - a.date.getTime());
+
+      return {
+        totalCompanies,
+        activeCompanies,
+        expiredCompanies,
+        pendingCompanies,
+        cancelledCompanies,
+        totalEmployees,
+        totalRevenue,
+        monthlyRevenue,
+        companiesByPlan,
+        recentActivity
+      };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل جلب إحصائيات البائع ${sellerId}`, errorMessage);
+      throw new InternalServerErrorException('فشل جلب إحصائيات البائع');
+    }
+  }
+
+  private getSubscriptionAction(status: SubscriptionStatus): string {
+    switch (status) {
+      case SubscriptionStatus.ACTIVE:
+        return 'تفعيل اشتراك';
+      case SubscriptionStatus.PENDING:
+        return 'اشتراك معلق';
+      case SubscriptionStatus.EXPIRED:
+        return 'انتهاء اشتراك';
+      case SubscriptionStatus.CANCELLED:
+        return 'إلغاء اشتراك';
+      default:
+        return 'نشاط غير معروف';
+    }
+  }
+
+  async getSellerCompaniesDetails(sellerId: string): Promise<Array<{
+    companyId: string;
+    companyName: string;
+    companyEmail: string;
+    subscriptionStatus: SubscriptionStatus;
+    planName: string;
+    planPrice: number;
+    startDate: Date;
+    endDate: Date;
+    employeesCount: number;
+    isActive: boolean;
+    daysRemaining: number;
+  }>> {
+    try {
+      this.logger.log(`جلب تفاصيل شركات البائع ${sellerId}`);
+      
+      const subscriptions = await this.subRepo.find({
+        where: { activatedBySellerId: sellerId },
+        relations: ['company', 'plan'],
+        order: { startDate: 'DESC' },
+      });
+
+      const result = await Promise.all(
+        subscriptions.map(async (sub) => {
+          if (!sub.company || !sub.plan) {
+            return null;
+          }
+
+          const employeesCount = await this.employeeRepo.count({
+            where: { company: { id: sub.company.id } }
+          });
+
+          let daysRemaining = 0;
+          if (sub.endDate && sub.status === SubscriptionStatus.ACTIVE) {
+            const now = new Date();
+            const end = new Date(sub.endDate);
+            const diffTime = end.getTime() - now.getTime();
+            daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            daysRemaining = Math.max(0, daysRemaining); 
+          }
+
+          return {
+            companyId: sub.company.id,
+            companyName: sub.company.name,
+            companyEmail: sub.company.email,
+            subscriptionStatus: sub.status,
+            planName: sub.plan.name,
+            planPrice: sub.plan.price,
+            startDate: sub.startDate,
+            endDate: sub.endDate,
+            employeesCount,
+            isActive: sub.company.isActive && sub.status === SubscriptionStatus.ACTIVE,
+            daysRemaining
+          };
+        })
+      );
+
+      return result.filter(item => item !== null) as Array<{
+        companyId: string;
+        companyName: string;
+        companyEmail: string;
+        subscriptionStatus: SubscriptionStatus;
+        planName: string;
+        planPrice: number;
+        startDate: Date;
+        endDate: Date;
+        employeesCount: number;
+        isActive: boolean;
+        daysRemaining: number;
+      }>;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل جلب تفاصيل شركات البائع ${sellerId}`, errorMessage);
+      throw new InternalServerErrorException('فشل جلب تفاصيل الشركات');
+    }
+  }
+
+  async getSellerMonthlyStats(sellerId: string, months: number = 12): Promise<Array<{
+    month: string;
+    year: number;
+    newCompanies: number;
+    totalRevenue: number;
+    activeSubscriptions: number;
+  }>> {
+    try {
+      this.logger.log(`جلب الإحصائيات الشهرية للبائع ${sellerId} لآخر ${months} شهر`);
+      
+      const subscriptions = await this.subRepo.find({
+        where: { activatedBySellerId: sellerId },
+        relations: ['plan'],
+      });
+
+      const monthlyStats: Map<string, {
+        month: string;
+        year: number;
+        newCompanies: number;
+        totalRevenue: number;
+        activeSubscriptions: number;
+      }> = new Map();
+
+      const monthNames = [
+        'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
+        'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
+      ];
+
+      for (let i = 0; i < months; i++) {
+        const date = new Date();
+        date.setMonth(date.getMonth() - i);
+        const month = date.getMonth();
+        const year = date.getFullYear();
+        const key = `${year}-${month}`;
+        
+        monthlyStats.set(key, {
+          month: monthNames[month],
+          year,
+          newCompanies: 0,
+          totalRevenue: 0,
+          activeSubscriptions: 0,
+        });
+      }
+
+      subscriptions.forEach(sub => {
+        if (sub.startDate) {
+          const subMonth = sub.startDate.getMonth();
+          const subYear = sub.startDate.getFullYear();
+          const key = `${subYear}-${subMonth}`;
+          
+          if (monthlyStats.has(key)) {
+            const stats = monthlyStats.get(key)!;
+            stats.newCompanies++;
+            
+            if (sub.plan?.price) {
+              stats.totalRevenue += sub.plan.price;
+            }
+            
+            if (sub.status === SubscriptionStatus.ACTIVE) {
+              stats.activeSubscriptions++;
+            }
+          }
+        }
+      });
+
+      const resultArray = Array.from(monthlyStats.values())
+        .sort((a, b) => {
+          if (a.year !== b.year) return b.year - a.year;
+          return monthNames.indexOf(b.month) - monthNames.indexOf(a.month);
+        });
+
+      return resultArray;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل جلب الإحصائيات الشهرية للبائع ${sellerId}`, errorMessage);
+      throw new InternalServerErrorException('فشل جلب الإحصائيات الشهرية');
+    }
+  }
 }
+
+
