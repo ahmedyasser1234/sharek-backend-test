@@ -13,6 +13,7 @@ import { CompanySubscription } from '../subscription/entities/company-subscripti
 import { Plan } from '../plan/entities/plan.entity';
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { Manager } from './entities/manager.entity';
+import { ManagerToken } from './entities/manager-token.entity';  
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { PaymentModule } from '../payment/payment.module';
 import { TokenRefreshInterceptor } from '../common/interceptors/token-refresh.interceptor'; 
@@ -29,6 +30,7 @@ import { ManagerModule } from '../admin/manager.module';
       Plan,
       PaymentProof,
       Manager,
+      ManagerToken,  
     ]),
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'supadmin-secret',
