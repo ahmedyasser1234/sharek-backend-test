@@ -4,7 +4,6 @@ import {
   ExecutionContext,
   CallHandler,
   HttpStatus,
-  Logger,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -21,8 +20,6 @@ interface ApiResponse<T> {
 export class ResponseInterceptor<T>
   implements NestInterceptor<T, ApiResponse<T>>
 {
-  private readonly logger = new Logger(ResponseInterceptor.name);
-
   intercept(
     context: ExecutionContext,
     next: CallHandler<T>,
@@ -40,7 +37,6 @@ export class ResponseInterceptor<T>
           typeof controllerResult === 'object' &&
           ('statusCode' in controllerResult || 'success' in controllerResult)
         ) {
-          this.logger.debug(`تم إرسال رد مخصص من الكنترولر`);
           return controllerResult as unknown as ApiResponse<T>;
         }
 
@@ -75,13 +71,6 @@ export class ResponseInterceptor<T>
               : 'Request successful'),
           data: payload,
         };
-
-        this.logger.log(
-          ` رد موحد تم إنشاؤه: ${JSON.stringify({
-            statusCode: finalResponse.statusCode,
-            message: finalResponse.message,
-          })}`,
-        );
 
         return finalResponse;
       }),

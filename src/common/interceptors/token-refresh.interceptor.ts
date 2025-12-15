@@ -31,15 +31,11 @@ export class TokenRefreshInterceptor implements NestInterceptor {
     return next.handle().pipe(
       catchError((error: unknown) => {
         if (this.isHttpException(error) && error.getStatus() === 401) {
-          this.logger.log('تم اكتشاف خطأ 401 - محاولة تجديد التوكن');
-          
           const request = context.switchToHttp().getRequest<RefreshTokenRequest>();
           const refreshToken = this.extractRefreshToken(request);
 
           if (refreshToken) {
             return this.handleTokenRefresh(context, refreshToken, request);
-          } else {
-            this.logger.warn('لا يوجد refresh token متاح للتجديد');
           }
         }
         return throwError(() => error);
@@ -65,11 +61,7 @@ export class TokenRefreshInterceptor implements NestInterceptor {
     originalRequest: RefreshTokenRequest
   ): Promise<Observable<unknown>> {
     try {
-      this.logger.log('محاولة تجديد التوكن باستخدام refresh token');
-      
       const { accessToken } = await this.sellerService.refresh(refreshToken);
-      
-      this.logger.log('تم تجديد التوكن بنجاح');
       
       if (originalRequest.headers) {
         originalRequest.headers['authorization'] = `Bearer ${accessToken}`;
