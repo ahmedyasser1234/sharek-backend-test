@@ -39,7 +39,7 @@ import {
 } from '@nestjs/swagger';
 import { VisitService } from '../visit/visit.service';
 import { CardService } from '../card/card.service';
-import { DigitalCardService } from '../card/digital-card.service'; 
+import { DigitalCardService } from '../card/digital-card.service';
 
 interface CompanyRequest extends Request {
   user: { companyId: string };
@@ -73,14 +73,11 @@ export class EmployeeController {
         throw new BadRequestException('uniqueUrl parameter is required');
       }
 
-      const result = await this.employeeService.getSecondaryImageUrl(uniqueUrl);
+      await this.employeeService.getSecondaryImageUrl(uniqueUrl);
       
       return {
         statusCode: HttpStatus.OK,
         message: 'تم جلب صورة التحميل بنجاح',
-        data: {
-          secondaryImageUrl: result.secondaryImageUrl
-        }
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -97,7 +94,7 @@ export class EmployeeController {
   @Get('by-url')
   async getByUniqueUrl(
     @Query('url') encodedUrl: string,
-    @Query('source') source: string = 'link', 
+    @Query('source') source: string = 'link',
     @Req() req: Request
   ) {
     try {
@@ -119,18 +116,17 @@ export class EmployeeController {
       return {
         statusCode: HttpStatus.OK,
         message: 'Employee fetched by URL successfully',
-        data: result.data,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`فشل جلب الموظف من الرابط ${encodedUrl}: ${msg}`);
     
       if (error instanceof NotFoundException) {
-      throw error;
+        throw error;
+      }
+      throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
     }
-    throw new InternalServerErrorException('حدث خطأ أثناء جلب الموظف من الرابط');
   }
-}
 
   @Public()
   @Get('card/:uniqueUrl')
@@ -161,7 +157,6 @@ export class EmployeeController {
       return {
         statusCode: HttpStatus.OK,
         message: 'Employee card fetched successfully',
-        data: result.data,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -180,11 +175,11 @@ export class EmployeeController {
   @ApiResponse({ status: 200, description: 'تم توليد رابط Google Wallet بنجاح' })
   async getGoogleWalletLink(@Param('id', ParseIntPipe) id: number) {
     try {
-      const result = await this.employeeService.generateGoogleWalletLink(id);
+      await this.employeeService.generateGoogleWalletLink(id);
+      
       return {
         statusCode: HttpStatus.OK,
         message: 'تم توليد رابط Google Wallet بنجاح',
-        data: result,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -192,7 +187,6 @@ export class EmployeeController {
       throw new InternalServerErrorException('حدث خطأ أثناء إنشاء رابط Google Wallet');
     }
   }
-
 
   @Public()
   @Get(':id/google-wallet/redirect')
@@ -246,14 +240,14 @@ export class EmployeeController {
     }
   }
 
- @Public()
-@Get(':id/wallet-options')
-@ApiOperation({ summary: 'خيارات إضافة البطاقة إلى المحافظ الرقمية' })
-async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
-  try {
-    const employee = await this.employeeService.getEmployeeForWallet(id);
-    
-    const html = `
+  @Public()
+  @Get(':id/wallet-options')
+  @ApiOperation({ summary: 'خيارات إضافة البطاقة إلى المحافظ الرقمية' })
+  async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
+    try {
+      const employee = await this.employeeService.getEmployeeForWallet(id);
+      
+      const html = `
 <!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
@@ -358,10 +352,10 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       storage: memoryStorage(),
       fileFilter: (req, file, cb) => {
         const allowedTypes = [
-          'image/jpeg', 
-          'image/png', 
+          'image/jpeg',
+          'image/png',
           'image/webp',
-          'application/pdf' 
+          'application/pdf'
         ];
         
         if (allowedTypes.includes(file.mimetype)) {
@@ -371,7 +365,7 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
         }
       },
       limits: {
-        fileSize: 3 * 1024 * 1024, 
+        fileSize: 3 * 1024 * 1024,
       },
     }),
   )
@@ -392,12 +386,11 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
         });
       }
       
-      const result = await this.employeeService.create(dto, req.user.companyId, files);
-      this.logger.log(`تم إنشاء الموظف: ${result.data?.id}`);
+      await this.employeeService.create(dto, req.user.companyId, files);
+      
       return {
         statusCode: HttpStatus.CREATED,
         message: 'تم إنشاء البطاقة بنجاح',
-        data: result.data,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -426,12 +419,12 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
     try {
       const pageNum = parseInt(page, 10);
       const limitNum = parseInt(limit, 10);
-      const result = await this.employeeService.findAll(req.user.companyId, pageNum, limitNum, search);
+      
+      await this.employeeService.findAll(req.user.companyId, pageNum, limitNum, search);
+      
       return {
         statusCode: HttpStatus.OK,
         message: 'Employees fetched successfully',
-        data: result.data,
-        meta: result.meta,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -449,10 +442,10 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
     try {
       const result = await this.employeeService.findOne(id);
       if (!result.data) throw new BadRequestException('Employee not found');
+
       return {
         statusCode: HttpStatus.OK,
         message: 'Employee fetched successfully',
-        data: result.data,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -472,10 +465,10 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       storage: memoryStorage(),
       fileFilter: (req, file, cb) => {
         const allowedTypes = [
-          'image/jpeg', 
-          'image/png', 
+          'image/jpeg',
+          'image/png',
           'image/webp',
-          'application/pdf' 
+          'application/pdf'
         ];
         
         if (allowedTypes.includes(file.mimetype)) {
@@ -495,7 +488,7 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
   async update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateEmployeeDto,
-    @Req() req: CompanyRequest, 
+    @Req() req: CompanyRequest,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     try {
@@ -508,11 +501,11 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
         });
       }
       
-      const result = await this.employeeService.update(id, dto, req.user.companyId, files); 
+      await this.employeeService.update(id, dto, req.user.companyId, files);
+      
       return {
         statusCode: HttpStatus.OK,
         message: 'تم تحديث بيانات البطاقة بنجاح',
-        data: result.data,
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -533,6 +526,7 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
   async remove(@Param('id', ParseIntPipe) id: number) {
     try {
       await this.employeeService.remove(id);
+      
       return {
         statusCode: HttpStatus.OK,
         message: 'تم حذف البطاقة بنجاح',
@@ -593,17 +587,6 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       return {
         statusCode: HttpStatus.CREATED,
         message: message,
-        data: {
-          imported: result.imported,
-          skipped: result.skipped,
-          summary: {
-            totalImported: result.count,
-            totalSkipped: result.skipped.length,
-            limitReached: result.limitReached,
-            limitSkippedCount: result.skipped.filter(s => s.includes('subscription limit reached')).length,
-            successRate: Math.round((result.count / (result.count + result.skipped.length)) * 100)
-          }
-        },
       };
     } catch (error: unknown) {
       console.error('Excel import error:', error);
@@ -627,15 +610,7 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       const employee = await this.employeeService.findOne(id);
       if (!employee.data) throw new NotFoundException('Employee not found');
 
-      const [
-        totalVisits,
-        dailyVisits,
-        deviceStats,
-        browserStats,
-        osStats,
-        sourceStats,
-        countryStats,
-      ] = await Promise.all([
+      await Promise.all([
         this.visitService.getVisitCount(id),
         this.visitService.getDailyVisits(id),
         this.visitService.getDeviceStats(id),
@@ -648,18 +623,6 @@ async getWalletOptions(@Param('id', ParseIntPipe) id: number, @Res() res: Respon
       return {
         statusCode: HttpStatus.OK,
         message: 'Employee analytics fetched successfully',
-        data: {
-          employee: employee.data,
-          analytics: {
-            totalVisits,
-            dailyVisits,
-            deviceStats,
-            browserStats,
-            osStats,
-            sourceStats,
-            countryStats,
-          }
-        },
       };
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';

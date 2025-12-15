@@ -9,7 +9,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, DataSource } from 'typeorm';
 import { Manager, ManagerRole } from './entities/manager.entity';
 import { Company } from '../company/entities/company.entity';
 import { Employee } from '../employee/entities/employee.entity';
@@ -26,6 +26,7 @@ import {
   PlanChangeValidation 
 } from '../subscription/subscription.service';
 import * as bcrypt from 'bcryptjs';
+import * as nodemailer from 'nodemailer';
 
 interface SubscriptionResult {
   message: string;
@@ -99,6 +100,7 @@ export interface SellerWithCompanyData {
 @Injectable()
 export class SellerService {
   private readonly logger = new Logger(SellerService.name);
+  private emailTransporter: nodemailer.Transporter;
 
   constructor(
     @InjectRepository(Manager) private readonly sellerRepo: Repository<Manager>,
@@ -111,7 +113,219 @@ export class SellerService {
     private readonly sellerJwt: ManagerJwtService,
     private readonly subscriptionService: SubscriptionService,
     private readonly paymentService: PaymentService,
-  ) {}
+    private readonly dataSource: DataSource,
+  ) {
+    this.initializeEmailTransporter();
+  }
+
+  private initializeEmailTransporter(): void {
+    this.emailTransporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.EMAIL_PORT || '587'),
+      secure: false,
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+      tls: {
+        ciphers: 'SSLv3',
+        rejectUnauthorized: false,
+      },
+    });
+  }
+
+  private async sendEmail(to: string, subject: string, html: string): Promise<void> {
+    try {
+      await this.emailTransporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to,
+        subject,
+        html,
+      });
+      this.logger.log(`تم إرسال الإيميل إلى: ${to}`);
+    } catch (error) {
+      this.logger.error(`فشل إرسال الإيميل: ${error}`);
+    }
+  }
+
+  private async sendSubscriptionActionEmail(
+    companyEmail: string,
+    companyName: string,
+    sellerEmail: string,
+    planName: string,
+    action: 'created' | 'renewed' | 'cancelled' | 'extended' | 'changed',
+    details: string
+  ): Promise<void> {
+    try {
+      const actionText = {
+        'created': 'تم إنشاء اشتراك جديد',
+        'renewed': 'تم تجديد الاشتراك',
+        'cancelled': 'تم إلغاء الاشتراك',
+        'extended': 'تم تمديد الاشتراك',
+        'changed': 'تم تغيير الخطة'
+      };
+
+      const actionColor = {
+        'created': '#28a745',
+        'renewed': '#007bff',
+        'cancelled': '#dc3545',
+        'extended': '#ffc107',
+        'changed': '#17a2b8'
+      };
+
+      const subject = `تحديث اشتراك - ${companyName}`;
+      
+      const html = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${subject}</title>
+          <style>
+            body {
+              font-family: 'Arial', 'Segoe UI', sans-serif;
+              line-height: 1.6;
+              color: #333;
+              margin: 0;
+              padding: 0;
+              background-color: #f5f5f5;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .header {
+              background-color: ${actionColor[action]};
+              color: white;
+              padding: 30px;
+              text-align: center;
+              border-radius: 10px 10px 0 0;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+            .content {
+              background-color: white;
+              padding: 30px;
+              border-radius: 0 0 10px 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .info-box {
+              background-color: #f8f9fa;
+              border-right: 4px solid ${actionColor[action]};
+              padding: 20px;
+              margin-bottom: 20px;
+              border-radius: 8px;
+            }
+            .info-box p {
+              margin: 10px 0;
+              font-size: 16px;
+            }
+            .info-box strong {
+              color: #333;
+              margin-left: 10px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #eee;
+              color: #777;
+              font-size: 14px;
+            }
+            .company-info {
+              background-color: #f0f7ff;
+              padding: 20px;
+              border-radius: 8px;
+              margin-top: 20px;
+              text-align: center;
+            }
+            .company-info h3 {
+              color: #007bff;
+              margin-bottom: 10px;
+            }
+            .action-details {
+              background-color: #fff3cd;
+              border: 1px solid #ffeaa7;
+              padding: 15px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .details-title {
+              color: #856404;
+              font-weight: bold;
+              margin-bottom: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>${actionText[action]}</h1>
+            </div>
+            
+            <div class="content">
+
+            <div class="company-info">
+                <h3>مرحبا بكم في منصة شارك</h3>
+                <p>أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
+                <p>نحن نسعى دائماً لتقديم أفضل الخدمات لدعم عملك ونمو شركتك</p>
+              </div>
+
+              <div class="info-box">
+                <p><strong>الشركة:</strong> ${companyName}</p>
+                <p><strong>البريد الإلكتروني:</strong> ${companyEmail}</p>
+                <p><strong>الخطة:</strong> ${planName}</p>
+                <p><strong>تاريخ الإجراء:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
+                <p><strong>بواسطة البائع:</strong> ${sellerEmail}</p>
+              </div>
+              
+              <div class="action-details">
+                <div class="details-title">تفاصيل الإجراء:</div>
+                <p>${details}</p>
+              </div>
+            
+                 <div>
+                <p>تحت مع تحيات فريق شارك</p>
+                <p>https://sharik-sa.com/</p>
+                <img src="https://res.cloudinary.com/dk3wwuy5d/image/upload/v1765288029/subscription-banner_skltmg.jpg" 
+                <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await this.sendEmail(companyEmail, subject, html);
+
+      const companyAdminEmail = process.env.COMPANY_ADMIN_EMAIL || process.env.EMAIL_USER;
+      if (companyAdminEmail && companyAdminEmail !== companyEmail) {
+        const adminSubject = `إشعار - ${actionText[action]} - ${companyName}`;
+        const adminHtml = `
+          <div dir="rtl">
+            <h2>إشعار ${actionText[action]}</h2>
+            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <p><strong>الشركة:</strong> ${companyName}</p>
+              <p><strong>البريد:</strong> ${companyEmail}</p>
+              <p><strong>الخطة:</strong> ${planName}</p>
+              <p><strong>بواسطة البائع:</strong> ${sellerEmail}</p>
+              <p><strong>تفاصيل الإجراء:</strong> ${details}</p>
+              <p><strong>التاريخ:</strong> ${new Date().toLocaleString('ar-SA')}</p>
+            </div>
+          </div>
+        `;
+        await this.sendEmail(companyAdminEmail, adminSubject, adminHtml);
+      }
+
+      this.logger.log(`تم إرسال إيميل ${actionText[action]} للشركة ${companyName}`);
+    } catch (error) {
+      this.logger.error(`فشل إرسال إيميل الإجراء ${action}:`, error);
+    }
+  }
 
   async ensureDefaultSeller(): Promise<void> {
     const defaultEmail = 'seller@system.local';
@@ -543,6 +757,25 @@ export class SellerService {
       this.logger.log(`تم الاشتراك بنجاح للشركة ${companyId} في الخطة ${planId} بواسطة البائع ${sellerId}`);
       
       if (result && typeof result === 'object' && 'message' in result) {
+        const seller = await this.sellerRepo.findOne({ where: { id: sellerId } });
+        const company = await this.companyRepo.findOne({ where: { id: companyId } });
+        const plan = await this.planRepo.findOne({ where: { id: planId } });
+        
+        if (company && plan && result.subscription && seller) {
+          const newEndDateStr = result.subscription.endDate ? 
+            result.subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+          const details = `تم تفعيل اشتراك جديد في خطة "${plan.name}" بواسطة البائع. السعر: ${plan.price} ريال. المدة: ${plan.durationInDays || 30} يوم. تاريخ الانتهاء: ${newEndDateStr}.`;
+          
+          await this.sendSubscriptionActionEmail(
+            company.email,
+            company.name,
+            seller.email,
+            plan.name,
+            'created',
+            details
+          );
+        }
+        
         return {
           message: result.message,
           redirectToDashboard: result.redirectToDashboard,
@@ -566,6 +799,26 @@ export class SellerService {
       const result = await this.subscriptionService.cancelSubscription(companyId);
       
       if (this.isCancelSubscriptionResult(result)) {
+        const subscription = await this.subRepo.findOne({
+          where: { company: { id: companyId } },
+          relations: ['company', 'plan', 'activatedBySeller'],
+          order: { createdAt: 'DESC' }
+        });
+        
+        const seller = subscription?.activatedBySeller;
+        if (subscription?.company && subscription?.plan && seller) {
+          const details = `تم إلغاء الاشتراك بالخطة "${subscription.plan.name}" بواسطة البائع.`;
+          
+          await this.sendSubscriptionActionEmail(
+            subscription.company.email,
+            subscription.company.name,
+            seller.email,
+            subscription.plan.name,
+            'cancelled',
+            details
+          );
+        }
+        
         this.logger.log(`تم إلغاء اشتراك الشركة ${companyId} بنجاح`);
         return result;
       }
@@ -585,6 +838,24 @@ export class SellerService {
       const result = await this.subscriptionService.extendSubscription(companyId);
       
       if (this.isExtendSubscriptionResult(result)) {
+        const subscription = result.subscription;
+        const seller = subscription?.activatedBySeller;
+        
+        if (subscription?.company && subscription?.plan && seller) {
+          const newEndDateStr = subscription.endDate ? 
+            subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+          const details = `تم تمديد الاشتراك بالخطة "${subscription.plan.name}" بواسطة البائع. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+          
+          await this.sendSubscriptionActionEmail(
+            subscription.company.email,
+            subscription.company.name,
+            seller.email,
+            subscription.plan.name,
+            'extended',
+            details
+          );
+        }
+        
         this.logger.log(`تم تمديد اشتراك الشركة ${companyId} بنجاح`);
         return result;
       }
@@ -664,7 +935,28 @@ export class SellerService {
       
       const result = await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId) as SubscriptionResult;
       
-      if (result && typeof result.message === 'string') {
+      if (result && typeof result.message === 'string' && result.subscription) {
+        const subscription = await this.subRepo.findOne({
+          where: { id: result.subscription.id },
+          relations: ['company', 'plan', 'activatedBySeller']
+        });
+        
+        if (subscription?.company && subscription?.plan && subscription?.activatedBySeller) {
+          const newEndDateStr = subscription.endDate ? 
+            subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+          const oldPlanName = currentSubscription?.plan?.name || 'غير معروف';
+          const details = `تم تغيير خطة الشركة من "${oldPlanName}" إلى "${subscription.plan.name}" بواسطة البائع. السعر الجديد: ${subscription.plan.price} ريال. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+          
+          await this.sendSubscriptionActionEmail(
+            subscription.company.email,
+            subscription.company.name,
+            subscription.activatedBySeller.email,
+            subscription.plan.name,
+            'changed',
+            details
+          );
+        }
+        
         this.logger.log(`تم تغيير خطة الشركة ${companyId} بنجاح`);
         return result;
       }
@@ -706,6 +998,25 @@ export class SellerService {
       this.logger.log(`تم التفعيل اليدوي للشركة ${companyId} بنجاح بواسطة البائع ${sellerId}`);
       
       if (result && typeof result === 'object' && 'message' in result) {
+        const seller = await this.sellerRepo.findOne({ where: { id: sellerId } });
+        const company = await this.companyRepo.findOne({ where: { id: companyId } });
+        const plan = await this.planRepo.findOne({ where: { id: planId } });
+        
+        if (company && plan && result.subscription && seller) {
+          const newEndDateStr = result.subscription.endDate ? 
+            result.subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+          const details = `تم التفعيل اليدوي للاشتراك في خطة "${plan.name}" بواسطة البائع. السعر: ${plan.price} ريال. المدة: ${plan.durationInDays || 30} يوم. تاريخ الانتهاء: ${newEndDateStr}.`;
+          
+          await this.sendSubscriptionActionEmail(
+            company.email,
+            company.name,
+            seller.email,
+            plan.name,
+            'created',
+            details
+          );
+        }
+        
         return {
           message: result.message,
           redirectToDashboard: result.redirectToDashboard,
@@ -860,6 +1171,26 @@ export class SellerService {
       this.logger.log(`تم قبول الطلب ${proofId} بنجاح بواسطة البائع ${sellerId}`);
       
       if (result && typeof result === 'object' && 'message' in result && typeof result.message === 'string') {
+        const proof = await this.paymentProofRepo.findOne({
+          where: { id: proofId },
+          relations: ['company', 'plan'],
+        });
+        
+        const seller = sellerId ? await this.sellerRepo.findOne({ where: { id: sellerId } }) : null;
+        
+        if (proof?.company && proof?.plan && seller) {
+          const details = `تم قبول طلب التحويل البنكي للاشتراك في خطة "${proof.plan.name}". سيتم تفعيل الاشتراك تلقائياً.`;
+          
+          await this.sendSubscriptionActionEmail(
+            proof.company.email,
+            proof.company.name,
+            seller.email,
+            proof.plan.name,
+            'created',
+            details
+          );
+        }
+        
         return {
           message: result.message,
         };
@@ -881,6 +1212,28 @@ export class SellerService {
       this.logger.log(`تم رفض الطلب ${proofId} بنجاح`);
       
       if (result && typeof result === 'object' && 'message' in result && typeof result.message === 'string') {
+        const proof = await this.paymentProofRepo.findOne({
+          where: { id: proofId },
+          relations: ['company', 'plan'],
+        });
+        
+        if (proof?.company && proof?.plan) {
+          const details = `تم رفض طلب التحويل البنكي للاشتراك في خطة "${proof.plan.name}". السبب: ${reason}`;
+          
+          const seller = await this.sellerRepo.findOne({ 
+            where: { email: process.env.DEFAULT_SELLER_EMAIL || 'seller@system.local' } 
+          });
+          
+          await this.sendSubscriptionActionEmail(
+            proof.company.email,
+            proof.company.name,
+            seller?.email || 'النظام',
+            proof.plan.name,
+            'cancelled',
+            details
+          );
+        }
+        
         return {
           message: result.message,
         };
@@ -1210,5 +1563,3 @@ export class SellerService {
     }
   }
 }
-
-
