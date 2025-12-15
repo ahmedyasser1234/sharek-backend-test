@@ -125,6 +125,17 @@ type PlanChangeValidation = {
   action: string;
 };
 
+export interface ManagerWithoutPassword {
+  email: string;
+  role: ManagerRole;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  createdBy?: Admin;
+  tokens?: ManagerToken[];
+  activatedSubscriptions?: CompanySubscription[];
+}
+
 @Injectable()
 export class SupadminService {
   private readonly logger = new Logger(SupadminService.name);
@@ -1112,25 +1123,21 @@ async createSeller(
     throw new ForbiddenException('غير مصرح - لا تملك صلاحية إنشاء بائعين');
   }
 
-  // التحقق من البيانات المدخلة
   if (!dto || !dto.email || !dto.password) {
     throw new BadRequestException('البريد الإلكتروني وكلمة المرور مطلوبان');
   }
 
   const normalizedEmail = dto.email.toLowerCase().trim();
   
-  // التحقق من صيغة البريد الإلكتروني
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(normalizedEmail)) {
     throw new BadRequestException('صيغة البريد الإلكتروني غير صحيحة');
   }
 
-  // التحقق من قوة كلمة المرور
   if (dto.password.length < 6) {
     throw new BadRequestException('كلمة المرور يجب أن تكون على الأقل 6 أحرف');
   }
 
-  // التحقق من عدم وجود بائع بنفس البريد
   const existing = await this.sellerRepo.findOne({ 
     where: { email: normalizedEmail } 
   });
@@ -1142,13 +1149,12 @@ async createSeller(
   const hashedPassword = await bcrypt.hash(dto.password, 10);
   
   try {
-    // إنشاء البائع - بنفس منطق createManager
     const seller = this.sellerRepo.create({
       email: normalizedEmail,
       password: hashedPassword,
       role: ManagerRole.SELLER,
       isActive: true,
-      createdBy: supadmin, // إضافة هذا السطر فقط
+      createdBy: supadmin,    
     });
 
     const savedSeller = await this.sellerRepo.save(seller);
@@ -1160,7 +1166,6 @@ async createSeller(
 
     this.logger.log(`تم إنشاء بائع جديد: ${savedSeller.email} بواسطة المسؤول الأعلى: ${supadmin.email}`);
     
-    // إرسال إيميل الإشعار
     try {
       await this.sendSupadminActionEmail(
         'created',
@@ -1181,11 +1186,9 @@ async createSeller(
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     this.logger.error(`فشل إنشاء البائع: ${errorMessage}`);
     
-    // إذا كان الخطأ يتعلق بالمفتاح الأجنبي (مشكلة العلاقة)
     if (errorMessage.includes('foreign key constraint')) {
       this.logger.warn('خطأ في المفتاح الأجنبي، محاولة طريقة بديلة...');
       
-      // محاولة إنشاء البائع بدون العلاقة
       return this.createSellerWithoutRelation(supadmin, normalizedEmail, hashedPassword, dto.password);
     }
     
@@ -1193,7 +1196,6 @@ async createSeller(
   }
 }
 
-// دالة مساعدة لإنشاء البائع بدون علاقة إذا فشلت العلاقة
 private async createSellerWithoutRelation(
   supadmin: Supadmin,
   email: string,
@@ -1201,13 +1203,11 @@ private async createSellerWithoutRelation(
   plainPassword: string
 ): Promise<{ success: boolean; sellerId: string }> {
   try {
-    // إنشاء البائع بدون العلاقة
     const seller = this.sellerRepo.create({
       email: email,
       password: hashedPassword,
       role: ManagerRole.SELLER,
       isActive: true,
-      // لا نضيف createdBy
     });
 
     const savedSeller = await this.sellerRepo.save(seller);
@@ -1242,11 +1242,15 @@ private async createSellerWithoutRelation(
   }
 }
 
- async updateSeller(
+async updateSeller(
   supadminId: string,
   sellerId: string,
-  dto: Partial<{ email: string; password: string; isActive: boolean }>
-): Promise<{ success: boolean }> {
+  dto: Partial<{
+    email: string;
+    password: string;
+    isActive?: boolean;
+  }>
+): Promise<ManagerWithoutPassword> {
   const supadmin = await this.supadminRepo.findOne({
     where: { id: supadminId }
   });
@@ -1255,8 +1259,9 @@ private async createSellerWithoutRelation(
     throw new ForbiddenException('غير مصرح - لا تملك صلاحية تحديث البائعين');
   }
 
-  const seller = await this.sellerRepo.findOne({
-    where: { id: sellerId }
+  const seller = await this.sellerRepo.findOne({ 
+    where: { id: sellerId },
+    relations: ['createdBy']
   });
 
   if (!seller) {
@@ -1264,10 +1269,6 @@ private async createSellerWithoutRelation(
   }
 
   if (dto.email && dto.email !== seller.email) {
-    if (!dto.email.trim()) {
-      throw new BadRequestException('البريد الإلكتروني لا يمكن أن يكون فارغاً');
-    }
-    
     const normalizedEmail = dto.email.toLowerCase().trim();
     
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1278,37 +1279,140 @@ private async createSellerWithoutRelation(
     const emailExists = await this.sellerRepo.findOne({ 
       where: { email: normalizedEmail } 
     });
-    if (emailExists) {
-      throw new ConflictException('البريد الإلكتروني مستخدم بالفعل');
+    
+    if (emailExists && emailExists.id !== sellerId) {
+      throw new ConflictException('البريد الإلكتروني مستخدم بالفعل من قبل بائع آخر');
     }
-    dto.email = normalizedEmail;
+    
+    seller.email = normalizedEmail;
   }
 
   if (dto.password) {
     if (dto.password.length < 6) {
       throw new BadRequestException('كلمة المرور يجب أن تكون على الأقل 6 أحرف');
     }
-    dto.password = await bcrypt.hash(dto.password, 10);
+    seller.password = await bcrypt.hash(dto.password, 10);
+    
+    await this.managerTokenRepo.delete({ manager: { id: sellerId } });
+    this.logger.log(`تم إلغاء جميع جلسات البائع ${seller.email} بعد تغيير كلمة المرور`);
+  }
+  
+  if (dto.isActive !== undefined) {
+    seller.isActive = dto.isActive;
   }
 
-  await this.sellerRepo.update(sellerId, dto);
+  try {
+    const updatedSeller = await this.sellerRepo.save(seller);
+    
+    try {
+      await this.sendSellerUpdateEmail(updatedSeller, dto);
+    } catch (emailError: unknown) {
+      const emailErrorMessage = emailError instanceof Error ? emailError.message : 'Unknown email error';
+      this.logger.warn(`فشل إرسال إيميل التحديث: ${emailErrorMessage}`);
+    }
 
-  const action = 'updated';
-  const details = dto.email ? 
-    `تم تحديث بيانات البائع ${seller.email} إلى ${dto.email}` :
-    `تم تحديث بيانات البائع ${seller.email}`;
-  
-  await this.sendSupadminActionEmail(
-    action,
-    details,
-    supadmin.email,
-    dto.email || seller.email,
-    'seller',
-    [seller.email]
-  );
+    const { password, ...sellerWithoutPassword } = updatedSeller;
+    
+    this.logger.log(`تم تحديث البائع ${seller.email} بواسطة المسؤول الأعلى: ${supadmin.email}`);
+    
+    return {
+      ...sellerWithoutPassword,
+      tokens: [],
+      activatedSubscriptions: []
+    } as ManagerWithoutPassword;
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    this.logger.error(`فشل تحديث البائع ${sellerId}: ${errorMessage}`);
+    
+    if (errorMessage.includes('duplicate key') || errorMessage.includes('UNIQUE constraint')) {
+      throw new ConflictException('البريد الإلكتروني مستخدم بالفعل');
+    }
+    
+    throw new InternalServerErrorException('فشل في تحديث بيانات البائع');
+  }
+}
 
-  this.logger.log(`تم تحديث البائع: ${seller.email} بواسطة المسؤول: ${supadmin.email}`);
-  return { success: true };
+private async sendSellerUpdateEmail(
+  seller: Manager,
+  dto: Partial<{
+    email: string;
+    password: string;
+    fullName?: string;
+    phone?: string;
+    isActive?: boolean;
+  }>
+): Promise<void> {
+  try {
+    const changes: string[] = [];
+    
+    if (dto.email) changes.push('البريد الإلكتروني');
+    if (dto.password) changes.push('كلمة المرور');
+    if (dto.fullName) changes.push('الاسم الكامل');
+    if (dto.phone) changes.push('رقم الهاتف');
+    if (dto.isActive !== undefined) {
+      changes.push(dto.isActive ? 'تم تفعيل الحساب' : 'تم تعطيل الحساب');
+    }
+    
+    const subject = `تم تحديث بيانات حسابك - ${seller.email}`;
+    const changesText = changes.length > 0 ? changes.join('، ') : 'بيانات الحساب';
+    
+    const html = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${subject}</title>
+        <style>
+          body { font-family: 'Arial', sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background-color: #007bff; color: white; padding: 20px; text-align: center; }
+          .content { background-color: white; padding: 20px; }
+          .info-box { background-color: #f8f9fa; padding: 15px; margin-bottom: 15px; }
+          .warning { color: #856404; background-color: #fff3cd; padding: 10px; border-radius: 5px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>تحديث بيانات حساب البائع</h1>
+          </div>
+          <div class="content">
+            <div class="info-box">
+              <p><strong>عزيزي البائع:</strong> ${seller.email}</p>
+              <p>تم تحديث ${changesText} في حسابك بواسطة المسؤول الأعلى.</p>
+              <p><strong>التاريخ:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
+            </div>
+            
+            ${dto.password ? `
+            <div class="warning">
+              <p><strong>ملاحظة هامة:</strong></p>
+              <p>تم تسجيل خروجك من جميع الأجهزة بسبب تغيير كلمة المرور.</p>
+              <p>يرجى تسجيل الدخول مرة أخرى باستخدام كلمة المرور الجديدة.</p>
+            </div>
+            ` : ''}
+            
+            <p>إذا لم تقم بهذه التغييرات، يرجى التواصل مع المسؤول الأعلى فوراً.</p>
+            
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee;">
+              <p>مع تحيات فريق الدعم الفني</p>
+              <p>منصة شارك - أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
+              <p>https://sharik-sa.com/</p>
+            </div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    await this.sendEmail(seller.email, subject, html);
+    this.logger.log(`تم إرسال إيميل تحديث البيانات للبائع: ${seller.email}`);
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    this.logger.error(`فشل إرسال إيميل تحديث البائع: ${errorMessage}`);
+  }
 }
 
   async toggleSellerStatus(

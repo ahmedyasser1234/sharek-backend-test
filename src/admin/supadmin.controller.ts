@@ -49,6 +49,7 @@ import type {
   ApproveRejectResult,
   SystemStats,
   SupadminWithData,
+  ManagerWithoutPassword,
 } from './supadmin.service';
 
 interface CustomRequest extends Request {
@@ -410,24 +411,24 @@ export class SupadminController {
     return this.supadminService.createSeller(supadminId, dto);
   }
 
-  @Put('sellers/:id')
-  @UseGuards(SupadminJwtGuard)
-  @ApiBearerAuth()
-  @UsePipes(new ValidationPipe({ whitelist: true, skipMissingProperties: true }))
-  @ApiOperation({ 
-    summary: 'تحديث بيانات البائع',
-    description: 'يقوم بتحديث بيانات البائع المحدد'
-  })
-  async updateSeller(
-    @Param('id') id: string,
-    @Body() dto: UpdateSellerDto,
-    @Req() req: SupadminRequest
-  ) {
-    const supadminId = req.supadminId;
-    if (!supadminId) throw new UnauthorizedException('غير مصرح');
+@Put('sellers/:id')
+@UseGuards(SupadminJwtGuard)
+@ApiBearerAuth()
+@UsePipes(new ValidationPipe({ whitelist: true, skipMissingProperties: true }))
+@ApiOperation({ 
+  summary: 'تحديث بيانات البائع',
+  description: 'يقوم بتحديث بيانات البائع المحدد'
+})
+async updateSeller(
+  @Param('id') id: string,
+  @Body() dto: UpdateSellerDto,
+  @Req() req: SupadminRequest
+): Promise<ManagerWithoutPassword> { 
+  const supadminId = req.supadminId;
+  if (!supadminId) throw new UnauthorizedException('غير مصرح');
 
-    return this.supadminService.updateSeller(supadminId, id, dto);
-  }
+  return this.supadminService.updateSeller(supadminId, id, dto);
+}
 
   @Patch('sellers/:id/status')
   @UseGuards(SupadminJwtGuard)
