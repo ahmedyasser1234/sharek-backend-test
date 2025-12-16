@@ -21,10 +21,7 @@ export class SupadminJwtService {
   constructor(private readonly jwtService: JwtService) {
     this.accessSecret = process.env.SUPADMIN_JWT_SECRET || 'supadmin-secret-key';
     this.refreshSecret = process.env.SUPADMIN_JWT_REFRESH_SECRET || 'supadmin-refresh-secret-key';
-    
-    this.logger.log('SupadminJwtService initialized');
-    this.logger.log(`Access secret length: ${this.accessSecret.length}`);
-    this.logger.log(`Refresh secret length: ${this.refreshSecret.length}`);
+
   }
 
   generateInitialTokens(supadmin: Supadmin): { 

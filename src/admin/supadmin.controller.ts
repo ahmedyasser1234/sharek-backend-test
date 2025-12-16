@@ -20,6 +20,7 @@ import {
   Request,
   UsePipes,
   ValidationPipe,
+  ForbiddenException,
 } from '@nestjs/common';
 import { SupadminService } from './supadmin.service';
 import { SupadminJwtGuard } from './auth/supadmin-jwt.guard';
@@ -52,6 +53,7 @@ import type {
   ManagerWithoutPassword,
 } from './supadmin.service';
 import { Employee } from 'employee/entities/employee.entity';
+import { Company } from 'company/entities/company.entity';
 
 interface CustomRequest extends Request {
   socket?: {
@@ -878,6 +880,25 @@ async getEmployeesByCompany(
   if (!supadminId) throw new UnauthorizedException('غير مصرح');
 
   return this.supadminService.getEmployeesByCompany(supadminId, companyId);
+}
+
+
+@Put('companies/:id')
+@UseGuards(SupadminJwtGuard)
+@ApiBearerAuth()
+@ApiOperation({ 
+  summary: 'تحديث بيانات الشركة',
+  description: 'يقوم بتحديث بيانات الشركة المحددة'
+})
+async updateCompany(
+  @Param('id') id: string,
+  @Body() dto: Partial<Company>,
+  @Req() req: SupadminRequest
+): Promise<Company | null> {
+  const supadminId = req.supadminId;
+  if (!supadminId) throw new UnauthorizedException('غير مصرح');
+
+  return this.supadminService.updateCompany(supadminId, id, dto);
 }
 
 }

@@ -2616,4 +2616,17 @@ async getEmployeesByCompany(
   }
 }
 
+async updateCompany(supadminId: string, companyId: string, dto: Partial<Company>): Promise<Company | null> {
+  const supadmin = await this.supadminRepo.findOne({
+    where: { id: supadminId }
+  });
+
+  if (!supadmin || !this.hasPermission(supadmin, 'manage_companies')) {
+    throw new ForbiddenException('غير مصرح - لا تملك صلاحية تحديث بيانات الشركات');
+  }
+
+  await this.companyRepo.update(companyId, dto);
+  return this.companyRepo.findOne({ where: { id: companyId } });
+}
+
 }

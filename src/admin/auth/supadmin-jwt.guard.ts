@@ -40,10 +40,7 @@ export class SupadminJwtGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
-    
-    this.logger.debug(`=== SupadminJwtGuard Debug ===`);
-    this.logger.debug(`URL: ${request.url}`);
-    this.logger.debug(`Method: ${request.method}`);
+
     
     const token = this.extractToken(request);
     
