@@ -198,6 +198,184 @@ export class SupadminService {
     }
   }
 
+  private async sendSubscriptionActionEmail(
+    companyEmail: string,
+    companyName: string,
+    supadminEmail: string,
+    planName: string,
+    action: 'created' | 'renewed' | 'cancelled' | 'extended' | 'changed',
+    details: string
+  ): Promise<void> {
+    try {
+      const actionText = {
+        'created': 'تم إنشاء اشتراك جديد',
+        'renewed': 'تم تجديد الاشتراك',
+        'cancelled': 'تم إلغاء الاشتراك',
+        'extended': 'تم تمديد الاشتراك',
+        'changed': 'تم تغيير الخطة'
+      };
+
+      const actionColor = {
+        'created': '#28a745',
+        'renewed': '#007bff',
+        'cancelled': '#dc3545',
+        'extended': '#ffc107',
+        'changed': '#17a2b8'
+      };
+
+      const subject = `تحديث اشتراك - ${companyName}`;
+      
+      const html = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${subject}</title>
+          <style>
+            body {
+              font-family: 'Arial', 'Segoe UI', sans-serif;
+              line-height: 1.6;
+              color: #333;
+              margin: 0;
+              padding: 0;
+              background-color: #f5f5f5;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .header {
+              background-color: ${actionColor[action]};
+              color: white;
+              padding: 30px;
+              text-align: center;
+              border-radius: 10px 10px 0 0;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+            .content {
+              background-color: white;
+              padding: 30px;
+              border-radius: 0 0 10px 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .info-box {
+              background-color: #f8f9fa;
+              border-right: 4px solid ${actionColor[action]};
+              padding: 20px;
+              margin-bottom: 20px;
+              border-radius: 8px;
+            }
+            .info-box p {
+              margin: 10px 0;
+              font-size: 16px;
+            }
+            .info-box strong {
+              color: #333;
+              margin-left: 10px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #eee;
+              color: #777;
+              font-size: 14px;
+            }
+            .company-info {
+              background-color: #f0f7ff;
+              padding: 20px;
+              border-radius: 8px;
+              margin-top: 20px;
+              text-align: center;
+            }
+            .company-info h3 {
+              color: #007bff;
+              margin-bottom: 10px;
+            }
+            .action-details {
+              background-color: #fff3cd;
+              border: 1px solid #ffeaa7;
+              padding: 15px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .details-title {
+              color: #856404;
+              font-weight: bold;
+              margin-bottom: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>${actionText[action]}</h1>
+            </div>
+            
+            <div class="content">
+
+            <div class="company-info">
+                <h3>مرحبا بكم في منصة شارك</h3>
+                <p>أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
+                <p>نحن نسعى دائماً لتقديم أفضل الخدمات لدعم عملك ونمو شركتك</p>
+              </div>
+
+              <div class="info-box">
+                <p><strong>الشركة:</strong> ${companyName}</p>
+                <p><strong>البريد الإلكتروني:</strong> ${companyEmail}</p>
+                <p><strong>الخطة:</strong> ${planName}</p>
+                <p><strong>تاريخ الإجراء:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
+                <p><strong>بواسطة المسؤول الأعلى:</strong> ${supadminEmail}</p>
+              </div>
+              
+              <div class="action-details">
+                <div class="details-title">تفاصيل الإجراء:</div>
+                <p>${details}</p>
+              </div>
+            
+                 <div>
+                <p>تحت مع تحيات فريق شارك</p>
+                <p>https://sharik-sa.com/</p>
+                <img src="https://res.cloudinary.com/dk3wwuy5d/image/upload/v1765288029/subscription-banner_skltmg.jpg" 
+                <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await this.sendEmail(companyEmail, subject, html);
+
+      const companyAdminEmail = process.env.COMPANY_ADMIN_EMAIL || process.env.EMAIL_USER;
+      if (companyAdminEmail && companyAdminEmail !== companyEmail) {
+        const adminSubject = `إشعار - ${actionText[action]} - ${companyName}`;
+        const adminHtml = `
+          <div dir="rtl">
+            <h2>إشعار ${actionText[action]}</h2>
+            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <p><strong>الشركة:</strong> ${companyName}</p>
+              <p><strong>البريد:</strong> ${companyEmail}</p>
+              <p><strong>الخطة:</strong> ${planName}</p>
+              <p><strong>بواسطة المسؤول الأعلى:</strong> ${supadminEmail}</p>
+              <p><strong>تفاصيل الإجراء:</strong> ${details}</p>
+              <p><strong>التاريخ:</strong> ${new Date().toLocaleString('ar-SA')}</p>
+            </div>
+          </div>
+        `;
+        await this.sendEmail(companyAdminEmail, adminSubject, adminHtml);
+      }
+
+    } catch (error) {
+      this.logger.error(`فشل إرسال إيميل الإجراء: ${error}`);
+    }
+  }
+
   private async sendPaymentApprovedEmail(
     companyEmail: string,
     companyName: string,
@@ -1878,6 +2056,28 @@ async subscribeCompanyToPlan(
     
     if (result && typeof result === 'object' && 'message' in result) {
       const subscriptionResult = result as SubscriptionResult;
+      
+      // إرسال إيميل بعد الاشتراك
+      if (subscriptionResult.subscription) {
+        const company = await this.companyRepo.findOne({ where: { id: companyId } });
+        const plan = await this.planRepo.findOne({ where: { id: planId } });
+        
+        if (company && plan) {
+          const newEndDateStr = subscriptionResult.subscription.endDate ? 
+            subscriptionResult.subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+          const details = `تم تفعيل اشتراك جديد في خطة "${plan.name}" بواسطة المسؤول الأعلى. السعر: ${plan.price} ريال. المدة: ${plan.durationInDays || 30} يوم. تاريخ الانتهاء: ${newEndDateStr}.`;
+          
+          await this.sendSubscriptionActionEmail(
+            company.email,
+            company.name,
+            supadmin.email,
+            plan.name,
+            'created',
+            details
+          );
+        }
+      }
+      
       return {
         message: subscriptionResult.message,
         redirectToDashboard: subscriptionResult.redirectToDashboard,
@@ -1905,7 +2105,8 @@ async subscribeCompanyToPlan(
 
   async cancelSubscription(
     supadminId: string,
-    companyId: string
+    companyId: string,
+    reason?: string
   ): Promise<CancelSubscriptionResult> {
     const supadmin = await this.supadminRepo.findOne({
       where: { id: supadminId }
@@ -1918,10 +2119,32 @@ async subscribeCompanyToPlan(
     try {
       this.logger.log(`المسؤول الأعلى ${supadmin.email} يلغي اشتراك الشركة ${companyId}`);
       
-      const result = await this.subscriptionService.cancelSubscription(companyId) as CancelSubscriptionResult;
+      const result = await this.subscriptionService.cancelSubscription(companyId, reason) as CancelSubscriptionResult;
       
       if (this.isCancelSubscriptionResult(result)) {
         this.logger.log(`تم إلغاء اشتراك الشركة ${companyId} بنجاح`);
+        
+        // إرسال إيميل بعد الإلغاء
+        const company = await this.companyRepo.findOne({ where: { id: companyId } });
+        const subscription = await this.subRepo.findOne({ 
+          where: { company: { id: companyId } },
+          relations: ['plan'],
+          order: { createdAt: 'DESC' }
+        });
+        
+        if (company && subscription?.plan) {
+          const details = `تم إلغاء الاشتراك بالخطة "${subscription.plan.name}". ${reason ? `السبب: ${reason}` : 'بدون سبب محدد'}. تم إلغاء ${result.cancelledSubscriptions} اشتراك. الحالة الحالية للشركة: ${result.companyStatus}.`;
+          
+          await this.sendSubscriptionActionEmail(
+            company.email,
+            company.name,
+            supadmin.email,
+            subscription.plan.name,
+            'cancelled',
+            details
+          );
+        }
+        
         return result;
       }
       
@@ -1935,7 +2158,8 @@ async subscribeCompanyToPlan(
 
   async extendSubscription(
     supadminId: string,
-    companyId: string
+    companyId: string,
+    extraDays?: number
   ): Promise<ExtendSubscriptionResult> {
     const supadmin = await this.supadminRepo.findOne({
       where: { id: supadminId }
@@ -1948,10 +2172,34 @@ async subscribeCompanyToPlan(
     try {
       this.logger.log(`المسؤول الأعلى ${supadmin.email} يمدد اشتراك الشركة ${companyId}`);
       
-      const result = await this.subscriptionService.extendSubscription(companyId) as ExtendSubscriptionResult;
+      const result = await this.subscriptionService.extendSubscription(companyId, extraDays?.toString()) as ExtendSubscriptionResult;
       
       if (this.isExtendSubscriptionResult(result)) {
         this.logger.log(`تم تمديد اشتراك الشركة ${companyId} بنجاح`);
+        
+        // إرسال إيميل بعد التمديد
+        const company = await this.companyRepo.findOne({ where: { id: companyId } });
+        const plan = result.subscription?.plan;
+        
+        if (company && plan) {
+          const currentEndDate = new Date();
+          const newEndDate = result.subscription?.endDate;
+          const extraDaysUsed = extraDays || 30; // القيمة الافتراضية 30 يوم
+          
+          const currentEndDateStr = currentEndDate.toLocaleDateString('ar-SA');
+          const newEndDateStr = newEndDate ? newEndDate.toLocaleDateString('ar-SA') : 'غير محدد';
+          const details = `تم تمديد الاشتراك بالخطة "${plan.name}" لمدة ${extraDaysUsed} يوم إضافية. تاريخ الانتهاء السابق: ${currentEndDateStr}. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+          
+          await this.sendSubscriptionActionEmail(
+            company.email,
+            company.name,
+            supadmin.email,
+            plan.name,
+            'extended',
+            details
+          );
+        }
+        
         return result;
       }
       
@@ -1983,6 +2231,33 @@ async subscribeCompanyToPlan(
       
       if (result && typeof result.message === 'string') {
         this.logger.log(`تم تغيير خطة الشركة ${companyId} بنجاح`);
+        
+        // إرسال إيميل بعد تغيير الخطة
+        const company = await this.companyRepo.findOne({ where: { id: companyId } });
+        const oldSubscription = await this.subRepo.findOne({ 
+          where: { company: { id: companyId } },
+          relations: ['plan'],
+          order: { createdAt: 'DESC' }
+        });
+        
+        const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
+        
+        if (company && oldSubscription?.plan && newPlan) {
+          const oldPlanName = oldSubscription.plan.name;
+          const newEndDateStr = result.subscription?.endDate ? 
+            result.subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+          const details = `تم تغيير الخطة من "${oldPlanName}" إلى "${newPlan.name}". السعر الجديد: ${newPlan.price} ريال. المدة: ${newPlan.durationInDays || 30} يوم. تاريخ الانتهاء الجديد: ${newEndDateStr}.`;
+          
+          await this.sendSubscriptionActionEmail(
+            company.email,
+            company.name,
+            supadmin.email,
+            newPlan.name,
+            'changed',
+            details
+          );
+        }
+        
         return result;
       }
       
@@ -2615,7 +2890,6 @@ async getEmployeesByCompany(
     throw new InternalServerErrorException('فشل جلب الموظفين');
   }
 }
-
 async updateCompany(supadminId: string, companyId: string, dto: Partial<Company>): Promise<Company | null> {
   const supadmin = await this.supadminRepo.findOne({
     where: { id: supadminId }
@@ -2628,5 +2902,4 @@ async updateCompany(supadminId: string, companyId: string, dto: Partial<Company>
   await this.companyRepo.update(companyId, dto);
   return this.companyRepo.findOne({ where: { id: companyId } });
 }
-
 }
