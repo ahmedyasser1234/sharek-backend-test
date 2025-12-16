@@ -26,13 +26,18 @@ export class AdminJwtGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<Request>();
     const authHeader = req.headers.authorization;
 
-    if (!authHeader) throw new UnauthorizedException('Authorization header missing');
+    if (!authHeader) {
+      throw new UnauthorizedException('Authorization header missing');
+    }
 
     const [type, token] = authHeader.split(' ');
-    if (type !== 'Bearer' || !token) throw new UnauthorizedException('Invalid token format');
+    if (type !== 'Bearer' || !token) {
+      throw new UnauthorizedException('Invalid token format');
+    }
 
     try {
       const payload: AdminPayload = await this.jwtService.verifyAsync(token);
+      
       if (payload.role !== 'admin') {
         throw new UnauthorizedException('Access denied');
       }
@@ -40,8 +45,6 @@ export class AdminJwtGuard implements CanActivate {
       req.user = payload;
       return true;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      console.error('JWT Error:', errorMessage);
       throw new UnauthorizedException('يرجى تسجيل الدخول للوصول إلى هذا المورد');
     }
   }

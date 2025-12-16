@@ -42,8 +42,8 @@ export class CardService {
       uniqueUrl = randomUUID();
     }
 
-    const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}?source=link`;
-    const qrCode = `https://sharke1.netlify.app/${finalDesignId}/${uniqueUrl}?source=qr`;
+    const cardUrl = `https://sharik-sa.com/${finalDesignId}/${uniqueUrl}?source=link`;
+    const qrCode = `https://sharik-sa.com/${finalDesignId}/${uniqueUrl}?source=qr`;
 
     if (!employee.id) {
       throw new Error('employee.id مطلوب لإنشاء البطاقة');
@@ -128,8 +128,8 @@ export class CardService {
       const finalDesignId = designId || existingCard.designId || employee.designId || employee.company?.defaultDesignId || 'card-dark';
       const finalQrStyle = qrStyle ?? existingCard.qrStyle ?? 1;
 
-      const cardUrl = `https://sharke1.netlify.app/${finalDesignId}/${currentUniqueUrl}?source=link`;
-      const qrCode = `https://sharke1.netlify.app/${finalDesignId}/${currentUniqueUrl}?source=qr`;
+      const cardUrl = `https://sharik-sa.com/${finalDesignId}/${currentUniqueUrl}?source=link`;
+      const qrCode = `https://sharik-sa.com/${finalDesignId}/${currentUniqueUrl}?source=qr`;
 
       const updateData: Partial<EmployeeCard> = {
         uniqueUrl: currentUniqueUrl,

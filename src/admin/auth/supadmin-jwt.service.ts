@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Supadmin } from '../entities/supadmin.entity';
 
@@ -14,14 +14,12 @@ interface SupadminPayload {
 
 @Injectable()
 export class SupadminJwtService {
-  private readonly logger = new Logger(SupadminJwtService.name);
   private readonly accessSecret: string;
   private readonly refreshSecret: string;
 
   constructor(private readonly jwtService: JwtService) {
     this.accessSecret = process.env.SUPADMIN_JWT_SECRET || 'supadmin-secret-key';
     this.refreshSecret = process.env.SUPADMIN_JWT_REFRESH_SECRET || 'supadmin-refresh-secret-key';
-
   }
 
   generateInitialTokens(supadmin: Supadmin): { 
@@ -55,13 +53,10 @@ export class SupadminJwtService {
 
   verify(token: string): SupadminPayload | null {
     try {
-      this.logger.debug(`Verifying token with secret: ${this.accessSecret.substring(0, 5)}...`);
       return this.jwtService.verify<SupadminPayload>(token, {
         secret: this.accessSecret,
       });
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Token verification failed: ${errorMessage}`);
+    } catch {
       return null;
     }
   }
@@ -71,9 +66,7 @@ export class SupadminJwtService {
       return this.jwtService.verify<SupadminPayload>(token, {
         secret: this.refreshSecret,
       });
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(`Refresh token verification failed: ${errorMessage}`);
+    } catch {
       return null;
     }
   }
