@@ -26,19 +26,7 @@ async function bootstrap() {
   
   app.useGlobalFilters(new AllExceptionsFilter());
   app.useGlobalInterceptors(new ResponseInterceptor());
-  
-  app.enableCors({
-    origin: [
-      'http://89.116.39.168',
-      'http://sharik-sa.com',
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://localhost:5173'   
-    ],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
-  });
+  app.enableCors();
 
   app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
 
@@ -59,17 +47,13 @@ async function bootstrap() {
   SwaggerModule.setup('docs', app, document);
   logger.log(' Swagger جاهز على /docs');
 
- // const adminService = app.get(AdminService);
- // await adminService.ensureDefaultAdmin();
- // logger.log(' تم التأكد من وجود الأدمن الأساسي');
+  const adminService = app.get(AdminService);
+  await adminService.ensureDefaultAdmin();
+  logger.log(' تم التأكد من وجود الأدمن الأساسي');
 
   const port = process.env.PORT ?? 3000;
-  
-  await app.listen(port, '0.0.0.0');
-  
+  await app.listen(port);
   logger.log(` Server is running on http://localhost:${port}`);
-  logger.log(` Accessible externally at http://89.116.39.168:${port}`);
-  logger.log(` CORS enabled for: http://89.116.39.168, http://sharik-sa.com`);
 }
 
 void bootstrap();
