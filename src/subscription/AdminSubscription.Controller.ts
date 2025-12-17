@@ -597,44 +597,76 @@ export class AdminSubscriptionController {
   }
 
   @Patch('manual-proofs/:proofId/approve')
-  @ApiOperation({ summary: 'قبول طلب التحويل البنكي' })
-  @ApiParam({ name: 'proofId', description: 'معرف الطلب' })
-  @ApiResponse({ status: 200, description: 'تم قبول الطلب بنجاح' })
-  async approveProof(
-    @Param('proofId') proofId: string,
-    @Body() body?: { approvedById?: string }
-  ): Promise<{ message: string }> {
-    try {
-      const proof = await this.proofRepo.findOne({
-        where: { id: proofId },
-        relations: ['company', 'plan'],
-      });
+@ApiOperation({ summary: 'قبول طلب التحويل البنكي' })
+@ApiParam({ name: 'proofId', description: 'معرف الطلب' })
+@ApiResponse({ status: 200, description: 'تم قبول الطلب بنجاح' })
+async approveProof(
+  @Param('proofId') proofId: string,
+  @Req() req: ExtendedAdminRequest,
+  @Body() body?: { approvedById?: string }
+): Promise<{ 
+  message: string;
+  approvedBy?: string;
+  adminInfo?: {
+    adminId?: string;
+    adminEmail?: string;
+  };
+}> {
+  try {
+    const proof = await this.proofRepo.findOne({
+      where: { id: proofId },
+      relations: ['company', 'plan'],
+    });
 
-      if (!proof) {
-        throw new NotFoundException('الطلب غير موجود');
-      }
-
-      if (!proof.company || !proof.plan) {
-        throw new BadRequestException('بيانات الطلب غير مكتملة');
-      }
-
-      const result = await this.paymentService.approveProof(
-        proofId, 
-        body?.approvedById
-      );
-      
-      return result;
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`[approveProof] فشل قبول الطلب ${proofId}: ${errorMessage}`);
-      
-      if (error instanceof NotFoundException || error instanceof BadRequestException) {
-        throw error;
-      }
-      
-      throw new InternalServerErrorException('فشل قبول الطلب');
+    if (!proof) {
+      throw new NotFoundException('الطلب غير موجود');
     }
+
+    if (!proof.company || !proof.plan) {
+      throw new BadRequestException('بيانات الطلب غير مكتملة');
+    }
+
+    // ✅ الحصول على إيميل الأدمن
+    let adminEmail: string | undefined;
+    const adminId = req.user?.adminId;
+    if (adminId) {
+      try {
+        adminEmail = await this.subscriptionService.getAdminEmail(adminId);
+      } catch (error) {
+        this.logger.warn(`[approveProof] فشل الحصول على بريد الأدمن: ${error}`);
+        adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
+      }
+    }
+
+    // ✅ تمرير adminId إلى paymentService.approveProof
+    const approvedById = body?.approvedById || adminId;
+    
+    const result = await this.paymentService.approveProof(
+      proofId, 
+      approvedById
+    );
+    
+    // ✅ إرجاع المعلومات مع إيميل الأدمن
+    return {
+      message: result.message,
+      approvedBy: adminEmail || 'النظام',
+      adminInfo: {
+        adminId: adminId,
+        adminEmail: adminEmail
+      }
+    };
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    this.logger.error(`[approveProof] فشل قبول الطلب ${proofId}: ${errorMessage}`);
+    
+    if (error instanceof NotFoundException || error instanceof BadRequestException) {
+      throw error;
+    }
+    
+    throw new InternalServerErrorException('فشل قبول الطلب');
   }
+}
 
   @Patch('manual-proofs/:proofId/reject')
   @ApiOperation({ summary: 'رفض طلب التحويل البنكي' })
