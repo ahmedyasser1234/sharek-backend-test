@@ -645,37 +645,51 @@ export class SellerService {
   }
 
   async changeSubscriptionPlanSeller(companyId: string, newPlanId: string): Promise<SubscriptionResult> {
-    try {
-      this.logger.log(`البائع يغير خطة الشركة ${companyId} إلى ${newPlanId}`);
-      
-      const currentSubscription = await this.subscriptionService.getCompanySubscription(companyId);
-      const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
-      
-      if (currentSubscription && currentSubscription.plan && newPlan) {
-        if (newPlan.maxEmployees < currentSubscription.plan.maxEmployees || 
-            newPlan.price < currentSubscription.plan.price) {
-          throw new BadRequestException(
-            `غير مسموح للبائع بتغيير الشركة من خطة ${currentSubscription.plan.name} ` +
-            `(${currentSubscription.plan.maxEmployees} موظف - ${currentSubscription.plan.price} ريال) إلى خطة ${newPlan.name} ` +
-            `(${newPlan.maxEmployees} موظف - ${newPlan.price} ريال) - غير مسموح بالنزول لخطة أقل`
-          );
-        }
-      }
-      
-      const result = await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId) as SubscriptionResult;
-      
-      if (result && typeof result.message === 'string') {
-        this.logger.log(`تم تغيير خطة الشركة ${companyId} بنجاح`);
-        return result;
-      }
-      
-      throw new Error('استجابة غير متوقعة من خدمة تغيير الخطة');
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`فشل تغيير خطة الشركة ${companyId}`, errorMessage);
-      throw error;
+  try {
+    this.logger.log(`البائع يغير خطة الشركة ${companyId} إلى ${newPlanId}`);
+    
+    const currentSubscription = await this.subscriptionService.getCompanySubscription(companyId);
+    const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
+    
+    if (!currentSubscription) {
+      throw new BadRequestException('لا يوجد اشتراك فعال للشركة');
     }
+    
+    if (!newPlan) {
+      throw new BadRequestException('الخطة المطلوبة غير موجودة');
+    }
+    
+    const currentEmployees = Number(currentSubscription.plan?.maxEmployees || 0);
+    const newEmployees = Number(newPlan.maxEmployees || 0);
+    const currentPrice = Number(currentSubscription.plan?.price || 0);
+    const newPrice = Number(newPlan.price || 0);
+    
+    this.logger.debug(`المقارنة الدقيقة:
+      الموظفين: ${newEmployees} < ${currentEmployees} ؟ ${newEmployees < currentEmployees}
+      السعر: ${newPrice} < ${currentPrice} ؟ ${newPrice < currentPrice}`);
+    
+    if (newEmployees < currentEmployees || newPrice < currentPrice) {
+      throw new BadRequestException(
+        `غير مسموح للبائع بتغيير الشركة من خطة ${currentSubscription.plan?.name || 'غير معروفة'} ` +
+        `(${currentEmployees} موظف - ${currentPrice} ريال) إلى خطة ${newPlan.name} ` +
+        `(${newEmployees} موظف - ${newPrice} ريال) - يجب أن تكون الخطة الجديدة أكبر أو مساوية`
+      );
+    }
+    
+    const result = await this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId) as SubscriptionResult;
+    
+    if (result && typeof result.message === 'string') {
+      this.logger.log(`تم تغيير خطة الشركة ${companyId} بنجاح`);
+      return result;
+    }
+    
+    throw new Error('استجابة غير متوقعة من خدمة تغيير الخطة');
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    this.logger.error(`فشل تغيير خطة الشركة ${companyId}`, errorMessage);
+    throw error;
   }
+}
 
   async activateSubscriptionManually(companyId: string, planId: string, sellerId: string): Promise<SubscriptionResult> {
     try {
