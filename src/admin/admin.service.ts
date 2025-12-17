@@ -1569,55 +1569,55 @@ export class AdminService {
     }
   }
 
-  async subscribeCompanyToPlan(companyId: string, planId: string, adminId: string): Promise<SubscriptionResult> {
-    try {
-      const admin = await this.adminRepo.findOne({ where: { id: adminId } });
-      if (!admin) {
-        throw new NotFoundException('الأدمن غير موجود');
-      }
-
-      const company = await this.companyRepo.findOne({ where: { id: companyId } });
-      const plan = await this.planRepo.findOne({ where: { id: planId } });
-
-      const result = await this.subscriptionService.subscribe(
-        companyId,       
-        planId, 
-        true, 
-        undefined,
-        adminId,
-        admin.email 
-      );
-    
-      const subscriptionResult: SubscriptionResult = {
-        message: result.message,
-        redirectToDashboard: result.redirectToDashboard,
-        redirectToPayment: result.redirectToPayment,
-        checkoutUrl: result.checkoutUrl,
-        subscription: result.subscription,
-      };
-
-      if (company && plan && result.subscription) {
-        const newEndDateStr = result.subscription.endDate ? result.subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
-        const details = `تم تفعيل اشتراك جديد في خطة "${plan.name}" بواسطة الأدمن. السعر: ${plan.price} ريال. المدة: ${plan.durationInDays || 30} يوم. تاريخ الانتهاء: ${newEndDateStr}.`;
-        
-        await this.sendSubscriptionActionEmail(
-          company.email,
-          company.name,
-          admin.email,
-          plan.name,
-          'created',
-          details
-        );
-      }
-    
-      return subscriptionResult;
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        throw new InternalServerErrorException(`فشل في الاشتراك: ${error.message}`);
-      }
-      throw new InternalServerErrorException('فشل في الاشتراك');
+ async subscribeCompanyToPlan(companyId: string, planId: string, adminId: string): Promise<SubscriptionResult> {
+  try {
+    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+    if (!admin) {
+      throw new NotFoundException('الأدمن غير موجود');
     }
+
+    const company = await this.companyRepo.findOne({ where: { id: companyId } });
+    const plan = await this.planRepo.findOne({ where: { id: planId } });
+
+    const result = await this.subscriptionService.subscribe(
+      companyId,       
+      planId, 
+      true, 
+      undefined,
+      admin.id,           
+      admin.email            
+    );
+  
+    const subscriptionResult: SubscriptionResult = {
+      message: result.message,
+      redirectToDashboard: result.redirectToDashboard,
+      redirectToPayment: result.redirectToPayment,
+      checkoutUrl: result.checkoutUrl,
+      subscription: result.subscription,
+    };
+
+    if (company && plan && result.subscription) {
+      const newEndDateStr = result.subscription.endDate ? result.subscription.endDate.toLocaleDateString('ar-SA') : 'غير محدد';
+      const details = `تم تفعيل اشتراك جديد في خطة "${plan.name}" بواسطة الأدمن. السعر: ${plan.price} ريال. المدة: ${plan.durationInDays || 30} يوم. تاريخ الانتهاء: ${newEndDateStr}.`;
+      
+      await this.sendSubscriptionActionEmail(
+        company.email,
+        company.name,
+        admin.email,
+        plan.name,
+        'created',
+        details
+      );
+    }
+  
+    return subscriptionResult;
+  } catch (error: unknown) {
+    if (error instanceof Error) {
+      throw new InternalServerErrorException(`فشل في الاشتراك: ${error.message}`);
+    }
+    throw new InternalServerErrorException('فشل في الاشتراك');
   }
+}
 
   async downloadDatabase(): Promise<DatabaseDownloadResponse> {
     const companies = await this.companyRepo.find();
