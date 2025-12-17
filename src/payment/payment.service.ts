@@ -275,80 +275,82 @@ export class PaymentService {
     return !!pendingProof;
   }
 
-async approveProof(proofId: string, approvedById?: string): Promise<{ message: string }> {
-  const proof = await this.paymentProofRepo.findOne({
-    where: { id: proofId },
-    relations: ['company', 'plan'],
-  });
+  async approveProof(proofId: string, approvedById?: string): Promise<{ message: string }> {
+    const proof = await this.paymentProofRepo.findOne({
+      where: { id: proofId },
+      relations: ['company', 'plan'],
+    });
 
-  if (!proof) {
-    this.logger.error(`طلب غير موجود: ${proofId}`);
-    throw new NotFoundException('الطلب غير موجود');
-  }
-
-  let adminEmail: string | undefined;
-  if (approvedById) {
-    try {
-      adminEmail = await this.subscriptionService.getAdminEmail(approvedById);
-    } catch (error) {
-      this.logger.warn(`[approveProof] فشل الحصول على بريد الأدمن: ${error}`);
-      adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
+    if (!proof) {
+      this.logger.error(`طلب غير موجود: ${proofId}`);
+      throw new NotFoundException('الطلب غير موجود');
     }
-  }
 
-  const result = await this.subscriptionService.subscribe(
-    proof.company.id,       
-    proof.plan.id,           
-    true,                    
-    undefined,               
-    approvedById,            
-    undefined,               
-    adminEmail              
-  );
-
-  proof.status = PaymentProofStatus.APPROVED;
-  proof.reviewed = true;
-  proof.rejected = false;
-  proof.decisionNote = approvedById ? 'تم القبول بواسطة الأدمن' : 'تم القبول بواسطة النظام';
-  
-  if (approvedById) {
-    proof.approvedById = approvedById;
-  }
-  
-  await this.paymentProofRepo.save(proof);
-
-  await this.notificationService.notifyCompanySubscriptionApproved({
-    id: proof.id,
-    company: {
-      id: proof.company.id,
-      name: proof.company.name,
-      email: proof.company.email
-    },
-    plan: {
-      name: proof.plan.name
-    },
-    imageUrl: proof.imageUrl,
-    createdAt: proof.createdAt
-  });
-
-  if (proof.company.email) {
-    try {
-      await this.sendDecisionEmail(
-        proof.company.email,
-        proof.company.name,
-        proof.plan.name,
-        true,
-        approvedById ? `بواسطة الأدمن: ${adminEmail || approvedById}` : 'بواسطة النظام'
-      );
-    } catch (err) {
-      this.logger.error(`فشل إرسال إشعار القبول: ${String(err)}`);
+    let adminEmail: string | undefined;
+    if (approvedById) {
+      try {
+        adminEmail = await this.subscriptionService.getAdminEmail(approvedById);
+      } catch (error) {
+        this.logger.warn(`[approveProof] فشل الحصول على بريد الأدمن: ${error}`);
+        adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
+      }
     }
+
+    // ✅ التصحيح هنا - ترتيب الباراميترات الصحيح
+    const result = await this.subscriptionService.subscribe(
+      proof.company.id,       // companyId
+      proof.plan.id,          // planId
+      true,                   // isAdminOverride
+      undefined,              // activatedBySellerId
+      approvedById,           // activatedByAdminId ✅
+      undefined,              // activatedBySupadminId
+      adminEmail              // activatorEmail ✅
+    );
+
+    proof.status = PaymentProofStatus.APPROVED;
+    proof.reviewed = true;
+    proof.rejected = false;
+    proof.decisionNote = approvedById ? 'تم القبول بواسطة الأدمن' : 'تم القبول بواسطة النظام';
+    
+    if (approvedById) {
+      proof.approvedById = approvedById;
+    }
+    
+    await this.paymentProofRepo.save(proof);
+
+    await this.notificationService.notifyCompanySubscriptionApproved({
+      id: proof.id,
+      company: {
+        id: proof.company.id,
+        name: proof.company.name,
+        email: proof.company.email
+      },
+      plan: {
+        name: proof.plan.name
+      },
+      imageUrl: proof.imageUrl,
+      createdAt: proof.createdAt
+    });
+
+    if (proof.company.email) {
+      try {
+        await this.sendDecisionEmail(
+          proof.company.email,
+          proof.company.name,
+          proof.plan.name,
+          true,
+          approvedById ? `بواسطة الأدمن: ${adminEmail || approvedById}` : 'بواسطة النظام'
+        );
+      } catch (err) {
+        this.logger.error(`فشل إرسال إشعار القبول: ${String(err)}`);
+      }
+    }
+
+    return { 
+      message: result.message || 'تم قبول الطلب وتفعيل الاشتراك بنجاح' 
+    };
   }
 
-  return { 
-    message: result.message || 'تم قبول الطلب وتفعيل الاشتراك بنجاح' 
-  };
-}
   async rejectProof(proofId: string, reason: string): Promise<{ message: string }> {
     const proof = await this.paymentProofRepo.findOne({
       where: { id: proofId },
