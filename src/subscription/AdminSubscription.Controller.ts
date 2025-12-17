@@ -610,40 +610,34 @@ async approveProof(
   };
 }> {
   try {
-    const proof = await this.proofRepo.findOne({
-      where: { id: proofId },
-      relations: ['company', 'plan'],
-    });
-
-    if (!proof) {
-      throw new NotFoundException('الطلب غير موجود');
-    }
-
-    if (!proof.company || !proof.plan) {
-      throw new BadRequestException('بيانات الطلب غير مكتملة');
-    }
-
-    let adminEmail: string | undefined;
-    const adminId = req.user?.adminId;
-    if (adminId) {
-      try {
-        adminEmail = await this.subscriptionService.getAdminEmail(adminId);
-      } catch (error) {
-        this.logger.warn(`[approveProof] فشل الحصول على بريد الأدمن: ${error}`);
-        adminEmail = process.env.ADMIN_EMAIL || 'admin@sharik-sa.com';
-      }
-    }
-
-    const approvedById = body?.approvedById || adminId;
+    this.logger.log(`=== approveProof called ===`);
+    this.logger.log(`proofId: ${proofId}`);
+    this.logger.log(`req.user: ${JSON.stringify(req.user)}`);
+    this.logger.log(`req.user?.adminId: ${req.user?.adminId}`);
+    this.logger.log(`body: ${JSON.stringify(body)}`);
     
-    const result = await this.paymentService.approveProof(
-      proofId, 
-      approvedById
-    );
+    const adminId = req.user?.adminId;
+    
+    if (!adminId) {
+      this.logger.error('adminId not found in request');
+      throw new UnauthorizedException('غير مصرح - لم يتم العثور على معرف الأدمن');
+    }
+    
+    this.logger.log(`Using adminId: ${adminId}`);
+    
+    const result = await this.paymentService.approveProof(proofId, adminId);
+    
+    let adminEmail: string | undefined;
+    try {
+      adminEmail = await this.subscriptionService.getAdminEmail(adminId);
+    } catch (error) {
+      this.logger.warn(`Failed to get admin email: ${error}`);
+      adminEmail = 'النظام';
+    }
     
     return {
       message: result.message,
-      approvedBy: adminEmail || 'النظام',
+      approvedBy: adminEmail,
       adminInfo: {
         adminId: adminId,
         adminEmail: adminEmail
