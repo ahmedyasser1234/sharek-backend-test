@@ -630,57 +630,84 @@ export class AdminService {
     };
   }
 
-  async getAdminCompanies(adminId: string): Promise<CompanyWithActivator[]> {
-    try {
-      const subscriptions = await this.subRepo.find({
-        relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'],
-        where: [
-          { activatedByAdmin: { id: adminId } },
-          { activatedBySeller: { createdBy: { id: adminId } } }
-        ]
-      });
+async getAdminCompanies(adminId: string): Promise<CompanyWithActivator[]> {
+  try {
+    // جلب جميع الاشتراكات التي قام بها أي أدمن (ليس فقط الأدمن الحالي)
+    const subscriptions = await this.subRepo.find({
+      relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'],
+      where: [
+        { activatedByAdmin: { id: Not(IsNull()) } }, // أي أدمن
+        { activatedBySeller: { createdBy: { id: adminId } } } // البائعون الذين أنشأهم هذا الأدمن
+      ]
+    });
 
-      const results = await Promise.all(
-        subscriptions.map(async (sub) => {
-          try {
-            if (!sub.company || !sub.company.id) {
-              return null;
-            }
-
-            const employeesCount = await this.employeeRepo.count({
-              where: { company: { id: sub.company.id } }
-            });
-
-            return {
-              id: sub.company.id,
-              name: sub.company.name || 'غير معروف',
-              email: sub.company.email || 'غير معروف',
-              phone: sub.company.phone || 'غير معروف',
-              isActive: sub.company.isActive ?? false,
-              isVerified: sub.company.isVerified ?? false,
-              subscriptionStatus: sub.company.subscriptionStatus || 'غير معروف',
-              employeesCount,
-              activatedBy: sub.activatedBySeller ? 
-                `${sub.activatedBySeller.email} (بائع)` : 
-                (sub.activatedByAdmin ? `${sub.activatedByAdmin.email} (أدمن)` : 'غير معروف'),
-              activatedById: sub.activatedBySeller?.id || sub.activatedByAdmin?.id,
-              activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
-              subscriptionDate: sub.startDate,
-              planName: sub.plan?.name || 'غير معروف',
-              adminEmail: sub.activatedByAdmin?.email,
-              sellerEmail: sub.activatedBySeller?.email
-            } as CompanyWithActivator;
-          } catch (error) {
+    const results = await Promise.all(
+      subscriptions.map(async (sub) => {
+        try {
+          if (!sub.company || !sub.company.id) {
             return null;
           }
-        })
-      );
 
-      return results.filter((item): item is CompanyWithActivator => item !== null);
-    } catch (error) {
-      return [];
-    }
+          const employeesCount = await this.employeeRepo.count({
+            where: { company: { id: sub.company.id } }
+          });
+
+          // الحصول على بريد الأدمن إذا كان موجودًا
+          let adminEmail = 'غير معروف';
+          let adminIdForEmail = sub.activatedByAdmin?.id;
+          
+          if (sub.activatedByAdmin) {
+            // إذا كان البريد موجودًا في العلاقة المباشرة
+            if (sub.activatedByAdmin.email) {
+              adminEmail = sub.activatedByAdmin.email;
+            } else if (adminIdForEmail) {
+              // جلب البريد من قاعدة البيانات
+              try {
+                const admin = await this.adminRepo.findOne({
+                  where: { id: adminIdForEmail },
+                  select: ['email']
+                });
+                if (admin && admin.email) {
+                  adminEmail = admin.email;
+                }
+              } catch (err) {
+                this.logger.warn(`فشل جلب بريد الأدمن ${adminIdForEmail}: ${err}`);
+              }
+            }
+          }
+
+          return {
+            id: sub.company.id,
+            name: sub.company.name || 'غير معروف',
+            email: sub.company.email || 'غير معروف',
+            phone: sub.company.phone || 'غير معروف',
+            isActive: sub.company.isActive ?? false,
+            isVerified: sub.company.isVerified ?? false,
+            subscriptionStatus: sub.company.subscriptionStatus || 'غير معروف',
+            employeesCount,
+            activatedBy: sub.activatedBySeller ? 
+              `${sub.activatedBySeller.email} (بائع)` : 
+              (sub.activatedByAdmin ? `${adminEmail} (أدمن)` : 'غير معروف'),
+            activatedById: sub.activatedBySeller?.id || sub.activatedByAdmin?.id,
+            activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
+            subscriptionDate: sub.startDate,
+            planName: sub.plan?.name || 'غير معروف',
+            adminEmail: sub.activatedByAdmin ? adminEmail : undefined,
+            sellerEmail: sub.activatedBySeller?.email
+          } as CompanyWithActivator;
+        } catch (error) {
+          this.logger.error(`خطأ في معالجة شركة ${sub.company?.id}: ${error}`);
+          return null;
+        }
+      })
+    );
+
+    return results.filter((item): item is CompanyWithActivator => item !== null);
+  } catch (error) {
+    this.logger.error(`خطأ في getAdminCompanies: ${error}`);
+    return [];
   }
+}
 
   async createAdmin(dto: { email: string; password: string }): Promise<Admin> {
     const exists = await this.adminRepo.findOne({ where: { email: dto.email } });
