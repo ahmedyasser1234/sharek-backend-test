@@ -119,13 +119,15 @@ export class AdminSubscriptionController {
         }
       }
       
+      // ✅ التعديل هنا - تم إضافة undefined كمعلمة سادسة
       const result = await this.subscriptionService.subscribe(
         companyId, 
         planId, 
         true,
         undefined,
-        adminId,
-        adminEmail
+        adminId,     // ✅ المعلمة الخامسة: adminId (UUID)
+        undefined,   // ✅ المعلمة السادسة: supadminId (null) - هذا التعديل
+        adminEmail   // ✅ المعلمة السابعة: email
       );
       
       return result;
@@ -356,13 +358,15 @@ export class AdminSubscriptionController {
         }
       }
       
+      // ✅ التعديل هنا أيضًا - نفس التعديل
       const result = await this.subscriptionService.subscribe(
         companyId, 
         planId, 
         true, 
         undefined, 
-        adminId, 
-        adminEmail
+        adminId,     // المعلمة الخامسة
+        undefined,   // المعلمة السادسة (supadminId - null)
+        adminEmail   // المعلمة السابعة
       );
       
       return result;
