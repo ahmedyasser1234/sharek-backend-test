@@ -596,10 +596,7 @@ export class AdminSubscriptionController {
     }
   }
 
-  @Patch('manual-proofs/:proofId/approve')
-@ApiOperation({ summary: 'قبول طلب التحويل البنكي' })
-@ApiParam({ name: 'proofId', description: 'معرف الطلب' })
-@ApiResponse({ status: 200, description: 'تم قبول الطلب بنجاح' })
+ @Patch('manual-proofs/:proofId/approve')
 async approveProof(
   @Param('proofId') proofId: string,
   @Req() req: ExtendedAdminRequest,
@@ -626,7 +623,6 @@ async approveProof(
       throw new BadRequestException('بيانات الطلب غير مكتملة');
     }
 
-    // ✅ الحصول على إيميل الأدمن
     let adminEmail: string | undefined;
     const adminId = req.user?.adminId;
     if (adminId) {
@@ -638,7 +634,6 @@ async approveProof(
       }
     }
 
-    // ✅ تمرير adminId إلى paymentService.approveProof
     const approvedById = body?.approvedById || adminId;
     
     const result = await this.paymentService.approveProof(
@@ -646,7 +641,6 @@ async approveProof(
       approvedById
     );
     
-    // ✅ إرجاع المعلومات مع إيميل الأدمن
     return {
       message: result.message,
       approvedBy: adminEmail || 'النظام',

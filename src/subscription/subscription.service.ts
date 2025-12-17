@@ -368,7 +368,7 @@ export class SubscriptionService {
     }
   }
 
-  async subscribe(
+async subscribe(
   companyId: string, 
   planId: string, 
   isAdminOverride = false,
@@ -378,6 +378,13 @@ export class SubscriptionService {
   activatorEmail?: string  
 ): Promise<SubscriptionResponse> {
   try {
+    // إضافة logging للتصحيح
+    this.logger.log(`[subscribe] === بدء الاشتراك ===`);
+    this.logger.log(`[subscribe] companyId: ${companyId}, planId: ${planId}`);
+    this.logger.log(`[subscribe] isAdminOverride: ${isAdminOverride}`);
+    this.logger.log(`[subscribe] activatorEmail: ${activatorEmail}`);
+    this.logger.log(`[subscribe] activatedByAdminId: ${activatedByAdminId}`);
+
     const company = await this.companyRepo.findOne({ 
       where: { id: companyId },
       relations: ['subscriptions'] 
@@ -564,26 +571,40 @@ export class SubscriptionService {
     }
 
     if (isAdminOverride && activatorEmail) {
+      this.logger.log(`[subscribe] سأرسل إيميل: isAdminOverride=${isAdminOverride}, activatorEmail=${activatorEmail}`);
+      
       const endDateStr = savedSubscription.endDate.toLocaleDateString('ar-SA');
       let details = '';
+      let emailAction = action;
       
       if (isNewSubscription) {
         details = `تم إنشاء اشتراك جديد في خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء: ${endDateStr}.`;
-        action = 'created';
+        emailAction = 'created';
       } else if (action === 'renewed') {
         details = `تم تجديد اشتراكك في خطة "${newPlan.name}" لمدة ${newPlan.durationInDays} يوم إضافية. تاريخ الانتهاء الجديد: ${endDateStr}.`;
+        emailAction = 'renewed';
       } else {
-        details = `تم تغيير اشتراكك من خطة "${existingActiveSubscription?.plan?.name || 'غير معروفة'}" إلى خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء الجديد: ${endDateStr}.`;
+        const oldPlanName = existingActiveSubscription?.plan?.name || 'غير معروفة';
+        details = `تم تغيير اشتراكك من خطة "${oldPlanName}" إلى خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء الجديد: ${endDateStr}.`;
+        emailAction = 'changed';
       }
+      
+      this.logger.log(`[subscribe] إرسال إيميل إلى ${company.email}`);
+      this.logger.log(`[subscribe] من: ${activatorEmail}`);
+      this.logger.log(`[subscribe] الإجراء: ${emailAction}`);
       
       await this.sendSubscriptionActionEmail(
         company.email,
         company.name,
         activatorEmail,
         newPlan.name,
-        action,
+        emailAction,
         details
       );
+      
+      this.logger.log(`[subscribe] تم إرسال الإيميل بنجاح`);
+    } else {
+      this.logger.warn(`[subscribe] لم يتم إرسال إيميل - isAdminOverride: ${isAdminOverride}, activatorEmail: ${activatorEmail}`);
     }
 
     if (planPrice > 0 && !isAdminOverride && isNewSubscription) {
