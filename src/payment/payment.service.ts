@@ -690,13 +690,6 @@ export class PaymentService {
                 </ul>
               </div>
               
-              <div style="text-align: center; margin: 25px 0;">
-                <a href="${process.env.FRONTEND_URL || 'https://dashboard.sharik-sa.com'}" 
-                   style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
-                   الدخول إلى لوحة التحكم
-                </a>
-              </div>
-              
               <div>
                 <p>تحت مع تحيات فريق شارك</p>
                 <p>https://sharik-sa.com/</p>
@@ -1235,20 +1228,6 @@ export class PaymentService {
                 <p>${reason || 'لم يتم تحديد سبب محدد للرفض.'}</p>
               </div>
               ` : ''}
-              
-              <div style="text-align: center; margin: 25px 0;">
-                ${accepted ? `
-                <a href="${process.env.FRONTEND_URL || 'https://dashboard.sharik-sa.com'}" 
-                   style="background-color: #007bff; color: white; padding: 15px 40px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">
-                   الدخول إلى المنصة
-                </a>
-                ` : `
-                <a href="${process.env.FRONTEND_URL || 'https://dashboard.sharik-sa.com'}/manual-payment" 
-                   style="background-color: #17a2b8; color: white; padding: 15px 40px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">
-                   إعادة إرسال الوصل
-                </a>
-                `}
-              </div>
               
               <div>
                 <p>تحت مع تحيات فريق شارك</p>

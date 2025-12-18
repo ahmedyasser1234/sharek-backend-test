@@ -32,6 +32,7 @@ export class VisitService {
   private readonly logger = new Logger(VisitService.name);
   
   private readonly countryTranslations: { [key: string]: string } = {
+    // الدول المحلية والخاصة
     'localhost': 'محلي',
     'Localhost': 'محلي',
     'LOCALHOST': 'محلي',
@@ -43,6 +44,7 @@ export class VisitService {
     'UNKNOWN': 'غير معروف',
     'غير معروف': 'غير معروف',
     
+    // الدول العربية
     'Saudi Arabia': 'السعودية',
     'Kingdom of Saudi Arabia': 'السعودية',
     'United Arab Emirates': 'الإمارات',
@@ -78,7 +80,7 @@ export class VisitService {
     'Libya': 'ليبيا',
     'State of Libya': 'ليبيا',
     'Sudan': 'السودان',
-    'Republic of the Sudan': 'السعودية',
+    'Republic of the Sudan': 'السودان',
     'Mauritania': 'موريتانيا',
     'Islamic Republic of Mauritania': 'موريتانيا',
     'Somalia': 'الصومال',
@@ -88,6 +90,7 @@ export class VisitService {
     'Comoros': 'جزر القمر',
     'Union of the Comoros': 'جزر القمر',
     
+    // دول أخرى
     'United States': 'الولايات المتحدة',
     'United States of America': 'الولايات المتحدة',
     'USA': 'الولايات المتحدة',
@@ -223,15 +226,18 @@ export class VisitService {
 
     const trimmedCountry = countryName.trim();
     
+    // إذا كان النص بالفعل عربي، إرجاعه كما هو
     if (/[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/.test(trimmedCountry)) {
       return trimmedCountry;
     }
 
+    // البحث الدقيق أولاً
     const exactMatch = this.countryTranslations[trimmedCountry];
     if (exactMatch) {
       return exactMatch;
     }
 
+    // البحث بغير حساسية لحالة الأحرف
     const lowerTrimmed = trimmedCountry.toLowerCase();
     for (const [englishName, arabicName] of Object.entries(this.countryTranslations)) {
       if (englishName.toLowerCase() === lowerTrimmed) {
@@ -239,6 +245,7 @@ export class VisitService {
       }
     }
 
+    // البحث الجزئي
     for (const [englishName, arabicName] of Object.entries(this.countryTranslations)) {
       if (englishName.toLowerCase().includes(lowerTrimmed) || 
           lowerTrimmed.includes(englishName.toLowerCase())) {
@@ -251,46 +258,58 @@ export class VisitService {
 
   private async getCountryFromIP(ip: string): Promise<string> {
     try {
+      // تنظيف IP
       const cleanIP = ip.replace(/^::ffff:/, '');
       
+      // إذا كان IP محلي، نرجع "محلي" مباشرة
       if (cleanIP === '127.0.0.1' || cleanIP === '::1' || 
           cleanIP === 'localhost' || cleanIP.startsWith('192.168.') || 
           cleanIP.startsWith('10.') || 
           (cleanIP.startsWith('172.') && parseInt(cleanIP.split('.')[1] || '0') >= 16 && 
            parseInt(cleanIP.split('.')[1] || '0') <= 31)) {
+        this.logger.debug(`🔍 IP محلي: ${cleanIP}`);
         return 'محلي';
       }
 
       if (cleanIP === 'unknown' || !cleanIP || cleanIP === '') {
+        this.logger.warn(`⚠️ IP غير معروف: ${cleanIP}`);
         return 'غير معروف';
       }
 
+      // التحقق من أن الـ IP صالح
+      if (!this.isValidIP(cleanIP)) {
+        this.logger.warn(`⚠️ IP غير صالح: ${cleanIP}`);
+        return 'غير معروف';
+      }
+
+      // محاولة استخدام ip-api.com أولاً
       try {
         const response = await axios.get<IpApiResponse>(`http://ip-api.com/json/${cleanIP}`, {
-          timeout: 3000
+          timeout: 5000
         });
         
         if (response.data && response.data.status === 'success') {
           if (response.data.country) {
             const arabicName = this.translateCountryToArabic(response.data.country);
-            this.logger.debug(`[ip-api.com] تم تحديد الدولة لـ ${cleanIP}: ${response.data.country} -> ${arabicName}`);
+            this.logger.debug(`[ip-api.com] 🌍 تم تحديد الدولة لـ ${cleanIP}: ${response.data.country} -> ${arabicName}`);
             return arabicName;
           }
           
           if (response.data.countryCode) {
             const countryName = this.getCountryNameFromCode(response.data.countryCode);
             const arabicName = this.translateCountryToArabic(countryName);
-            this.logger.debug(`[ip-api.com] تم تحديد الدولة من الكود لـ ${cleanIP}: ${response.data.countryCode} -> ${arabicName}`);
+            this.logger.debug(`[ip-api.com] 🌍 تم تحديد الدولة من الكود لـ ${cleanIP}: ${response.data.countryCode} -> ${arabicName}`);
             return arabicName;
           }
         }
       } catch (ipApiError) {
-        this.logger.warn(`[ip-api.com] فشل لـ IP ${cleanIP}: ${ipApiError}`);
+        this.logger.warn(`[ip-api.com] ❌ فشل لـ IP ${cleanIP}: ${ipApiError}`);
       }
 
+      // محاولة استخدام ipapi.co كبديل
       try {
         const response = await axios.get<string>(`http://ipapi.co/${cleanIP}/country_name/`, {
-          timeout: 3000,
+          timeout: 5000,
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
           }
@@ -301,36 +320,51 @@ export class VisitService {
           const country = response.data.trim();
           if (country && country !== '' && country !== 'Undefined' && country !== 'undefined') {
             const arabicName = this.translateCountryToArabic(country);
-            this.logger.debug(`[ipapi.co] تم تحديد الدولة لـ ${cleanIP}: ${country} -> ${arabicName}`);
+            this.logger.debug(`[ipapi.co] 🌍 تم تحديد الدولة لـ ${cleanIP}: ${country} -> ${arabicName}`);
             return arabicName;
           }
         }
       } catch (ipapiError) {
-        this.logger.warn(`[ipapi.co] فشل لـ IP ${cleanIP}: ${ipapiError}`);
+        this.logger.warn(`[ipapi.co] ❌ فشل لـ IP ${cleanIP}: ${ipapiError}`);
       }
 
+      // محاولة استخدام ipinfo.io إذا كان هناك token
       try {
         if (process.env.IPINFO_TOKEN) {
           const response = await axios.get<{country?: string}>(`https://ipinfo.io/${cleanIP}?token=${process.env.IPINFO_TOKEN}`, {
-            timeout: 3000
+            timeout: 5000
           });
           
           if (response.data && response.data.country) {
             const arabicName = this.translateCountryToArabic(response.data.country);
-            this.logger.debug(`[ipinfo.io] تم تحديد الدولة لـ ${cleanIP}: ${response.data.country} -> ${arabicName}`);
+            this.logger.debug(`[ipinfo.io] 🌍 تم تحديد الدولة لـ ${cleanIP}: ${response.data.country} -> ${arabicName}`);
             return arabicName;
           }
         }
       } catch (ipinfoError) {
-        this.logger.warn(`[ipinfo.io] فشل لـ IP ${cleanIP}: ${ipinfoError}`);
+        this.logger.warn(`[ipinfo.io] ❌ فشل لـ IP ${cleanIP}: ${ipinfoError}`);
       }
 
-      this.logger.warn(` لم يتم تحديد الدولة لـ IP: ${cleanIP}`);
+      this.logger.warn(`❌ لم يتم تحديد الدولة لـ IP: ${cleanIP}`);
       return 'غير معروف';
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` خطأ عام في تحديد الدولة لـ IP ${ip}: ${errorMessage}`);
+      this.logger.error(`❌ خطأ عام في تحديد الدولة لـ IP ${ip}: ${errorMessage}`);
       return 'غير معروف';
+    }
+  }
+
+  private isValidIP(ip: string): boolean {
+    try {
+      // تحقق من IPv4
+      const ipv4Regex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+      
+      // تحقق من IPv6
+      const ipv6Regex = /^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/;
+      
+      return ipv4Regex.test(ip) || ipv6Regex.test(ip);
+    } catch {
+      return false;
     }
   }
 
@@ -428,118 +462,192 @@ export class VisitService {
   private extractIPFromRequest(req?: Request): string {
     try {
       if (!req) {
-        this.logger.debug(' Request غير موجود لاستخراج IP');
+        this.logger.debug('❌ Request غير موجود لاستخراج IP');
         return 'unknown';
       }
       
-      let ip = 'unknown';
+      let clientIp = 'unknown';
       
-      const xForwardedFor = req.headers['x-forwarded-for'];
-      if (xForwardedFor) {
-        if (Array.isArray(xForwardedFor)) {
-          ip = xForwardedFor[0]?.trim() || 'unknown';
-        } else {
-          ip = xForwardedFor.split(',')[0]?.trim() || 'unknown';
-        }
-        if (ip !== 'unknown') {
-          this.logger.debug(` تم استخراج IP من x-forwarded-for: ${ip}`);
+      // 1. التحقق من headers الشائعة لـ Reverse Proxy أولاً
+      const proxyHeaders = [
+        'x-forwarded-for',
+        'x-real-ip',
+        'cf-connecting-ip', // Cloudflare
+        'true-client-ip', // Akamai
+        'x-cluster-client-ip',
+        'x-forwarded',
+        'forwarded-for',
+        'forwarded',
+        'x-client-ip',
+      ];
+      
+      for (const header of proxyHeaders) {
+        const headerValue = req.headers[header];
+        if (headerValue) {
+          const headerValueStr = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+          this.logger.debug(`📋 فحص header ${header}: ${headerValueStr}`);
+          
+          let ipValue: string;
+          
+          if (Array.isArray(headerValue)) {
+            ipValue = headerValue[0] || '';
+          } else {
+            ipValue = headerValue;
+          }
+          
+          // إذا كانت القيمة تحتوي على عدة IPs مفصولة بفواصل
+          if (ipValue.includes(',')) {
+            const ips = ipValue.split(',').map(ip => ip.trim());
+            clientIp = ips[0] || clientIp;
+          } else {
+            clientIp = ipValue.trim();
+          }
+          
+          if (clientIp && clientIp !== 'unknown') {
+            this.logger.debug(`✅ تم استخراج IP من ${header}: ${clientIp}`);
+            break;
+          }
         }
       }
       
-      if (!ip || ip === 'unknown') {
-        ip = req.ip || 'unknown';
-        if (ip !== 'unknown') {
-          this.logger.debug(` تم استخراج IP من req.ip: ${ip}`);
+      // 2. req.ip كخيار ثاني
+      if ((!clientIp || clientIp === 'unknown') && req.ip) {
+        clientIp = req.ip;
+        this.logger.debug(`🌐 تم استخراج IP من req.ip: ${clientIp}`);
+      }
+      
+      // 3. req.socket.remoteAddress كحل أخير
+      if (!clientIp || clientIp === 'unknown') {
+        clientIp = req.socket?.remoteAddress || 'unknown';
+        if (clientIp !== 'unknown') {
+          this.logger.debug(`🔌 تم استخراج IP من socket: ${clientIp}`);
         }
       }
       
-      if (!ip || ip === 'unknown') {
-        ip = req.connection?.remoteAddress || 'unknown';
-        if (ip !== 'unknown') {
-          this.logger.debug(` تم استخراج IP من req.connection.remoteAddress: ${ip}`);
+      // تنظيف الـ IP
+      if (clientIp && clientIp !== 'unknown') {
+        // إزالة IPv6 prefix
+        clientIp = clientIp.replace(/^::ffff:/, '');
+        
+        // إزالة البورت إذا كان موجوداً
+        const parts = clientIp.split(':');
+        if (parts.length === 2 && parts[0].includes('.')) {
+          // IPv4 مع port
+          clientIp = parts[0];
+        } else if (parts.length > 2 && parts[0] !== '') {
+          // IPv6 مع port
+          clientIp = parts[0];
         }
       }
       
-      if (!ip || ip === 'unknown') {
-        ip = req.socket?.remoteAddress || 'unknown';
-        if (ip !== 'unknown') {
-          this.logger.debug(` تم استخراج IP من req.socket.remoteAddress: ${ip}`);
+      // التحقق من أن الـ IP ليس محلي
+      if (this.isLocalIP(clientIp)) {
+        this.logger.warn(`⚠️ IP محلي تم اكتشافه: ${clientIp} - قد يكون بسبب Reverse Proxy`);
+        
+        // محاولة الحصول على IP الحقيقي من Cloudflare headers
+        const cloudflareIp = req.headers['cf-connecting-ip'];
+        if (cloudflareIp) {
+          const cloudflareIpStr = Array.isArray(cloudflareIp) ? cloudflareIp[0] : cloudflareIp;
+          if (cloudflareIpStr && !this.isLocalIP(cloudflareIpStr)) {
+            clientIp = cloudflareIpStr;
+            this.logger.debug(`☁️ تم استخدام cf-connecting-ip: ${clientIp}`);
+          }
         }
       }
       
-      if (ip && ip !== 'unknown') {
-        ip = ip.replace(/^::ffff:/, '');
-        const parts = ip.split(':');
-        if (parts.length > 1 && !parts[0].includes('.')) {
-          ip = parts[0];
-        }
-      }
-      
-      if (ip === 'unknown') {
-        this.logger.warn(' لم يتم العثور على IP في الطلب');
+      if (clientIp === 'unknown') {
+        this.logger.warn('❌ لم يتم العثور على IP في الطلب');
       } else {
-        this.logger.debug(` الـ IP النهائي: ${ip}`);
+        this.logger.debug(`✅ الـ IP النهائي: ${clientIp}`);
       }
       
-      return ip;
+      return clientIp;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل استخراج IP من الطلب: ${errorMessage}`);
+      this.logger.error(`❌ فشل استخراج IP من الطلب: ${errorMessage}`);
       return 'unknown';
     }
   }
 
+  private isLocalIP(ip: string): boolean {
+    if (!ip || ip === 'unknown') return true;
+    
+    const cleanIP = ip.replace(/^::ffff:/, '');
+    
+    // IPv4 المحلية
+    if (cleanIP === '127.0.0.1' || 
+        cleanIP === 'localhost' ||
+        cleanIP.startsWith('192.168.') ||
+        cleanIP.startsWith('10.') ||
+        (cleanIP.startsWith('172.') && 
+         parseInt(cleanIP.split('.')[1] || '0') >= 16 && 
+         parseInt(cleanIP.split('.')[1] || '0') <= 31)) {
+      return true;
+    }
+    
+    // IPv6 المحلية
+    if (cleanIP === '::1' || cleanIP === '::') {
+      return true;
+    }
+    
+    return false;
+  }
+
   private determineFinalSource(req?: Request, defaultSource: string = 'link'): string {
     if (!req) {
-      this.logger.debug(' Request غير موجود لتحديد المصدر');
+      this.logger.debug('❌ Request غير موجود لتحديد المصدر');
       return defaultSource;
     }
 
     try {
-      this.logger.debug(` Request URL: ${req.url}`);
+      this.logger.debug(`🌐 Request URL: ${req.url}`);
       
+      // التحقق من query parameters
       if (req.query && Object.keys(req.query).length > 0) {
-        this.logger.debug(` جميع query parameters: ${JSON.stringify(req.query)}`);
+        this.logger.debug(`📊 جميع query parameters: ${JSON.stringify(req.query)}`);
       }
 
+      // التحقق من source parameter في query
       if (req.query?.source) {
         const sourceParam = req.query.source;
-        this.logger.debug(` تم العثور على source parameter: ${JSON.stringify(sourceParam)}`);
+        this.logger.debug(`🎯 تم العثور على source parameter: ${JSON.stringify(sourceParam)}`);
         
         let source: string;
         if (Array.isArray(sourceParam)) {
           const firstElement = sourceParam[0];
           source = typeof firstElement === 'string' ? firstElement : defaultSource;
-          this.logger.debug(` تم معالجة source كمصفوفة: ${source}`);
+          this.logger.debug(`📦 تم معالجة source كمصفوفة: ${source}`);
         } else {
           source = typeof sourceParam === 'string' ? sourceParam : defaultSource;
-          this.logger.debug(` تم معالجة source كـ string: ${source}`);
+          this.logger.debug(`📦 تم معالجة source كـ string: ${source}`);
         }
         
-        this.logger.debug(` المصدر النهائي المستخرج: ${source}`);
+        this.logger.debug(`✅ المصدر النهائي المستخرج: ${source}`);
         return source.toLowerCase();
       } else {
-        this.logger.debug(' لم يتم العثور على source parameter في query');
+        this.logger.debug('ℹ️ لم يتم العثور على source parameter في query');
       }
 
+      // التحقق من headers
       if (req.headers && req.headers.referer) {
-        this.logger.debug(` Referer header: ${req.headers.referer}`);
+        this.logger.debug(`📎 Referer header: ${req.headers.referer}`);
       }
 
-      this.logger.debug(` استخدام المصدر الافتراضي: ${defaultSource}`);
+      this.logger.debug(`✅ استخدام المصدر الافتراضي: ${defaultSource}`);
       return defaultSource;
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل تحديد المصدر: ${errorMessage}`);
+      this.logger.error(`❌ فشل تحديد المصدر: ${errorMessage}`);
       return defaultSource;
     }
   }
 
   async logVisit(employee: Employee, source: string = 'link', req?: Request): Promise<void> {
     try {
-      this.logger.log(` بدء تسجيل زيارة للموظف: ${employee.id} - ${employee.name}`);
+      this.logger.log(`🚀 بدء تسجيل زيارة للموظف: ${employee.id} - ${employee.name}`);
       
+      // استخراج معلومات المستخدم
       const ua = req?.headers['user-agent'] || '';
       const parser = new UAParser(ua);
       
@@ -548,34 +656,51 @@ export class VisitService {
       const device = parser.getDevice();
       const deviceType = device.type || 'desktop';
       
+      // استخراج الـ IP الحقيقي
       const ipAddress = this.extractIPFromRequest(req);
-      this.logger.log(` عنوان IP للزيارة: ${ipAddress}`);
+      this.logger.log(`📍 عنوان IP الحقيقي: ${ipAddress}`);
       
       if (req) {
-        this.logger.debug(` URL المستخدم: ${req.url}`);
-        this.logger.debug(` الـ source الافتراضي الممرر: ${source}`);
+        const host = req.get('host') || 'unknown';
+        this.logger.debug(`🔗 URL الكامل: ${req.protocol}://${host}${req.url}`);
+        
+        // تسجيل معلومات إضافية للمساعدة في debugging
+        this.logger.debug('🔍 معلومات الطلب:', {
+          method: req.method,
+          url: req.url,
+          headers: {
+            'x-forwarded-for': req.headers['x-forwarded-for'],
+            'x-real-ip': req.headers['x-real-ip'],
+            'cf-connecting-ip': req.headers['cf-connecting-ip'],
+            'user-agent': req.headers['user-agent'],
+            referer: req.headers.referer,
+          }
+        });
       }
 
+      // تحديد المصدر النهائي
       const finalSource = this.determineFinalSource(req, source);
-      this.logger.debug(` المصدر النهائي للزيارة: ${finalSource}`);
+      this.logger.debug(`✅ المصدر النهائي للزيارة: ${finalSource}`);
 
-      this.logger.debug(` جاري تحديد الدولة للـ IP: ${ipAddress}`);
+      // الحصول على الدولة من الـ IP
+      this.logger.debug(`🌍 جاري تحديد الدولة للـ IP: ${ipAddress}`);
       let country = 'غير معروف';
       try {
         country = await this.getCountryFromIP(ipAddress);
-        this.logger.log(` الدولة المحددة: ${country} (من IP: ${ipAddress})`);
+        this.logger.log(`🌍 الدولة المحددة: ${country} (من IP: ${ipAddress})`);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.logger.error(` فشل الحصول على الدولة لـ IP ${ipAddress}: ${errorMessage}`);
+        this.logger.error(`❌ فشل الحصول على الدولة لـ IP ${ipAddress}: ${errorMessage}`);
       }
 
+      // تسجيل الزيارة
       await this.saveVisit(employee, finalSource, os, browser, deviceType, ipAddress, country);
       
-      this.logger.log(` تم تسجيل الزيارة بنجاح للموظف ${employee.id}`);
+      this.logger.log(`✅ تم تسجيل الزيارة بنجاح للموظف ${employee.id}`);
 
     } catch (error: unknown) {
       const errMsg = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل تسجيل الزيارة: ${errMsg}`);
+      this.logger.error(`❌ فشل تسجيل الزيارة: ${errMsg}`);
     }
   }
 
@@ -589,13 +714,14 @@ export class VisitService {
     country: string
   ): Promise<void> {
     try {
+      // تحويل جميع القيم إلى العربية
       const finalSource = source.toLowerCase();
       const finalOS = this.translateToArabic(os);
       const finalBrowser = this.translateToArabic(browser);
       const finalDeviceType = this.translateToArabic(deviceType);
       const finalCountry = this.translateCountryToArabic(country);
       
-      this.logger.debug(`البيانات قبل التحقق من التكرار:`);
+      this.logger.debug(`📝 بيانات الزيارة:`);
       this.logger.debug(`   - الموظف: ${employee.id}`);
       this.logger.debug(`   - المصدر: ${finalSource}`);
       this.logger.debug(`   - نظام التشغيل: ${finalOS}`);
@@ -604,13 +730,10 @@ export class VisitService {
       this.logger.debug(`   - الـ IP: ${ipAddress}`);
       this.logger.debug(`   - الدولة: ${finalCountry}`);
 
+      // التحقق من الزيارات المتكررة (خلال 10 دقائق)
       const recentVisit = await this.visitRepo.findOne({
         where: {
           employee: { id: employee.id },
-          source: finalSource,
-          os: finalOS,
-          browser: finalBrowser,
-          deviceType: finalDeviceType,
           ipAddress: ipAddress,
         },
         order: { visitedAt: 'DESC' },
@@ -618,12 +741,13 @@ export class VisitService {
 
       if (recentVisit) {
         const diff = Date.now() - new Date(recentVisit.visitedAt).getTime();
-        if (diff < 5 * 60 * 1000) {  
-          this.logger.log(` تم تجاهل زيارة متكررة للموظف ${employee.id} من ${finalCountry} (آخر زيارة قبل ${Math.round(diff/1000)} ثانية)`);
+        if (diff < 10 * 60 * 1000) {  // 10 دقائق
+          this.logger.log(`⏰ تم تجاهل زيارة متكررة للموظف ${employee.id} من ${finalCountry} (آخر زيارة قبل ${Math.round(diff/60000)} دقائق)`);
           return;
         }
       }
 
+      // إنشاء الزيارة الجديدة
       const visit = this.visitRepo.create({
         employee: { id: employee.id },
         source: finalSource,
@@ -635,11 +759,11 @@ export class VisitService {
       });
 
       await this.visitRepo.save(visit);
-      this.logger.log(` تم تسجيل زيارة جديدة للموظف ${employee.id} من ${finalCountry} - المصدر: ${finalSource}`);
+      this.logger.log(`✅ تم تسجيل زيارة جديدة للموظف ${employee.id} من ${finalCountry} (IP: ${ipAddress}) - المصدر: ${finalSource}`);
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل حفظ الزيارة: ${errorMessage}`);
+      this.logger.error(`❌ فشل حفظ الزيارة: ${errorMessage}`);
       throw error;
     }
   }
@@ -648,6 +772,7 @@ export class VisitService {
     if (!text) return 'غير معروف';
     
     const translations: { [key: string]: string } = {
+      // أنظمة التشغيل
       'Windows': 'ويندوز',
       'Mac OS': 'ماك',
       'iOS': 'آي أو إس',
@@ -658,6 +783,7 @@ export class VisitService {
       'Fedora': 'فيدورا',
       'Debian': 'ديبيان',
       
+      // المتصفحات
       'Chrome': 'كروم',
       'Firefox': 'فايرفوكس',
       'Safari': 'سفاري',
@@ -667,6 +793,7 @@ export class VisitService {
       'Brave': 'بريف',
       'Vivaldi': 'فيفالدي',
       
+      // الأجهزة
       'mobile': 'جوال',
       'tablet': 'تابلت',
       'desktop': 'كمبيوتر',
@@ -674,6 +801,7 @@ export class VisitService {
       'wearable': 'جهاز قابل للارتداء',
       'console': 'كونسول',
       
+      // قيم أخرى
       'unknown': 'غير معروف',
       'undefined': 'غير معروف',
       'null': 'غير معروف',
@@ -684,6 +812,7 @@ export class VisitService {
     const exactMatch = translations[trimmed];
     if (exactMatch) return exactMatch;
     
+    // البحث بغير حساسية لحالة الأحرف
     const lowerText = trimmed.toLowerCase();
     for (const [english, arabic] of Object.entries(translations)) {
       if (english.toLowerCase() === lowerText) {
@@ -694,6 +823,7 @@ export class VisitService {
     return trimmed;
   }
 
+  // ... باقي الدوال كما هي بدون تغيير
   async logVisitById(body: {
     employeeId: number;
     source?: string;
@@ -703,14 +833,14 @@ export class VisitService {
     ipAddress?: string;
   }): Promise<void> {
     try {
-      this.logger.log(` بدء تسجيل زيارة مباشرة للموظف: ${body.employeeId}`);
+      this.logger.log(`🚀 بدء تسجيل زيارة مباشرة للموظف: ${body.employeeId}`);
       
       const employee = await this.employeeRepo.findOne({ 
         where: { id: body.employeeId } 
       });
       
       if (!employee) {
-        this.logger.warn(` محاولة تسجيل زيارة لموظف غير موجود: ${body.employeeId}`);
+        this.logger.warn(`❌ محاولة تسجيل زيارة لموظف غير موجود: ${body.employeeId}`);
         return;
       }
 
@@ -720,7 +850,7 @@ export class VisitService {
       const deviceType = body.deviceType || 'كمبيوتر';
       const ipAddress = body.ipAddress || 'unknown';
       
-      this.logger.debug(` بيانات الزيارة المباشرة:`);
+      this.logger.debug(`📝 بيانات الزيارة المباشرة:`);
       this.logger.debug(`   - المصدر: ${source}`);
       this.logger.debug(`   - نظام التشغيل: ${os}`);
       this.logger.debug(`   - المتصفح: ${browser}`);
@@ -728,21 +858,21 @@ export class VisitService {
       this.logger.debug(`   - الـ IP: ${ipAddress}`);
 
       const country = await this.getCountryFromIP(ipAddress);
-      this.logger.log(` الدولة المحددة للزيارة المباشرة: ${country}`);
+      this.logger.log(`🌍 الدولة المحددة للزيارة المباشرة: ${country}`);
 
       await this.saveVisit(employee, source, os, browser, deviceType, ipAddress, country);
       
-      this.logger.log(` تم تسجيل الزيارة المباشرة بنجاح للموظف ${employee.id}`);
+      this.logger.log(`✅ تم تسجيل الزيارة المباشرة بنجاح للموظف ${employee.id}`);
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      this.logger.error(` فشل تسجيل الزيارة المباشرة: ${errorMessage}`);
+      this.logger.error(`❌ فشل تسجيل الزيارة المباشرة: ${errorMessage}`);
     }
   }
 
   async getCountryStats(employeeId: number): Promise<{ country: string; count: number }[]> {
     try {
-      this.logger.debug(` جاري جلب إحصائيات الدول للموظف: ${employeeId}`);
+      this.logger.debug(`🌍 جاري جلب إحصائيات الدول للموظف: ${employeeId}`);
       
       const stats: Array<{ country: string; count: string }> = await this.visitRepo.query(
         `
@@ -757,13 +887,14 @@ export class VisitService {
         [employeeId],
       );
 
-      this.logger.debug(` عدد الدول المسجلة: ${stats.length}`);
+      this.logger.debug(`📊 عدد الدول المسجلة: ${stats.length}`);
 
       const formattedStats = stats.map(stat => ({
         country: stat.country,
         count: parseInt(stat.count || '0', 10)
       }));
 
+      // فلترة النتائج
       const filteredStats = formattedStats.filter((stat) => {
         const isValid = stat.country && 
                        stat.country.trim() !== '' &&
@@ -771,17 +902,17 @@ export class VisitService {
                        !stat.country.toLowerCase().includes('undefined');
         
         if (!isValid) {
-          this.logger.debug(`  تم استبعاد دولة: ${stat.country} - عدد: ${stat.count}`);
+          this.logger.debug(`🗑️  تم استبعاد دولة: ${stat.country} - عدد: ${stat.count}`);
         }
         
         return isValid;
       });
 
-      this.logger.log(` تم جلب إحصائيات ${filteredStats.length} دولة للموظف ${employeeId}`);
+      this.logger.log(`✅ تم جلب إحصائيات ${filteredStats.length} دولة للموظف ${employeeId}`);
       return filteredStats;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب إحصائيات الدول: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب إحصائيات الدول: ${errorMessage}`);
       return [];
     }
   }
@@ -793,11 +924,11 @@ export class VisitService {
         .where('"employeeId" = :employeeId', { employeeId })
         .getCount();
       
-      this.logger.debug(` عدد الزيارات الإجمالي للموظف ${employeeId}: ${count}`);
+      this.logger.debug(`📊 عدد الزيارات الإجمالي للموظف ${employeeId}: ${count}`);
       return count;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب عدد الزيارات: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب عدد الزيارات: ${errorMessage}`);
       return 0;
     }
   }
@@ -821,11 +952,11 @@ export class VisitService {
         count: parseInt(item.count || '0', 10)
       }));
       
-      this.logger.debug(` عدد الأيام المسجلة للموظف ${employeeId}: ${visits.length}`);
+      this.logger.debug(`📅 عدد الأيام المسجلة للموظف ${employeeId}: ${visits.length}`);
       return visits;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب الزيارات اليومية: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب الزيارات اليومية: ${errorMessage}`);
       return [];
     }
   }
@@ -848,11 +979,11 @@ export class VisitService {
         count: parseInt(item.count || '0', 10)
       }));
       
-      this.logger.debug(` عدد أنواع الأجهزة للموظف ${employeeId}: ${stats.length}`);
+      this.logger.debug(`📱 عدد أنواع الأجهزة للموظف ${employeeId}: ${stats.length}`);
       return stats;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب إحصائيات الأجهزة: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب إحصائيات الأجهزة: ${errorMessage}`);
       return [];
     }
   }
@@ -875,11 +1006,11 @@ export class VisitService {
         count: parseInt(item.count || '0', 10)
       }));
       
-      this.logger.debug(` عدد المتصفحات للموظف ${employeeId}: ${stats.length}`);
+      this.logger.debug(`🌐 عدد المتصفحات للموظف ${employeeId}: ${stats.length}`);
       return stats;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب إحصائيات المتصفحات: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب إحصائيات المتصفحات: ${errorMessage}`);
       return [];
     }
   }
@@ -902,11 +1033,11 @@ export class VisitService {
         count: parseInt(item.count || '0', 10)
       }));
       
-      this.logger.debug(` عدد أنظمة التشغيل للموظف ${employeeId}: ${stats.length}`);
+      this.logger.debug(`💻 عدد أنظمة التشغيل للموظف ${employeeId}: ${stats.length}`);
       return stats;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب إحصائيات أنظمة التشغيل: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب إحصائيات أنظمة التشغيل: ${errorMessage}`);
       return [];
     }
   }
@@ -929,11 +1060,11 @@ export class VisitService {
         count: parseInt(item.count || '0', 10)
       }));
       
-      this.logger.debug(` عدد مصادر الزيارات للموظف ${employeeId}: ${stats.length}`);
+      this.logger.debug(`🔗 عدد مصادر الزيارات للموظف ${employeeId}: ${stats.length}`);
       return stats;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب إحصائيات المصادر: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب إحصائيات المصادر: ${errorMessage}`);
       return [];
     }
   }
@@ -946,11 +1077,11 @@ export class VisitService {
         order: { visitedAt: 'DESC' },
       });
       
-      this.logger.debug(` عدد زيارات الشركة ${companyId}: ${visits.length}`);
+      this.logger.debug(`🏢 عدد زيارات الشركة ${companyId}: ${visits.length}`);
       return visits;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب زيارات الشركة: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب زيارات الشركة: ${errorMessage}`);
       return [];
     }
   }
@@ -962,7 +1093,7 @@ export class VisitService {
       return employee;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب بيانات الموظف: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب بيانات الموظف: ${errorMessage}`);
       throw new NotFoundException('الموظف غير موجود');
     }
   }
@@ -983,11 +1114,11 @@ export class VisitService {
         lastVisit: new Date().toISOString() 
       }));
       
-      this.logger.debug(` عدد مصادر الزيارات المفصلة للموظف ${employeeId}: ${detailedStats.length}`);
+      this.logger.debug(`📊 عدد مصادر الزيارات المفصلة للموظف ${employeeId}: ${detailedStats.length}`);
       return detailedStats;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب الإحصائيات المفصلة للمصادر: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب الإحصائيات المفصلة للمصادر: ${errorMessage}`);
       return [];
     }
   }
@@ -1014,11 +1145,11 @@ export class VisitService {
         total: totalVisits
       };
       
-      this.logger.debug(` إحصائيات QR vs Link للموظف ${employeeId}:`, stats);
+      this.logger.debug(`🔗 إحصائيات QR vs Link للموظف ${employeeId}:`, stats);
       return stats;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب إحصائيات QR vs Link: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب إحصائيات QR vs Link: ${errorMessage}`);
       return {
         qrCount: 0,
         linkCount: 0,
@@ -1044,7 +1175,7 @@ export class VisitService {
     dailyVisits: DailyVisit[];
   }> {
     try {
-      this.logger.log(` جاري جلب الإحصائيات المفصلة للموظف: ${employeeId}`);
+      this.logger.log(`📊 جاري جلب الإحصائيات المفصلة للموظف: ${employeeId}`);
       
       const [
         totalVisits,
@@ -1087,7 +1218,7 @@ export class VisitService {
         dailyVisits
       };
       
-      this.logger.log(` تم جلب الإحصائيات المفصلة للموظف ${employeeId}`);
+      this.logger.log(`✅ تم جلب الإحصائيات المفصلة للموظف ${employeeId}`);
       this.logger.debug(`   - إجمالي الزيارات: ${totalVisits}`);
       this.logger.debug(`   - عدد الدول: ${countryStats.length}`);
       this.logger.debug(`   - عدد أنواع الأجهزة: ${deviceStats.length}`);
@@ -1099,11 +1230,12 @@ export class VisitService {
       return detailedStats;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب الإحصائيات المفصلة: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب الإحصائيات المفصلة: ${errorMessage}`);
       throw error;
     }
   }
 
+  // دالة مساعدة للتحقق من البيانات الفعلية
   async debugCountryData(employeeId: number): Promise<any> {
     try {
       const rawData = await this.visitRepo.find({
@@ -1113,7 +1245,7 @@ export class VisitService {
         take: 50
       });
       
-      this.logger.debug(` تحليل بيانات الزيارات للموظف ${employeeId}:`);
+      this.logger.debug(`🔍 تحليل بيانات الزيارات للموظف ${employeeId}:`);
       this.logger.debug(`   - عدد الزيارات: ${rawData.length}`);
       
       const countryMap = new Map<string, number>();
@@ -1149,11 +1281,12 @@ export class VisitService {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` خطأ في التحقق من بيانات الدول: ${errorMessage}`);
+      this.logger.error(`❌ خطأ في التحقق من بيانات الدول: ${errorMessage}`);
       return [];
     }
   }
 
+  // دالة للبحث عن الزيارات من IP معين
   async checkVisitsFromIP(ipAddress: string): Promise<Visit[]> {
     try {
       const visits = await this.visitRepo.find({
@@ -1162,15 +1295,16 @@ export class VisitService {
         order: { visitedAt: 'DESC' },
       });
       
-      this.logger.debug(` عدد الزيارات من IP ${ipAddress}: ${visits.length}`);
+      this.logger.debug(`🔍 عدد الزيارات من IP ${ipAddress}: ${visits.length}`);
       return visits;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` خطأ في البحث عن الزيارات من IP: ${errorMessage}`);
+      this.logger.error(`❌ خطأ في البحث عن الزيارات من IP: ${errorMessage}`);
       return [];
     }
   }
 
+  // دالة لتنظيف الزيارات غير الصحيحة
   async cleanupInvalidVisits(employeeId: number): Promise<void> {
     try {
       const result = await this.visitRepo.createQueryBuilder()
@@ -1183,19 +1317,22 @@ export class VisitService {
         })
         .execute();
       
-      this.logger.log(`  تم حذف ${result.affected} زيارة غير صحيحة للموظف ${employeeId}`);
+      this.logger.log(`🗑️  تم حذف ${result.affected} زيارة غير صحيحة للموظف ${employeeId}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` خطأ في تنظيف الزيارات: ${errorMessage}`);
+      this.logger.error(`❌ خطأ في تنظيف الزيارات: ${errorMessage}`);
     }
   }
 
+  // دالة محسنة لجلب إحصائيات الدول مع فلترة أفضل
   async getFilteredCountryStats(employeeId: number): Promise<{ country: string; count: number; percentage: number }[]> {
     try {
       const totalVisits = await this.getVisitCount(employeeId);
       const countryStats = await this.getCountryStats(employeeId);
       
+      // فلترة إضافية لاستبعاد الدول التي قد تكون خاطئة
       const filteredStats = countryStats.filter(stat => {
+        // استبعاد الدول التي قد تكون نتيجة لخدمات VPN أو بيانات خاطئة
         const excludedCountries = [
           'غير معروف',
           'localhost',
@@ -1209,7 +1346,7 @@ export class VisitService {
         const isValid = !excludedCountries.includes(stat.country) && stat.count > 0;
         
         if (!isValid) {
-          this.logger.debug(`  تم استبعاد دولة في الفلترة: ${stat.country}`);
+          this.logger.debug(`🗑️  تم استبعاد دولة في الفلترة: ${stat.country}`);
         }
         
         return isValid;
@@ -1220,11 +1357,11 @@ export class VisitService {
         percentage: totalVisits > 0 ? Math.round((stat.count / totalVisits) * 100) : 0
       }));
       
-      this.logger.debug(` عدد الدول بعد الفلترة: ${result.length}`);
+      this.logger.debug(`✅ عدد الدول بعد الفلترة: ${result.length}`);
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      this.logger.error(` فشل جلب إحصائيات الدول المصفاة: ${errorMessage}`);
+      this.logger.error(`❌ فشل جلب إحصائيات الدول المصفاة: ${errorMessage}`);
       return [];
     }
   }
