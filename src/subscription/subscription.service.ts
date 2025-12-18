@@ -21,6 +21,7 @@ import { Employee } from '../employee/entities/employee.entity';
 import { PaymentProof } from '../payment/entities/payment-proof.entity';
 import { PaymentProofStatus } from '../payment/entities/payment-proof-status.enum';
 import { Admin } from '../admin/entities/admin.entity';
+import { Manager } from '../admin/entities/manager.entity';
 
 export interface SubscriptionResponse {
   message: string;
@@ -130,6 +131,9 @@ export class SubscriptionService {
     
     @InjectRepository(Admin) 
     private readonly adminRepo: Repository<Admin>,
+
+    @InjectRepository(Manager) 
+    private readonly sellerRepo: Repository<Manager>,
     
     private readonly companyService: CompanyService,
     private readonly paymentService: PaymentService,
@@ -378,12 +382,13 @@ async subscribe(
   activatorEmail?: string  
 ): Promise<SubscriptionResponse> {
   try {
-    // إضافة logging للتصحيح
     this.logger.log(`[subscribe] === بدء الاشتراك ===`);
     this.logger.log(`[subscribe] companyId: ${companyId}, planId: ${planId}`);
     this.logger.log(`[subscribe] isAdminOverride: ${isAdminOverride}`);
     this.logger.log(`[subscribe] activatorEmail: ${activatorEmail}`);
+    this.logger.log(`[subscribe] activatedBySellerId: ${activatedBySellerId}`);
     this.logger.log(`[subscribe] activatedByAdminId: ${activatedByAdminId}`);
+    this.logger.log(`[subscribe] activatedBySupadminId: ${activatedBySupadminId}`);
 
     const company = await this.companyRepo.findOne({ 
       where: { id: companyId },
@@ -478,14 +483,17 @@ async subscribe(
       
       if (activatedBySellerId) {
         existingActiveSubscription.activatedBySellerId = activatedBySellerId;
+        this.logger.log(`[subscribe] تم تعيين activatedBySellerId: ${activatedBySellerId}`);
       }
       
       if (activatedByAdminId) {
         existingActiveSubscription.activatedByAdminId = activatedByAdminId;
+        this.logger.log(`[subscribe] تم تعيين activatedByAdminId: ${activatedByAdminId}`);
       }
 
       if (activatedBySupadminId) {
         existingActiveSubscription.activatedBySupadminId = activatedBySupadminId;
+        this.logger.log(`[subscribe] تم تعيين activatedBySupadminId: ${activatedBySupadminId}`);
       }
 
       savedSubscription = await this.subscriptionRepo.save(existingActiveSubscription);
@@ -532,14 +540,28 @@ async subscribe(
 
       if (activatedBySellerId) {
         subscriptionData.activatedBySellerId = activatedBySellerId;
+        this.logger.log(`[subscribe] New subscription - تم تعيين activatedBySellerId: ${activatedBySellerId}`);
+        
+        try {
+          const seller = await this.sellerRepo.findOne({ 
+            where: { id: activatedBySellerId } 
+          });
+          if (seller) {
+            subscriptionData.activatedBySeller = seller;
+          }
+        } catch (error) {
+          this.logger.warn(`[subscribe] لم يتم العثور على البائع ${activatedBySellerId}: ${error}`);
+        }
       }
       
       if (activatedByAdminId) {
         subscriptionData.activatedByAdminId = activatedByAdminId;
+        this.logger.log(`[subscribe] New subscription - تم تعيين activatedByAdminId: ${activatedByAdminId}`);
       }
 
       if (activatedBySupadminId) {
         subscriptionData.activatedBySupadminId = activatedBySupadminId;
+        this.logger.log(`[subscribe] New subscription - تم تعيين activatedBySupadminId: ${activatedBySupadminId}`);
       }
 
       const subscription = this.subscriptionRepo.create(subscriptionData);

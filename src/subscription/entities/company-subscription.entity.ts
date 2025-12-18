@@ -1,4 +1,3 @@
-// src/subscription/entities/company-subscription.entity.ts
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -94,19 +93,22 @@ export class CompanySubscription {
   activatedBySupadminId?: string;
 
   @ManyToOne(() => Manager, (manager) => manager.activatedSubscriptions, { 
-    nullable: true 
+    nullable: true,
+    onDelete: 'SET NULL'     
   })
   @JoinColumn({ name: 'activatedBySellerId' })
   activatedBySeller: Manager | null;
 
   @ManyToOne(() => Admin, (admin) => admin.activatedSubscriptions, { 
-    nullable: true 
+    nullable: true,
+    onDelete: 'SET NULL'     
   })
   @JoinColumn({ name: 'activatedByAdminId' })
   activatedByAdmin: Admin | null;
 
   @ManyToOne(() => Supadmin, (supadmin) => supadmin.activatedSubscriptions, { 
-    nullable: true 
+    nullable: true,
+    onDelete: 'SET NULL'    
   })
   @JoinColumn({ name: 'activatedBySupadminId' })
   activatedBySupadmin: Supadmin | null;
