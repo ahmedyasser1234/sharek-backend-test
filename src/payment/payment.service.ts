@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
   Inject,
-  forwardRef, 
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -34,6 +34,17 @@ import { SubscriptionService } from '../subscription/subscription.service';
 @Injectable()
 export class PaymentService {
   private readonly logger = new Logger(PaymentService.name);
+  
+  private readonly actionColors = {
+    'payment_request': '#007bff',        
+    'payment_success': '#28a745',       
+    'proof_received': '#17a2b8',         
+    'proof_pending': '#ffc107',          
+    'proof_approved': '#28a745',        
+    'proof_rejected': '#dc3545',    
+    'subscription_activated': '#20c997', 
+    'subscription_cancelled': '#6f42c1'  
+  };
 
   constructor(
     private readonly stripe: StripeGateway,
@@ -91,7 +102,7 @@ export class PaymentService {
           checkoutUrl = this.stcpay.generateCheckoutUrl(plan.id, companyId);
           break;
         case PaymentProvider.MANUAL_TRANSFER:
-          checkoutUrl = `http://localhost:3000/manual-payment?companyId=${companyId}&planId=${plan.id}`;
+          checkoutUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/manual-payment?companyId=${companyId}&planId=${plan.id}`;
           break;
         default:
           throw new HttpException(`بوابة الدفع غير مدعومة: ${String(provider)}`, HttpStatus.BAD_REQUEST);
@@ -108,6 +119,9 @@ export class PaymentService {
       });
 
       await this.transactionRepo.save(transaction);
+      
+      await this.sendPaymentRequestEmail(company, plan, provider);
+      
       return checkoutUrl;
     } catch (err) {
       this.logger.error(`فشل إنشاء رابط الدفع: ${String(err)}`);
@@ -141,6 +155,14 @@ export class PaymentService {
 
       await this.subRepo.save(subscription);
 
+      await this.sendPaymentSuccessEmail(
+        transaction.company.email,
+        transaction.company.name,
+        transaction.plan.name,
+        transaction.amount,
+        transaction.currency
+      );
+
       await this.notificationService.notifyPaymentSuccess(
         {
           name: transaction.company.name,
@@ -164,16 +186,13 @@ export class PaymentService {
         }
       });
 
-      try {
-        await this.sendDecisionEmail(
-          transaction.company.email,
-          transaction.company.name,
-          transaction.plan.name,
-          true
-        );
-      } catch (err) {
-        this.logger.error(`فشل إرسال إيميل التفعيل: ${String(err)}`);
-      }
+      await this.sendDecisionEmail(
+        transaction.company.email,
+        transaction.company.name,
+        transaction.plan.name,
+        true,
+        'تم الدفع بنجاح من خلال بوابة الدفع الإلكترونية'
+      );
     } catch (err) {
       this.logger.error(`فشل تأكيد المعاملة: ${String(err)}`);
       throw new HttpException('فشل تأكيد المعاملة', HttpStatus.INTERNAL_SERVER_ERROR);
@@ -202,7 +221,7 @@ export class PaymentService {
     const [company, plan] = await Promise.all([
       this.companyRepo.findOne({
         where: { id: dto.companyId },
-        select: ['id', 'name', 'email'],
+        select: ['id', 'name', 'email', 'phone'],
       }),
       this.planRepo.findOneBy({ id: dto.planId }),
     ]);
@@ -241,6 +260,15 @@ export class PaymentService {
 
     await this.paymentProofRepo.save(proof);
 
+    await this.sendProofReceivedEmail(
+      company.email,
+      company.name,
+      plan.name,
+      imageUrl
+    );
+
+    await this.sendProofNotificationToAdmin(company, plan, imageUrl);
+
     await this.notificationService.notifyNewSubscriptionRequest({
       id: proof.id,
       company: {
@@ -254,12 +282,6 @@ export class PaymentService {
       imageUrl: imageUrl,
       createdAt: proof.createdAt
     });
-
-    try {
-      await this.sendProofNotification(company, plan, imageUrl);
-    } catch (err) {
-      this.logger.error(`فشل إرسال إشعار الإدارة: ${String(err)}`);
-    }
 
     return { message: 'تم إرسال وصل التحويل، سيتم مراجعته من قبل الإدارة' };
   }
@@ -275,75 +297,70 @@ export class PaymentService {
     return !!pendingProof;
   }
 
-async approveProof(proofId: string, approvedById?: string): Promise<{ message: string }> {
-  const proof = await this.paymentProofRepo.findOne({
-    where: { id: proofId },
-    relations: ['company', 'plan'],
-  });
+  async approveProof(proofId: string, approvedById?: string): Promise<{ message: string }> {
+    const proof = await this.paymentProofRepo.findOne({
+      where: { id: proofId },
+      relations: ['company', 'plan'],
+    });
 
-  if (!proof) {
-    this.logger.error(`طلب غير موجود: ${proofId}`);
-    throw new NotFoundException('الطلب غير موجود');
-  }
-
-  let adminEmail: string | undefined;
-  if (approvedById) {
-    adminEmail = process.env.ADMIN_EMAIL || 'admin@system.local';
-  }
-
-  const result = await this.subscriptionService.subscribe(
-    proof.company.id,       
-    proof.plan.id,          
-    true,                   
-    undefined,              
-    approvedById,           
-    undefined,              
-    adminEmail              
-  );
-
-  proof.status = PaymentProofStatus.APPROVED;
-  proof.reviewed = true;
-  proof.rejected = false;
-  proof.decisionNote = approvedById ? 'تم القبول بواسطة الأدمن' : 'تم القبول بواسطة النظام';
-  
-  if (approvedById) {
-    proof.approvedById = approvedById;
-  }
-  
-  await this.paymentProofRepo.save(proof);
-
-  await this.notificationService.notifyCompanySubscriptionApproved({
-    id: proof.id,
-    company: {
-      id: proof.company.id,
-      name: proof.company.name,
-      email: proof.company.email
-    },
-    plan: {
-      name: proof.plan.name
-    },
-    imageUrl: proof.imageUrl,
-    createdAt: proof.createdAt
-  });
-
-  if (proof.company.email) {
-    try {
-      await this.sendDecisionEmail(
-        proof.company.email,
-        proof.company.name,
-        proof.plan.name,
-        true,
-        approvedById ? `بواسطة الأدمن: ${adminEmail || approvedById}` : 'بواسطة النظام'
-      );
-    } catch (err) {
-      this.logger.error(`فشل إرسال إشعار القبول: ${String(err)}`);
+    if (!proof) {
+      this.logger.error(`طلب غير موجود: ${proofId}`);
+      throw new NotFoundException('الطلب غير موجود');
     }
+
+    let adminEmail: string | undefined;
+    if (approvedById) {
+      adminEmail = process.env.ADMIN_EMAIL || 'admin@system.local';
+    }
+
+    const result = await this.subscriptionService.subscribe(
+      proof.company.id,       
+      proof.plan.id,          
+      true,                   
+      undefined,              
+      approvedById,           
+      undefined,              
+      adminEmail              
+    );
+
+    proof.status = PaymentProofStatus.APPROVED;
+    proof.reviewed = true;
+    proof.rejected = false;
+    proof.decisionNote = approvedById ? 'تم القبول بواسطة الأدمن' : 'تم القبول بواسطة النظام';
+    
+    if (approvedById) {
+      proof.approvedById = approvedById;
+    }
+    
+    await this.paymentProofRepo.save(proof);
+
+    await this.sendDecisionEmail(
+      proof.company.email,
+      proof.company.name,
+      proof.plan.name,
+      true,
+      approvedById ? `بواسطة الأدمن: ${adminEmail || approvedById}` : 'بواسطة النظام'
+    );
+
+    await this.notificationService.notifyCompanySubscriptionApproved({
+      id: proof.id,
+      company: {
+        id: proof.company.id,
+        name: proof.company.name,
+        email: proof.company.email
+      },
+      plan: {
+        name: proof.plan.name
+      },
+      imageUrl: proof.imageUrl,
+      createdAt: proof.createdAt
+    });
+
+    return { 
+      message: result.message || 'تم قبول الطلب وتفعيل الاشتراك بنجاح' 
+    };
   }
 
-  return { 
-    message: result.message || 'تم قبول الطلب وتفعيل الاشتراك بنجاح' 
-  };
-}
   async rejectProof(proofId: string, reason: string): Promise<{ message: string }> {
     const proof = await this.paymentProofRepo.findOne({
       where: { id: proofId },
@@ -361,6 +378,14 @@ async approveProof(proofId: string, approvedById?: string): Promise<{ message: s
     proof.decisionNote = reason;
     await this.paymentProofRepo.save(proof);
 
+    await this.sendDecisionEmail(
+      proof.company.email,
+      proof.company.name,
+      proof.plan.name,
+      false,
+      reason
+    );
+
     await this.notificationService.notifyCompanySubscriptionRejected({
       id: proof.id,
       company: {
@@ -376,114 +401,925 @@ async approveProof(proofId: string, approvedById?: string): Promise<{ message: s
       createdAt: proof.createdAt
     });
 
-    if (proof.company.email) {
-      try {
-        await this.sendDecisionEmail(
-          proof.company.email,
-          proof.company.name,
-          proof.plan.name,
-          false,
-          reason
-        );
-      } catch (err) {
-        this.logger.error(`فشل إرسال إشعار الرفض: ${String(err)}`);
-      }
-    }
-
     return { message: 'تم رفض الطلب وإرسال إشعار للشركة' };
   }
 
-  async sendProofNotification(company: Company, plan: Plan, imageUrl: string): Promise<void> {
-    if (!company.email) {
-      throw new HttpException('لا يوجد إيميل للشركة', HttpStatus.BAD_REQUEST);
+
+  private async sendPaymentRequestEmail(
+    company: Company,
+    plan: Plan,
+    provider: PaymentProvider
+  ): Promise<void> {
+    try {
+      const providerText = this.getPaymentProviderText(provider);
+      const subject = `طلب دفع جديد - ${company.name}`;
+      
+      const html = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${subject}</title>
+          <style>
+            body {
+              font-family: 'Arial', 'Segoe UI', sans-serif;
+              line-height: 1.6;
+              color: #333;
+              margin: 0;
+              padding: 0;
+              background-color: #f5f5f5;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .header {
+              background-color: ${this.actionColors['payment_request']};
+              color: white;
+              padding: 30px;
+              text-align: center;
+              border-radius: 10px 10px 0 0;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+            .content {
+              background-color: white;
+              padding: 30px;
+              border-radius: 0 0 10px 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .info-box {
+              background-color: #f8f9fa;
+              border-right: 4px solid ${this.actionColors['payment_request']};
+              padding: 20px;
+              margin-bottom: 20px;
+              border-radius: 8px;
+            }
+            .info-box p {
+              margin: 10px 0;
+              font-size: 16px;
+            }
+            .info-box strong {
+              color: #333;
+              margin-left: 10px;
+            }
+            .action-box {
+              background-color: #f0f7ff;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .action-box h3 {
+              color: ${this.actionColors['payment_request']};
+              margin-bottom: 10px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #eee;
+              color: #777;
+              font-size: 14px;
+            }
+            .company-info {
+              background-color: #e8f5e9;
+              padding: 20px;
+              border-radius: 8px;
+              margin-top: 20px;
+              text-align: center;
+            }
+            .company-info h3 {
+              color: #2e7d32;
+              margin-bottom: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>طلب دفع جديد</h1>
+              <p>منصة شارك - نظام الدفع الآمن</p>
+            </div>
+            
+            <div class="content">
+              <div class="company-info">
+                <h3>مرحبا بكم في منصة شارك</h3>
+                <p>أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
+                <p>نحن نسعى دائماً لتقديم أفضل الخدمات لدعم عملك ونمو شركتك</p>
+              </div>
+
+              <div class="info-box">
+                <p><strong>الشركة:</strong> ${company.name}</p>
+                <p><strong>البريد الإلكتروني:</strong> ${company.email}</p>
+                <p><strong>الخطة:</strong> ${plan.name}</p>
+                <p><strong>السعر:</strong> ${plan.price} ${plan.currency}</p>
+                <p><strong>بوابة الدفع:</strong> ${providerText}</p>
+                <p><strong>تاريخ الطلب:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
+              </div>
+              
+              <div class="action-box">
+                <h3>تفاصيل طلب الدفع:</h3>
+                <p>تم إنشاء طلب دفع جديد للاشتراك في الخطة "${plan.name}" عبر بوابة ${providerText}.</p>
+                <p>سيتم تفعيل الاشتراك تلقائياً بعد اكتمال عملية الدفع.</p>
+              </div>
+              
+              <div>
+                <p>تحت مع تحيات فريق شارك</p>
+                <p>https://sharik-sa.com/</p>
+                <img src="https://res.cloudinary.com/dk3wwuy5d/image/upload/v1765288029/subscription-banner_skltmg.jpg" 
+                     alt="منصة شارك" style="max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;">
+                <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await this.sendEmail(company.email, subject, html);
+    } catch (error) {
+      this.logger.error(`فشل إرسال إيميل طلب الدفع: ${String(error)}`);
     }
-
-    const emailHost = process.env.EMAIL_HOST;
-    const emailPort = process.env.EMAIL_PORT;
-    const emailUser = process.env.EMAIL_USER;
-    const emailPass = process.env.EMAIL_PASS;
-
-    if (!emailHost || !emailPort || !emailUser || !emailPass) {
-      throw new HttpException('إعدادات البريد الإلكتروني غير مكتملة', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-
-    const transporter = nodemailer.createTransport({
-      host: emailHost,
-      port: parseInt(emailPort),
-      secure: false,
-      auth: {
-        user: emailUser,
-        pass: emailPass,
-      },
-      tls: {
-        ciphers: 'SSLv3',
-        rejectUnauthorized: false,
-      },
-    });
-
-    const subject = `وصل تحويل جديد من ${company.name}`;
-    const html = `
-      <h3>شركة: ${company.name}</h3>
-      <p>الإيميل: ${company.email}</p>
-      <p>الخطة المطلوبة: ${plan.name}</p>
-      <p>رابط الوصل: <a href="${imageUrl}" target="_blank">عرض الصورة</a></p>
-    `;
-
-    await transporter.sendMail({
-      from: emailUser,
-      to: emailUser,
-      subject,
-      html,
-    });
   }
 
-  async sendDecisionEmail(
+  private async sendPaymentSuccessEmail(
+    email: string,
+    companyName: string,
+    planName: string,
+    amount: number,
+    currency: string
+  ): Promise<void> {
+    try {
+      const subject = `تم تأكيد عملية الدفع - ${companyName}`;
+      
+      const html = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${subject}</title>
+          <style>
+            body {
+              font-family: 'Arial', 'Segoe UI', sans-serif;
+              line-height: 1.6;
+              color: #333;
+              margin: 0;
+              padding: 0;
+              background-color: #f5f5f5;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .header {
+              background-color: ${this.actionColors['payment_success']};
+              color: white;
+              padding: 30px;
+              text-align: center;
+              border-radius: 10px 10px 0 0;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+            .content {
+              background-color: white;
+              padding: 30px;
+              border-radius: 0 0 10px 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .info-box {
+              background-color: #f8f9fa;
+              border-right: 4px solid ${this.actionColors['payment_success']};
+              padding: 20px;
+              margin-bottom: 20px;
+              border-radius: 8px;
+            }
+            .info-box p {
+              margin: 10px 0;
+              font-size: 16px;
+            }
+            .info-box strong {
+              color: #333;
+              margin-left: 10px;
+            }
+            .success-box {
+              background-color: #d4edda;
+              border: 1px solid #c3e6cb;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+              text-align: center;
+            }
+            .success-box h3 {
+              color: #155724;
+              margin-bottom: 10px;
+            }
+            .benefits-box {
+              background-color: #e8f5e9;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .benefits-box h3 {
+              color: #2e7d32;
+              margin-bottom: 10px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #eee;
+              color: #777;
+              font-size: 14px;
+            }
+            .company-info {
+              background-color: #f0f7ff;
+              padding: 20px;
+              border-radius: 8px;
+              margin-top: 20px;
+              text-align: center;
+            }
+            .company-info h3 {
+              color: #007bff;
+              margin-bottom: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>تم تأكيد عملية الدفع</h1>
+              <p>منصة شارك - إشعار نجاح الدفع</p>
+            </div>
+            
+            <div class="content">
+              <div class="company-info">
+                <h3>مرحبا بكم في منصة شارك</h3>
+                <p>أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
+                <p>نحن نسعى دائماً لتقديم أفضل الخدمات لدعم عملك ونمو شركتك</p>
+              </div>
+
+              <div class="success-box">
+                <h3>تم تأكيد عملية الدفع بنجاح</h3>
+                <p style="font-size: 18px; margin-bottom: 10px;">شكراً لك على دفعتك الآمنة</p>
+              </div>
+              
+              <div class="info-box">
+                <p><strong>الشركة:</strong> ${companyName}</p>
+                <p><strong>الخطة:</strong> ${planName}</p>
+                <p><strong>المبلغ المدفوع:</strong> ${amount} ${currency}</p>
+                <p><strong>رقم المرجع:</strong> PAY-${Date.now().toString().slice(-8)}</p>
+                <p><strong>تاريخ الدفع:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
+                <p><strong>وقت الدفع:</strong> ${new Date().toLocaleTimeString('ar-SA')}</p>
+              </div>
+              
+              <div class="benefits-box">
+                <h3> مميزات اشتراكك الجديد:</h3>
+                <ul>
+                  <li>وصول كامل لجميع مميزات الخطة ${planName}</li>
+                  <li>دعم فني على مدار الساعة</li>
+                  <li>تجربة مستخدم محسنة</li>
+                  <li>تحديثات دورية للمنصة</li>
+                </ul>
+              </div>
+              
+              <div style="text-align: center; margin: 25px 0;">
+                <a href="${process.env.FRONTEND_URL || 'https://dashboard.sharik-sa.com'}" 
+                   style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                   الدخول إلى لوحة التحكم
+                </a>
+              </div>
+              
+              <div>
+                <p>تحت مع تحيات فريق شارك</p>
+                <p>https://sharik-sa.com/</p>
+                <img src="https://res.cloudinary.com/dk3wwuy5d/image/upload/v1765288029/subscription-banner_skltmg.jpg" 
+                     alt="منصة شارك" style="max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;">
+                <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await this.sendEmail(email, subject, html);
+    } catch (error) {
+      this.logger.error(`فشل إرسال إيميل نجاح الدفع: ${String(error)}`);
+    }
+  }
+
+  private async sendProofReceivedEmail(
+    email: string,
+    companyName: string,
+    planName: string,
+    proofImageUrl: string
+  ): Promise<void> {
+    try {
+      const subject = `تم استلام وصل التحويل - ${companyName}`;
+      
+      const html = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${subject}</title>
+          <style>
+            body {
+              font-family: 'Arial', 'Segoe UI', sans-serif;
+              line-height: 1.6;
+              color: #333;
+              margin: 0;
+              padding: 0;
+              background-color: #f5f5f5;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .header {
+              background-color: ${this.actionColors['proof_received']};
+              color: white;
+              padding: 30px;
+              text-align: center;
+              border-radius: 10px 10px 0 0;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+            .content {
+              background-color: white;
+              padding: 30px;
+              border-radius: 0 0 10px 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .info-box {
+              background-color: #f8f9fa;
+              border-right: 4px solid ${this.actionColors['proof_received']};
+              padding: 20px;
+              margin-bottom: 20px;
+              border-radius: 8px;
+            }
+            .info-box p {
+              margin: 10px 0;
+              font-size: 16px;
+            }
+            .info-box strong {
+              color: #333;
+              margin-left: 10px;
+            }
+            .notice-box {
+              background-color: #fff3cd;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .notice-box h3 {
+              color: #856404;
+              margin-bottom: 10px;
+            }
+            .timeline {
+              background-color: #f8f9fa;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .timeline h3 {
+              color: #6c757d;
+              margin-bottom: 15px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #eee;
+              color: #777;
+              font-size: 14px;
+            }
+            .company-info {
+              background-color: #e8f5e9;
+              padding: 20px;
+              border-radius: 8px;
+              margin-top: 20px;
+              text-align: center;
+            }
+            .company-info h3 {
+              color: #2e7d32;
+              margin-bottom: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>تم استلام وصل التحويل</h1>
+              <p>منصة شارك - إشعار استلام الوصل</p>
+            </div>
+            
+            <div class="content">
+              <div class="company-info">
+                <h3>مرحبا بكم في منصة شارك</h3>
+                <p>أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
+                <p>نحن نسعى دائماً لتقديم أفضل الخدمات لدعم عملك ونمو شركتك</p>
+              </div>
+
+              <div class="info-box">
+                <p><strong>الشركة:</strong> ${companyName}</p>
+                <p><strong>الخطة:</strong> ${planName}</p>
+                <p><strong>تاريخ الإرسال:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
+                <p><strong>وقت الإرسال:</strong> ${new Date().toLocaleTimeString('ar-SA')}</p>
+              </div>
+              
+              <div class="notice-box">
+                <h3> حالة طلبك:</h3>
+                <div style="background-color: #fff3cd; border-right: 4px solid #ffc107; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                  <p><strong> تم استلام وصل التحويل بنجاح</strong></p>
+                  <p>طلبك الآن قيد المراجعة من قبل إدارة منصة شارك.</p>
+                </div>
+              </div>
+              
+              <div style="text-align: center; margin: 20px 0;">
+                <a href="${proofImageUrl}" target="_blank" style="display: inline-block;">
+                  <div style="background-color: #f8f9fa; padding: 20px; border-radius: 10px; border: 2px dashed #dee2e6;">
+                    <p style="color: #6c757d; margin-bottom: 10px;">📎 اضغط لعرض صورة الوصل</p>
+                    <p style="font-size: 12px; color: #adb5bd;">(يتم فتح الصورة في نافذة جديدة)</p>
+                  </div>
+                </a>
+              </div>
+              
+              <div class="timeline">
+                <h3> المدة المتوقعة للمراجعة:</h3>
+                <div style="display: flex; justify-content: space-between; margin: 20px 0; position: relative;">
+                  <div style="text-align: center; position: relative; z-index: 2;">
+                    <div style="width: 40px; height: 40px; background-color: #007bff; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px;">
+                      1
+                    </div>
+                    <p style="font-size: 12px;">استلام الوصل</p>
+                  </div>
+                  <div style="text-align: center; position: relative; z-index: 2;">
+                    <div style="width: 40px; height: 40px; background-color: #ffc107; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px;">
+                      2
+                    </div>
+                    <p style="font-size: 12px;">مراجعة الإدارة</p>
+                  </div>
+                  <div style="text-align: center; position: relative; z-index: 2;">
+                    <div style="width: 40px; height: 40px; background-color: #28a745; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px;">
+                      3
+                    </div>
+                    <p style="font-size: 12px;">تفعيل الاشتراك</p>
+                  </div>
+                  <div style="position: absolute; top: 20px; left: 10%; right: 10%; height: 2px; background-color: #dee2e6; z-index: 1;"></div>
+                </div>
+              </div>
+              
+              <div>
+                <p>تحت مع تحيات فريق شارك</p>
+                <p>https://sharik-sa.com/</p>
+                <img src="https://res.cloudinary.com/dk3wwuy5d/image/upload/v1765288029/subscription-banner_skltmg.jpg" 
+                     alt="منصة شارك" style="max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;">
+                <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await this.sendEmail(email, subject, html);
+    } catch (error) {
+      this.logger.error(`فشل إرسال إيميل استلام الوصل: ${String(error)}`);
+    }
+  }
+
+  private async sendProofNotificationToAdmin(
+    company: Company,
+    plan: Plan,
+    proofImageUrl: string
+  ): Promise<void> {
+    try {
+      const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
+      if (!adminEmail) {
+        this.logger.warn('لم يتم تعيين بريد الأدمن للإشعارات');
+        return;
+      }
+
+      const subject = ` وصل تحويل جديد للمراجعة - ${company.name}`;
+      
+      const html = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${subject}</title>
+          <style>
+            body {
+              font-family: 'Arial', 'Segoe UI', sans-serif;
+              line-height: 1.6;
+              color: #333;
+              margin: 0;
+              padding: 0;
+              background-color: #f5f5f5;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .header {
+              background-color: ${this.actionColors['proof_pending']};
+              color: white;
+              padding: 30px;
+              text-align: center;
+              border-radius: 10px 10px 0 0;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+            .content {
+              background-color: white;
+              padding: 30px;
+              border-radius: 0 0 10px 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .info-box {
+              background-color: #f8f9fa;
+              border-right: 4px solid ${this.actionColors['proof_pending']};
+              padding: 20px;
+              margin-bottom: 20px;
+              border-radius: 8px;
+            }
+            .info-box p {
+              margin: 10px 0;
+              font-size: 16px;
+            }
+            .info-box strong {
+              color: #333;
+              margin-left: 10px;
+            }
+            .alert-box {
+              background-color: #f8d7da;
+              color: #721c24;
+              padding: 15px;
+              border-radius: 5px;
+              border: 1px solid #f5c6cb;
+              margin-bottom: 20px;
+            }
+            .alert-box h3 {
+              color: #721c24;
+              margin: 0;
+            }
+            .action-buttons {
+              text-align: center;
+              margin: 30px 0;
+            }
+            .quick-info {
+              background-color: #f8f9fa;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .quick-info h3 {
+              color: #6c757d;
+              margin-bottom: 15px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #eee;
+              color: #777;
+              font-size: 14px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>وصل تحويل جديد للمراجعة</h1>
+              <p>منصة شارك - نظام إدارة المدفوعات</p>
+            </div>
+            
+            <div class="content">
+              <div class="alert-box">
+                <h3>يتطلب المراجعة الفورية</h3>
+                <p style="margin: 10px 0 0;">يوجد وصل تحويل جديد بانتظار مراجعتك</p>
+              </div>
+              
+              <div class="info-box">
+                <p><strong> كود الشركة:</strong> ${company.id}</p>
+                <p><strong> اسم الشركة:</strong> ${company.name}</p>
+                <p><strong> البريد الإلكتروني:</strong> ${company.email}</p>
+                <p><strong> الهاتف:</strong> ${company.phone || 'غير متوفر'}</p>
+                <p><strong> الخطة المطلوبة:</strong> ${plan.name}</p>
+                <p><strong> سعر الخطة:</strong> ${plan.price} ${plan.currency}</p>
+                <p><strong> تاريخ الطلب:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
+                <p><strong> وقت الطلب:</strong> ${new Date().toLocaleTimeString('ar-SA')}</p>
+              </div>
+              
+              <div>
+                <h3> وصل التحويل:</h3>
+                <div style="text-align: center; margin: 20px 0;">
+                  <a href="${proofImageUrl}" target="_blank">
+                    <img src="${proofImageUrl}" 
+                         style="max-width: 100%; height: auto; border-radius: 10px; border: 2px solid #dee2e6; box-shadow: 0 2px 10px rgba(0,0,0,0.1);"
+                         alt="وصل التحويل">
+                  </a>
+                  <p style="margin-top: 10px; font-size: 12px; color: #6c757d;">
+                    <a href="${proofImageUrl}" target="_blank" style="color: #007bff;">🔗 رابط الصورة المباشر</a>
+                  </p>
+                </div>
+              </div>
+              
+              <div class="action-buttons">
+                <p><strong> اتخاذ الإجراء المناسب:</strong></p>
+                <div style="display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; margin-top: 15px;">
+                  <a href="${process.env.ADMIN_DASHBOARD_URL || 'http://localhost:3000/admin'}/payment-proofs" 
+                     style="background-color: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                      الموافقة على الوصل
+                  </a>
+                  <a href="${process.env.ADMIN_DASHBOARD_URL || 'http://localhost:3000/admin'}/payment-proofs/reject" 
+                     style="background-color: #dc3545; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                      رفض الوصل
+                  </a>
+                </div>
+              </div>
+              
+              <div class="quick-info">
+                <h3> معلومات سريعة:</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 15px 0;">
+                  <div style="background-color: #e8f5e9; padding: 15px; border-radius: 5px;">
+                    <p style="margin: 0; font-weight: bold; color: #2e7d32;">المدة المتوقعة</p>
+                    <p style="margin: 5px 0 0; font-size: 14px;">24-48 ساعة للمراجعة</p>
+                  </div>
+                  <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px;">
+                    <p style="margin: 0; font-weight: bold; color: #856404;">أولوية المراجعة</p>
+                    <p style="margin: 5px 0 0; font-size: 14px;">متوسطة</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <p>تحت مع تحيات فريق شارك</p>
+                <p>https://sharik-sa.com/</p>
+                <img src="https://res.cloudinary.com/dk3wwuy5d/image/upload/v1765288029/subscription-banner_skltmg.jpg" 
+                     alt="منصة شارك" style="max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;">
+                <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await this.sendEmail(adminEmail, subject, html);
+    } catch (error) {
+      this.logger.error(`فشل إرسال إيميل إشعار الأدمن: ${String(error)}`);
+    }
+  }
+
+  private async sendDecisionEmail(
     email: string,
     companyName: string,
     planName: string,
     accepted: boolean,
     reason?: string,
   ): Promise<void> {
-    if (!email) return;
+    try {
+      if (!email) return;
 
-    const emailHost = process.env.EMAIL_HOST;
-    const emailPort = process.env.EMAIL_PORT;
-    const emailUser = process.env.EMAIL_USER;
-    const emailPass = process.env.EMAIL_PASS;
+      const subject = accepted
+        ? ` تم قبول طلب الاشتراك في "${planName}"`
+        : `تم رفض طلب الاشتراك في "${planName}"`;
 
-    if (!emailHost || !emailPort || !emailUser || !emailPass) {
-      throw new HttpException('إعدادات البريد الإلكتروني غير مكتملة', HttpStatus.INTERNAL_SERVER_ERROR);
+      const headerColor = accepted ? this.actionColors['proof_approved'] : this.actionColors['proof_rejected'];
+      const icon = accepted ? '✅' : '❌';
+      const statusText = accepted ? 'مقبول' : 'مرفوض';
+      const statusColor = accepted ? '#155724' : '#721c24';
+      const statusBg = accepted ? '#d4edda' : '#f8d7da';
+
+      const html = `
+        <!DOCTYPE html>
+        <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${subject}</title>
+          <style>
+            body {
+              font-family: 'Arial', 'Segoe UI', sans-serif;
+              line-height: 1.6;
+              color: #333;
+              margin: 0;
+              padding: 0;
+              background-color: #f5f5f5;
+            }
+            .container {
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 20px;
+            }
+            .header {
+              background-color: ${headerColor};
+              color: white;
+              padding: 30px;
+              text-align: center;
+              border-radius: 10px 10px 0 0;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+            .content {
+              background-color: white;
+              padding: 30px;
+              border-radius: 0 0 10px 10px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            .info-box {
+              background-color: #f8f9fa;
+              border-right: 4px solid ${headerColor};
+              padding: 20px;
+              margin-bottom: 20px;
+              border-radius: 8px;
+            }
+            .info-box p {
+              margin: 10px 0;
+              font-size: 16px;
+            }
+            .info-box strong {
+              color: #333;
+              margin-left: 10px;
+            }
+            .status-box {
+              background-color: ${statusBg};
+              color: ${statusColor};
+              padding: 25px;
+              border-radius: 10px;
+              border: 1px solid ${accepted ? '#c3e6cb' : '#f5c6cb'};
+              text-align: center;
+              margin: 20px 0;
+            }
+            .details-box {
+              background-color: #fff3cd;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 20px 0;
+            }
+            .details-box h3 {
+              color: #856404;
+              margin-bottom: 10px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 30px;
+              padding-top: 20px;
+              border-top: 1px solid #eee;
+              color: #777;
+              font-size: 14px;
+            }
+            .company-info {
+              background-color: #f0f7ff;
+              padding: 20px;
+              border-radius: 8px;
+              margin-top: 20px;
+              text-align: center;
+            }
+            .company-info h3 {
+              color: #007bff;
+              margin-bottom: 10px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>${accepted ? 'قبول طلب الاشتراك' : 'رفض طلب الاشتراك'}</h1>
+              <p>منصة شارك - إشعار القرار</p>
+            </div>
+            
+            <div class="content">
+              <div class="company-info">
+                <h3>مرحبا بكم في منصة شارك</h3>
+                <p>أول منصة سعودية لإنشاء بروفايل رقمي للموظفين والشركات</p>
+                <p>نحن نسعى دائماً لتقديم أفضل الخدمات لدعم عملك ونمو شركتك</p>
+              </div>
+
+              <div class="status-box">
+                <div style="font-size: 48px; margin-bottom: 15px;">${icon}</div>
+                <h2 style="color: ${statusColor}; margin-bottom: 10px;">${accepted ? 'تهانينا! تم قبول طلبك' : 'نأسف! تم رفض طلبك'}</h2>
+                <p style="font-size: 18px; margin: 0;">حالة الطلب: <strong>${statusText}</strong></p>
+              </div>
+              
+              <div class="info-box">
+                <p><strong>الشركة:</strong> ${companyName}</p>
+                <p><strong>الخطة:</strong> ${planName}</p>
+                <p><strong>تاريخ القرار:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
+                <p><strong>وقت القرار:</strong> ${new Date().toLocaleTimeString('ar-SA')}</p>
+              </div>
+              
+              ${!accepted ? `
+              <div class="details-box">
+                <h3> تفاصيل الرفض:</h3>
+                <p>${reason || 'لم يتم تحديد سبب محدد للرفض.'}</p>
+              </div>
+              ` : ''}
+              
+              <div style="text-align: center; margin: 25px 0;">
+                ${accepted ? `
+                <a href="${process.env.FRONTEND_URL || 'https://dashboard.sharik-sa.com'}" 
+                   style="background-color: #007bff; color: white; padding: 15px 40px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">
+                   الدخول إلى المنصة
+                </a>
+                ` : `
+                <a href="${process.env.FRONTEND_URL || 'https://dashboard.sharik-sa.com'}/manual-payment" 
+                   style="background-color: #17a2b8; color: white; padding: 15px 40px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">
+                   إعادة إرسال الوصل
+                </a>
+                `}
+              </div>
+              
+              <div>
+                <p>تحت مع تحيات فريق شارك</p>
+                <p>https://sharik-sa.com/</p>
+                <img src="https://res.cloudinary.com/dk3wwuy5d/image/upload/v1765288029/subscription-banner_skltmg.jpg" 
+                     alt="منصة شارك" style="max-width: 100%; height: auto; border-radius: 8px; margin: 15px 0;">
+                <p>نحن هنا لدعمك ومساعدتك في أي وقت</p>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      await this.sendEmail(email, subject, html);
+    } catch (error) {
+      this.logger.error(`فشل إرسال إيميل القرار: ${String(error)}`);
     }
+  }
 
-    const transporter = nodemailer.createTransport({
-      host: emailHost,
-      port: parseInt(emailPort),
-      secure: false,
-      auth: {
-        user: emailUser,
-        pass: emailPass,
-      },
-      tls: {
-        ciphers: 'SSLv3',
-        rejectUnauthorized: false,
-      },
-    });
 
-    const subject = accepted
-      ? `تم قبول طلب الاشتراك في "${planName}"`
-      : `تم رفض طلب الاشتراك في "${planName}"`;
+  private getPaymentProviderText(provider: PaymentProvider): string {
+    const providers = {
+      [PaymentProvider.STRIPE]: 'سترايب',
+      [PaymentProvider.HYPERPAY]: 'هايبر باي',
+      [PaymentProvider.PAYTABS]: 'باي تابس',
+      [PaymentProvider.TAP]: 'تاب',
+      [PaymentProvider.GEIDEA]: 'جيديا',
+      [PaymentProvider.STCPAY]: 'STC باي',
+      [PaymentProvider.MANUAL_TRANSFER]: 'تحويل بنكي يدوي'
+    };
+    return providers[provider] || 'غير معروف';
+  }
 
-    const html = accepted
-      ? `<h3>مرحبًا ${companyName}</h3><p>تم قبول طلب الاشتراك في خطة "${planName}".</p><p>تم تفعيل الاشتراك بنجاح.</p>`
-      : `<h3>مرحبًا ${companyName}</h3><p>نأسف، تم رفض طلب الاشتراك في خطة "${planName}".</p>
-         <p><strong>سبب الرفض:</strong> ${reason ?? 'غير محدد'}.</p>
-         <p>يرجى التواصل مع الدعم لمزيد من التفاصيل.</p>`;
+  private async sendEmail(to: string, subject: string, html: string): Promise<void> {
+    try {
+      const emailHost = process.env.EMAIL_HOST;
+      const emailPort = process.env.EMAIL_PORT;
+      const emailUser = process.env.EMAIL_USER;
+      const emailPass = process.env.EMAIL_PASS;
 
-    await transporter.sendMail({
-      from: emailUser,
-      to: email,
-      subject,
-      html,
-    });
+      if (!emailHost || !emailPort || !emailUser || !emailPass) {
+        this.logger.warn('إعدادات البريد الإلكتروني غير مكتملة');
+        return;
+      }
+
+      const transporter = nodemailer.createTransport({
+        host: emailHost,
+        port: parseInt(emailPort),
+        secure: false,
+        auth: {
+          user: emailUser,
+          pass: emailPass,
+        },
+        tls: {
+          ciphers: 'SSLv3',
+          rejectUnauthorized: false,
+        },
+      });
+
+      await transporter.sendMail({
+        from: emailUser,
+        to,
+        subject,
+        html,
+      });
+      
+      this.logger.log(`تم إرسال الإيميل بنجاح إلى: ${to}`);
+    } catch (error) {
+      this.logger.error(`فشل إرسال الإيميل: ${String(error)}`);
+      // لا نلقي خطأ حتى لا نوقف عملية الدفع الرئيسية
+    }
   }
 }
