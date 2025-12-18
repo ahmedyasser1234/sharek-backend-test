@@ -30,6 +30,8 @@ import sharp from 'sharp';
 import { PaymentProofStatus } from './entities/payment-proof-status.enum';
 import { NotificationService } from '../notification/notification.service';
 import { SubscriptionService } from '../subscription/subscription.service';
+import { Manager } from '../admin/entities/manager.entity';  
+import { Admin } from '../admin/entities/admin.entity';  
 
 @Injectable()
 export class PaymentService {
@@ -61,6 +63,10 @@ export class PaymentService {
     private readonly subRepo: Repository<CompanySubscription>,
     @InjectRepository(Plan)
     private readonly planRepo: Repository<Plan>,
+    @InjectRepository(Admin)  
+    private readonly adminRepo: Repository<Admin>,
+    @InjectRepository(Manager)  
+    private readonly sellerRepo: Repository<Manager>,
     @InjectRepository(PaymentProof)
     private readonly paymentProofRepo: Repository<PaymentProof>,
     private readonly cloudinaryService: CloudinaryService,
@@ -297,69 +303,106 @@ export class PaymentService {
     return !!pendingProof;
   }
 
-  async approveProof(proofId: string, approvedById?: string): Promise<{ message: string }> {
-    const proof = await this.paymentProofRepo.findOne({
-      where: { id: proofId },
-      relations: ['company', 'plan'],
-    });
+  async approveProof(proofId: string, approvedById?: string, sellerId?: string): Promise<{ message: string }> {
+  const proof = await this.paymentProofRepo.findOne({
+    where: { id: proofId },
+    relations: ['company', 'plan'],
+  });
 
-    if (!proof) {
-      this.logger.error(`طلب غير موجود: ${proofId}`);
-      throw new NotFoundException('الطلب غير موجود');
-    }
-
-    let adminEmail: string | undefined;
-    if (approvedById) {
-      adminEmail = process.env.ADMIN_EMAIL || 'admin@system.local';
-    }
-
-    const result = await this.subscriptionService.subscribe(
-      proof.company.id,       
-      proof.plan.id,          
-      true,                   
-      undefined,              
-      approvedById,           
-      undefined,              
-      adminEmail              
-    );
-
-    proof.status = PaymentProofStatus.APPROVED;
-    proof.reviewed = true;
-    proof.rejected = false;
-    proof.decisionNote = approvedById ? 'تم القبول بواسطة الأدمن' : 'تم القبول بواسطة النظام';
-    
-    if (approvedById) {
-      proof.approvedById = approvedById;
-    }
-    
-    await this.paymentProofRepo.save(proof);
-
-    await this.sendDecisionEmail(
-      proof.company.email,
-      proof.company.name,
-      proof.plan.name,
-      true,
-      approvedById ? `بواسطة الأدمن: ${adminEmail || approvedById}` : 'بواسطة النظام'
-    );
-
-    await this.notificationService.notifyCompanySubscriptionApproved({
-      id: proof.id,
-      company: {
-        id: proof.company.id,
-        name: proof.company.name,
-        email: proof.company.email
-      },
-      plan: {
-        name: proof.plan.name
-      },
-      imageUrl: proof.imageUrl,
-      createdAt: proof.createdAt
-    });
-
-    return { 
-      message: result.message || 'تم قبول الطلب وتفعيل الاشتراك بنجاح' 
-    };
+  if (!proof) {
+    this.logger.error(`طلب غير موجود: ${proofId}`);
+    throw new NotFoundException('الطلب غير موجود');
   }
+
+  let adminEmail: string | undefined;
+  let sellerEmail: string | undefined;
+  let isAdmin = false;
+  
+  // 🔍 تحقق إذا كان الـ ID لأدمن أم بائع
+  if (approvedById) {
+    try {
+      // تحقق إذا كان أدمن
+      const admin = await this.adminRepo.findOne({ 
+        where: { id: approvedById },
+        select: ['email']
+      });
+      
+      if (admin) {
+        isAdmin = true;
+        adminEmail = admin.email || process.env.ADMIN_EMAIL || 'admin@system.local';
+      } else {
+        // إذا مش أدمن، شوف إذا كان بائع
+        const seller = await this.sellerRepo.findOne({ 
+          where: { id: approvedById },
+          select: ['email']
+        });
+        
+        if (seller) {
+          isAdmin = false;
+          sellerEmail = seller.email;
+        }
+      }
+    } catch (error) {
+      this.logger.warn(`فشل التحقق من المستخدم ${approvedById}: ${error}`);
+    }
+  }
+
+  // ✅ التعديل المهم: مرّر الـ ID الصحيح للدالة subscribe
+  const result = await this.subscriptionService.subscribe(
+    proof.company.id,       
+    proof.plan.id,          
+    true,                   // isAdminOverride
+    isAdmin ? undefined : approvedById,  // ✅ إذا كان بائع، مرّر كـ activatedBySellerId
+    isAdmin ? approvedById : undefined,  // ✅ إذا كان أدمن، مرّر كـ activatedByAdminId
+    undefined,              // activatedBySupadminId
+    sellerEmail || adminEmail  // activatorEmail
+  );
+
+  proof.status = PaymentProofStatus.APPROVED;
+  proof.reviewed = true;
+  proof.rejected = false;
+  
+  if (isAdmin) {
+    proof.decisionNote = `تم القبول بواسطة الأدمن ${adminEmail || approvedById}`;
+  } else if (approvedById) {
+    proof.decisionNote = `تم القبول بواسطة البائع ${sellerEmail || approvedById}`;
+  } else {
+    proof.decisionNote = 'تم القبول بواسطة النظام';
+  }
+  
+  if (approvedById) {
+    proof.approvedById = approvedById;
+  }
+  
+  await this.paymentProofRepo.save(proof);
+
+  await this.sendDecisionEmail(
+    proof.company.email,
+    proof.company.name,
+    proof.plan.name,
+    true,
+    isAdmin ? `بواسطة الأدمن: ${adminEmail || approvedById}` :
+    (approvedById ? `بواسطة البائع: ${sellerEmail || approvedById}` : 'بواسطة النظام')
+  );
+
+  await this.notificationService.notifyCompanySubscriptionApproved({
+    id: proof.id,
+    company: {
+      id: proof.company.id,
+      name: proof.company.name,
+      email: proof.company.email
+    },
+    plan: {
+      name: proof.plan.name
+    },
+    imageUrl: proof.imageUrl,
+    createdAt: proof.createdAt
+  });
+
+  return { 
+    message: result.message || 'تم قبول الطلب وتفعيل الاشتراك بنجاح' 
+  };
+}
 
   async rejectProof(proofId: string, reason: string): Promise<{ message: string }> {
     const proof = await this.paymentProofRepo.findOne({
