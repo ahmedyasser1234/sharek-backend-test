@@ -327,18 +327,13 @@ export class SubscriptionService {
       this.logger.error(` فشل إرسال إيميل الإجراء ${action}:`, error);
     }
   }
-
-  private isAllowedPlanChange(
+private isAllowedPlanChange(
   currentPlanMax: number,
   newPlanMax: number
 ): { allowed: boolean; reason?: string } {
 
   const currentMax = Number(currentPlanMax) || 0;
   const newMax = Number(newPlanMax) || 0;
-
-  this.logger.debug(
-    `[isAllowedPlanChange] مقارنة الخطط: ${currentMax} موظف -> ${newMax} موظف`
-  );
 
   if (newMax < currentMax) {
     return {
@@ -457,12 +452,11 @@ export class SubscriptionService {
         this.logger.debug(`[subscribe] الخطة الحالية: ${currentPlan.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
         this.logger.debug(`[subscribe] الخطة الجديدة: ${newPlan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
 
-        const check = this.isAllowedPlanChange(
-          currentPlanMax,
-          currentPlanPrice,
-          newPlanMax,
-          newPlanPrice
-        );
+       const check = this.isAllowedPlanChange(
+  currentPlanMax,
+  newPlanMax
+);
+
         
         if (!check.allowed) {
           this.logger.error(`[subscribe] ممنوع: ${check.reason}`);
@@ -473,7 +467,6 @@ export class SubscriptionService {
           );
         }
 
-        // تحقق إضافي: تأكد من أن الخطة الجديدة تدعم عدد الموظفين الحاليين
         const currentEmployees = await this.employeeRepo.count({
           where: { company: { id: companyId } }
         });
@@ -718,12 +711,11 @@ export class SubscriptionService {
       const currentPlanMax = Number(currentSubscription.plan?.maxEmployees) || 0;
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
       
-      const check = this.isAllowedPlanChange(
-        currentPlanMax,
-        currentPlanPrice,
-        newPlanMax,
-        newPlanPrice
-      );
+   const check = this.isAllowedPlanChange(
+  currentPlanMax,
+  newPlanMax
+);
+
       
       if (!check.allowed) {
         throw new BadRequestException(
@@ -852,13 +844,11 @@ export class SubscriptionService {
 
       this.logger.debug(`[changePlanDirectly] مقارنة: ${currentPlanMax} موظف - ${currentPlanPrice} ريال -> ${newPlanMax} موظف - ${newPlanPrice} ريال`);
 
-      const check = this.isAllowedPlanChange(
-        currentPlanMax,
-        currentPlanPrice,
-        newPlanMax,
-        newPlanPrice
-      );
-      
+    const check = this.isAllowedPlanChange(
+  currentPlanMax,
+  newPlanMax
+);
+
       if (!check.allowed && !adminOverride) {
         throw new BadRequestException(
           `غير مسموح بالانتقال إلى خطة أقل. ` +
@@ -1519,16 +1509,13 @@ export class SubscriptionService {
 
       const currentPlanMax = Number(currentPlan.maxEmployees) || 0;
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
-      const currentPlanPrice = Number(currentPlan.price) || 0;
-      const newPlanPrice = Number(newPlan.price) || 0;
+ 
 
-      const check = this.isAllowedPlanChange(
-        currentPlanMax,
-        currentPlanPrice,
-        newPlanMax,
-        newPlanPrice
-      );
-      
+  const check = this.isAllowedPlanChange(
+  currentPlanMax,
+  newPlanMax
+);
+
       if (!check.allowed) {
         return { 
           canUpgrade: false, 
@@ -1562,22 +1549,18 @@ export class SubscriptionService {
       
       const currentPlan = currentSubscription.plan;
       const currentPlanMax = Number(currentPlan.maxEmployees) || 0;
-      const currentPlanPrice = Number(currentPlan.price) || 0;
       
-      const availablePlans = allPlans.filter(plan => {
-        const planMax = Number(plan.maxEmployees) || 0;
-        const planPrice = Number(plan.price) || 0;
-        
-        const check = this.isAllowedPlanChange(
-          currentPlanMax,
-          currentPlanPrice,
-          planMax,
-          planPrice
-        );
-        
-        return check.allowed;
-      });
-      
+const availablePlans = allPlans.filter(plan => {
+  const planMax = Number(plan.maxEmployees) || 0;
+
+  const check = this.isAllowedPlanChange(
+    currentPlanMax,
+    planMax
+  );
+
+  return check.allowed;
+});
+
       return availablePlans.sort((a, b) => a.maxEmployees - b.maxEmployees);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1899,13 +1882,11 @@ export class SubscriptionService {
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
       const newPlanPrice = Number(newPlan.price) || 0;
       
-      const check = this.isAllowedPlanChange(
-        currentPlanMax,
-        currentPlanPrice,
-        newPlanMax,
-        newPlanPrice
-      );
-      
+    const check = this.isAllowedPlanChange(
+  currentPlanMax,
+  newPlanMax
+);
+
       return {
         currentPlan: {
           name: currentPlan.name,
