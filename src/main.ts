@@ -39,6 +39,8 @@ async function bootstrap() {
       'http://89.116.39.168',
       'http://sharik-sa.com',
       'https://sharik-sa.com',
+      'http://www.sharik-sa.com',  
+      'https://www.sharik-sa.com',    
       'http://localhost:3000',
       'https://localhost:3000',
       'http://localhost:3001',
@@ -52,7 +54,6 @@ async function bootstrap() {
   });
 
   app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
-
 
   const config = new DocumentBuilder()
     .setTitle('Employee API')
@@ -83,12 +84,16 @@ async function bootstrap() {
       if (servername === 'localhost' || servername === '127.0.0.1') {
         keyPath = '/etc/ssl/localhost.key';
         certPath = '/etc/ssl/localhost.crt';
-        logger.log(` Using localhost certificate`);
+        logger.log(' Using localhost certificate');
       } else {
-      
-        keyPath = '/etc/letsencrypt/live/sharik-sa.com-0001/privkey.pem';
-        certPath = '/etc/letsencrypt/live/sharik-sa.com-0001/fullchain.pem';
-        logger.log(` Using Let's Encrypt certificate`);
+        keyPath = '/etc/letsencrypt/live/sharik-sa.com/privkey.pem';
+        certPath = '/etc/letsencrypt/live/sharik-sa.com/fullchain.pem';
+        logger.log(' Using Let\'s Encrypt certificate');
+      }
+
+      if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
+        logger.error(` Certificate files not found: ${keyPath} or ${certPath}`);
+        throw new Error('Certificate files not found');
       }
 
       const ctx = tls.createSecureContext({
@@ -111,13 +116,12 @@ async function bootstrap() {
   const httpsServer = https.createServer(httpsOptions, expressInstance);
   
   httpsServer.listen(port, '0.0.0.0', () => {
-    logger.log(`Server is running on HTTPS on port ${port}`);
-    logger.log(`Supports: localhost, 127.0.0.1, sharik-sa.com`);
-    logger.log(`Internal: https://localhost:${port}`);
-    logger.log(`External: https://sharik-sa.com:${port}`);
-    logger.log(`Also: https://89.116.39.168:${port}`);
+    logger.log(` Server is running on HTTPS on port ${port}`);
+    logger.log(` Supports: localhost, 127.0.0.1, sharik-sa.com, www.sharik-sa.com`);
+    logger.log(` Internal: https://localhost:${port}`);
+    logger.log(` External: https://sharik-sa.com:${port}`);
+    logger.log(` Also: https://89.116.39.168:${port}`);
   });
-  
 }
 
 void bootstrap();
