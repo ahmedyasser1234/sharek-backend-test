@@ -329,36 +329,48 @@ export class SubscriptionService {
   }
 
   private isAllowedPlanChange(
-  currentPlanMax: number,
-  currentPlanPrice: number,
-  newPlanMax: number,
-  newPlanPrice: number
-): { allowed: boolean; reason?: string } {
-  if (newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice) {
+    currentPlanMax: number,
+    currentPlanPrice: number,
+    newPlanMax: number,
+    newPlanPrice: number
+  ): { allowed: boolean; reason?: string } {
+    // تحويل صريح للتأكد من القيم الرقمية
+    const currentMax = Number(currentPlanMax) || 0;
+    const currentPrice = Number(currentPlanPrice) || 0;
+    const newMax = Number(newPlanMax) || 0;
+    const newPrice = Number(newPlanPrice) || 0;
+    
+    this.logger.debug(`[isAllowedPlanChange] مقارنة: ${currentMax} موظف - ${currentPrice} ريال -> ${newMax} موظف - ${newPrice} ريال`);
+    
+    // 1. نفس الخطة
+    if (newMax === currentMax && newPrice === currentPrice) {
+      return { allowed: true };
+    }
+    
+    // 2. تحقق من النزول: إذا كانت الخطة الجديدة أقل في أي من المعيارين
+    const isEmployeeDowngrade = newMax < currentMax;
+    const isPriceDowngrade = newPrice < currentPrice;
+    
+    if (isEmployeeDowngrade || isPriceDowngrade) {
+      let reason = '';
+      if (isEmployeeDowngrade && isPriceDowngrade) {
+        reason = 'النزول محظور في كلا المعيارين (الموظفين والسعر)';
+      } else if (isEmployeeDowngrade) {
+        reason = `النزول محظور في عدد الموظفين (${newMax} < ${currentMax})`;
+      } else {
+        reason = `النزول محظور في السعر (${newPrice} < ${currentPrice})`;
+      }
+      
+      return { 
+        allowed: false, 
+        reason 
+      };
+    }
+    
+    // 3. الترقيصات مسموحة (أعلى أو تساوي في كلا المعيارين)
+    // حالة تساوي في أحد المعيارين وأعلى في الآخر مسموحة
     return { allowed: true };
   }
-  
-  if (newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice) {
-    return { 
-      allowed: false, 
-      reason: 'النزول محظور في كلا المعيارين (الموظفين والسعر)' 
-    };
-  }
-  
-  if (newPlanMax > currentPlanMax && newPlanPrice > currentPlanPrice) {
-    return { allowed: true };
-  }
-  
-  if (newPlanMax < currentPlanMax || newPlanPrice < currentPlanPrice) {
-    const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
-    return { 
-      allowed: false, 
-      reason: `النزول محظور في ${reason}` 
-    };
-  }
-  
-  return { allowed: true };
-}
 
   private async deactivateOldSubscriptions(companyId: string): Promise<{ deactivatedCount: number }> {
     try {
@@ -418,9 +430,6 @@ export class SubscriptionService {
       this.logger.log(`[subscribe] companyId: ${companyId}, planId: ${planId}`);
       this.logger.log(`[subscribe] isAdminOverride: ${isAdminOverride}`);
       this.logger.log(`[subscribe] activatorEmail: ${activatorEmail}`);
-      this.logger.log(`[subscribe] activatedBySellerId: ${activatedBySellerId}`);
-      this.logger.log(`[subscribe] activatedByAdminId: ${activatedByAdminId}`);
-      this.logger.log(`[subscribe] activatedBySupadminId: ${activatedBySupadminId}`);
 
       const company = await this.companyRepo.findOne({ 
         where: { id: companyId },
@@ -430,6 +439,8 @@ export class SubscriptionService {
 
       const newPlan = await this.planRepo.findOne({ where: { id: planId } });
       if (!newPlan) throw new NotFoundException('الخطة غير موجودة');
+
+      this.logger.debug(`[subscribe] الخطة الجديدة: ${newPlan.name} - ${newPlan.maxEmployees} موظف - ${newPlan.price} ريال`);
 
       const planPrice = parseFloat(String(newPlan.price));
       if (isNaN(planPrice)) throw new BadRequestException('السعر غير صالح للخطة');
@@ -464,6 +475,9 @@ export class SubscriptionService {
         const newPlanMax = Number(newPlan.maxEmployees) || 0;
         const newPlanPrice = Number(newPlan.price) || 0;
 
+        this.logger.debug(`[subscribe] الخطة الحالية: ${currentPlan.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
+        this.logger.debug(`[subscribe] الخطة الجديدة: ${newPlan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
+
         const check = this.isAllowedPlanChange(
           currentPlanMax,
           currentPlanPrice,
@@ -472,10 +486,23 @@ export class SubscriptionService {
         );
         
         if (!check.allowed) {
+          this.logger.error(`[subscribe] ممنوع: ${check.reason}`);
           throw new BadRequestException(
             `لا يمكن الاشتراك في خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) ` +
             `لأنك مشترك حالياً في خطة ${currentPlan.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) - ` +
             check.reason
+          );
+        }
+
+        // تحقق إضافي: تأكد من أن الخطة الجديدة تدعم عدد الموظفين الحاليين
+        const currentEmployees = await this.employeeRepo.count({
+          where: { company: { id: companyId } }
+        });
+        
+        if (currentEmployees > newPlanMax) {
+          throw new BadRequestException(
+            `لا يمكن الاشتراك في خطة ${newPlan.name} لأنها تدعم فقط ${newPlanMax} موظف ` +
+            `بينما لديك حالياً ${currentEmployees} موظف`
           );
         }
       }
@@ -808,7 +835,7 @@ export class SubscriptionService {
       }
 
       if (!currentSubscription) {
-        const subscriptionResult = await this.subscribe(companyId, newPlanId, true, undefined, undefined, adminEmail);
+        const subscriptionResult = await this.subscribe(companyId, newPlanId, true, undefined, undefined, undefined, adminEmail);
         
         const newSubscription = subscriptionResult.subscription;
         
@@ -843,6 +870,8 @@ export class SubscriptionService {
       const currentPlanPrice = Number(currentPlan?.price) || 0;
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
       const newPlanPrice = Number(newPlan.price) || 0;
+
+      this.logger.debug(`[changePlanDirectly] مقارنة: ${currentPlanMax} موظف - ${currentPlanPrice} ريال -> ${newPlanMax} موظف - ${newPlanPrice} ريال`);
 
       const check = this.isAllowedPlanChange(
         currentPlanMax,
@@ -1861,6 +1890,66 @@ export class SubscriptionService {
     } catch (error) {
       this.logger.error(`فشل الحصول على بريد الأدمن ${adminId}: ${error}`);
       return undefined;
+    }
+  }
+
+  // دالة مساعدة للتصحيح فقط
+  async debugPlanComparison(companyId: string, newPlanId: string): Promise<any> {
+    try {
+      const currentSubscription = await this.getCompanySubscription(companyId);
+      const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
+      
+      if (!newPlan) {
+        return { error: 'الخطة الجديدة غير موجودة' };
+      }
+      
+      if (!currentSubscription) {
+        return { 
+          message: 'لا يوجد اشتراك حالي',
+          newPlan: {
+            name: newPlan.name,
+            maxEmployees: newPlan.maxEmployees,
+            price: newPlan.price
+          }
+        };
+      }
+      
+      const currentPlan = currentSubscription.plan;
+      const currentPlanMax = Number(currentPlan.maxEmployees) || 0;
+      const currentPlanPrice = Number(currentPlan.price) || 0;
+      const newPlanMax = Number(newPlan.maxEmployees) || 0;
+      const newPlanPrice = Number(newPlan.price) || 0;
+      
+      const check = this.isAllowedPlanChange(
+        currentPlanMax,
+        currentPlanPrice,
+        newPlanMax,
+        newPlanPrice
+      );
+      
+      return {
+        currentPlan: {
+          name: currentPlan.name,
+          maxEmployees: currentPlan.maxEmployees,
+          price: currentPlan.price,
+          parsed: { max: currentPlanMax, price: currentPlanPrice }
+        },
+        newPlan: {
+          name: newPlan.name,
+          maxEmployees: newPlan.maxEmployees,
+          price: newPlan.price,
+          parsed: { max: newPlanMax, price: newPlanPrice }
+        },
+        comparison: {
+          allowed: check.allowed,
+          reason: check.reason,
+          employeeComparison: `${newPlanMax} ${newPlanMax < currentPlanMax ? '<' : (newPlanMax > currentPlanMax ? '>' : '=')} ${currentPlanMax}`,
+          priceComparison: `${newPlanPrice} ${newPlanPrice < currentPlanPrice ? '<' : (newPlanPrice > currentPlanPrice ? '>' : '=')} ${currentPlanPrice}`
+        }
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return { error: errorMessage };
     }
   }
 }
