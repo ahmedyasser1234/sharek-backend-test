@@ -191,7 +191,7 @@ export class AdminService {
         subject,
         html,
       });
-    } catch (error) {
+    } catch {
       // تسجيل الخطأ دون إيقاف التنفيذ
     }
   }
@@ -533,21 +533,283 @@ export class AdminService {
     }
   }
 
-  async ensureDefaultAdmin(): Promise<void> {
-    const defaultEmail = 'admin@system.local';
-    const defaultPassword = 'admin123';
+async ensureDefaultAdmin(): Promise<void> {
+  const defaultEmail = 'admin@system.local';
+  const defaultPassword = this.generateStrongPassword();  
 
-    const exists = await this.adminRepo.findOne({ where: { email: defaultEmail } });
-    if (exists) return;
+  const exists = await this.adminRepo.findOne({ where: { email: defaultEmail } });
+  if (exists) return;
 
-    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
-    const admin = this.adminRepo.create({
-      email: defaultEmail,
-      password: hashedPassword,
-    });
+  const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+  const admin = this.adminRepo.create({
+    email: defaultEmail,
+    password: hashedPassword,
+  });
 
+  await this.adminRepo.save(admin);
+  
+  this.logger.log(`Default admin created. Email: ${defaultEmail}, Password: ${defaultPassword}`);
+}
+
+async changePassword(
+  adminId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+    
+    if (!admin) {
+      throw new NotFoundException('الأدمن غير موجود');
+    }
+
+    const isPasswordValid = await bcrypt.compare(currentPassword, admin.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('كلمة المرور الحالية غير صحيحة');
+    }
+
+    this.validatePasswordStrength(newPassword);
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    admin.password = hashedPassword;
+    
     await this.adminRepo.save(admin);
+
+    // إرسال بريد تأكيد تغيير كلمة المرور
+    await this.sendPasswordChangeConfirmation(admin.email);
+
+    return {
+      success: true,
+      message: 'تم تغيير كلمة المرور بنجاح'
+    };
+  } catch (error) {
+    if (error instanceof UnauthorizedException || error instanceof NotFoundException) {
+      throw error;
+    }
+    throw new InternalServerErrorException('فشل في تغيير كلمة المرور');
   }
+}
+
+private validatePasswordStrength(password: string): void {
+  if (password.length < 8) {
+    throw new BadRequestException('كلمة المرور يجب أن تكون على الأقل 8 أحرف');
+  }
+
+  const hasUpperCase = /[A-Z]/.test(password);
+  const hasLowerCase = /[a-z]/.test(password);
+  const hasNumbers = /\d/.test(password);
+  const hasSpecialChar = /[!@#$%^&*]/.test(password);
+
+  if (!(hasUpperCase && hasLowerCase && hasNumbers && hasSpecialChar)) {
+    throw new BadRequestException(
+      'كلمة المرور يجب أن تحتوي على حروف كبيرة وصغيرة وأرقام ورموز خاصة'
+    );
+  }
+}
+
+private async sendPasswordChangeConfirmation(email: string): Promise<void> {
+  try {
+    const subject = 'تأكيد تغيير كلمة المرور - منصة شارك';
+    const html = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${subject}</title>
+        <style>
+          body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+          }
+          .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+          }
+          .header {
+            background-color: #007bff;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+          }
+          .content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          }
+          .info-box {
+            background-color: #e8f5e9;
+            border-right: 4px solid #4caf50;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>تم تغيير كلمة المرور بنجاح</h1>
+          </div>
+          <div class="content">
+            <div class="info-box">
+              <p>عزيزي المسؤول،</p>
+              <p>تم تغيير كلمة مرور حسابك في منصة شارك بنجاح.</p>
+              <p>التاريخ: ${new Date().toLocaleDateString('ar-SA')}</p>
+              <p>الوقت: ${new Date().toLocaleTimeString('ar-SA')}</p>
+            </div>
+            <p>إذا لم تقم بهذا الإجراء، يرجى الاتصال بفريق الدعم الفني فوراً.</p>
+            <p>مع تحيات فريق شارك</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    await this.sendEmail(email, subject, html);
+  } catch (error) {
+    this.logger.warn(`فشل إرسال بريد تأكيد تغيير كلمة المرور: ${error}`);
+  }
+}
+
+async resetPassword(
+  adminId: string,
+  newPassword: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const admin = await this.adminRepo.findOne({ where: { id: adminId } });
+    
+    if (!admin) {
+      throw new NotFoundException('الأدمن غير موجود');
+    }
+
+    this.validatePasswordStrength(newPassword);
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    admin.password = hashedPassword;
+    
+    await this.adminRepo.save(admin);
+
+    await this.sendPasswordResetNotification(admin.email, newPassword);
+
+    return {
+      success: true,
+      message: 'تم إعادة تعيين كلمة المرور بنجاح'
+    };
+  } catch (error) {
+    throw new InternalServerErrorException('فشل في إعادة تعيين كلمة المرور');
+  }
+}
+
+private async sendPasswordResetNotification(
+  email: string, 
+  newPassword: string
+): Promise<void> {
+  try {
+    const subject = 'كلمة المرور الجديدة - منصة شارك';
+    const html = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${subject}</title>
+        <style>
+          body {
+            font-family: 'Arial', sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+          }
+          .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+          }
+          .header {
+            background-color: #dc3545;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+          }
+          .content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 0 0 10px 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          }
+          .warning-box {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+          }
+          .password-box {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: bold;
+            margin: 20px 0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>كلمة المرور الجديدة</h1>
+          </div>
+          <div class="content">
+            <div class="warning-box">
+              <p>عزيزي المسؤول،</p>
+              <p>تم إعادة تعيين كلمة مرور حسابك في منصة شارك.</p>
+            </div>
+            
+            <div class="password-box">
+              <p>كلمة المرور الجديدة:</p>
+              <p style="color: #007bff; font-size: 20px;">${newPassword}</p>
+            </div>
+            
+            <div class="warning-box">
+              <p><strong>تنبيه مهم:</strong></p>
+              <p>• يرجى تغيير هذه الكلمة فور تسجيل الدخول</p>
+              <p>• لا تشارك هذه المعلومات مع أي شخص</p>
+              <p>• يمكنك تسجيل الدخول من الرابط: ${process.env.FRONTEND_URL || 'https://dashboard.sharik-sa.com'}</p>
+            </div>
+            
+            <p>مع تحيات فريق شارك</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    await this.sendEmail(email, subject, html);
+  } catch (error) {
+    this.logger.warn(`فشل إرسال بريد كلمة المرور الجديدة: ${error}`);
+  }
+}
+
+private generateStrongPassword(length: number = 12): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
+}
 
   async login(email: string, password: string): Promise<{ 
     accessToken: string; 
@@ -633,12 +895,11 @@ export class AdminService {
 
 async getAdminCompanies(adminId: string): Promise<CompanyWithActivator[]> {
   try {
-    // جلب جميع الاشتراكات التي قام بها أي أدمن (ليس فقط الأدمن الحالي)
     const subscriptions = await this.subRepo.find({
       relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'],
       where: [
-        { activatedByAdmin: { id: Not(IsNull()) } }, // أي أدمن
-        { activatedBySeller: { createdBy: { id: adminId } } } // البائعون الذين أنشأهم هذا الأدمن
+        { activatedByAdmin: { id: Not(IsNull()) } }, 
+        { activatedBySeller: { createdBy: { id: adminId } } }     
       ]
     });
 
@@ -653,16 +914,13 @@ async getAdminCompanies(adminId: string): Promise<CompanyWithActivator[]> {
             where: { company: { id: sub.company.id } }
           });
 
-          // الحصول على بريد الأدمن إذا كان موجودًا
           let adminEmail = 'غير معروف';
-          let adminIdForEmail = sub.activatedByAdmin?.id;
+          const adminIdForEmail = sub.activatedByAdmin?.id;
           
           if (sub.activatedByAdmin) {
-            // إذا كان البريد موجودًا في العلاقة المباشرة
             if (sub.activatedByAdmin.email) {
               adminEmail = sub.activatedByAdmin.email;
             } else if (adminIdForEmail) {
-              // جلب البريد من قاعدة البيانات
               try {
                 const admin = await this.adminRepo.findOne({
                   where: { id: adminIdForEmail },
