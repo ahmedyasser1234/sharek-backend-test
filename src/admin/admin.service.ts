@@ -45,6 +45,7 @@ export interface CompanyWithActivator {
   planName: string;
   adminEmail?: string;
   sellerEmail?: string;
+  supadminEmail?: string;
 }
 
 export interface AdminWithCompanyData {
@@ -1179,55 +1180,95 @@ async getAdminCompanies(adminId: string): Promise<CompanyWithActivator[]> {
   }
 
   async getAllCompaniesWithActivator(): Promise<CompanyWithActivator[]> {
-    try {
-      const subscriptions = await this.subRepo.find({
-        relations: ['company', 'plan', 'activatedBySeller', 'activatedByAdmin'],
-        where: {
-          company: { id: Not(IsNull()) }
+  try {
+    const subscriptions = await this.subRepo.find({
+      relations: [
+        'company', 
+        'plan', 
+        'activatedBySeller', 
+        'activatedByAdmin',
+        'activatedBySupadmin' 
+      ],
+      where: {
+        company: { id: Not(IsNull()) }
+      },
+      order: {
+        startDate: 'DESC' 
+      }
+    });
+
+    const companyMap = new Map<string, CompanyWithActivator>();
+
+    for (const sub of subscriptions) {
+      try {
+        if (!sub.company || !sub.company.id) {
+          continue;
         }
-      });
 
-      const results = await Promise.all(
-        subscriptions.map(async (sub) => {
-          try {
-            if (!sub.company || !sub.company.id) {
-              return null;
-            }
+        const companyId = sub.company.id;
+        
+        if (companyMap.has(companyId)) {
+          continue;
+        }
 
-            const employeesCount = await this.employeeRepo.count({
-              where: { company: { id: sub.company.id } }
-            });
+        const employeesCount = await this.employeeRepo.count({
+          where: { company: { id: companyId } }
+        });
 
-            return {
-              id: sub.company.id,
-              name: sub.company.name || 'غير معروف',
-              email: sub.company.email || 'غير معروف',
-              phone: sub.company.phone || 'غير معروف',
-              isActive: sub.company.isActive ?? false,
-              isVerified: sub.company.isVerified ?? false,
-              subscriptionStatus: sub.company.subscriptionStatus || 'غير معروف',
-              employeesCount,
-              activatedBy: sub.activatedBySeller ? 
-              `${sub.activatedBySeller.email} (بائع)` : 
-              (sub.activatedByAdmin ? `${sub.activatedByAdmin.email} (أدمن)` : 'غير معروف'),
-              activatedById: sub.activatedBySeller?.id || sub.activatedByAdmin?.id,
-              activatorType: sub.activatedBySeller ? 'بائع' : (sub.activatedByAdmin ? 'أدمن' : 'غير معروف'),
-              subscriptionDate: sub.startDate,
-              planName: sub.plan?.name || 'غير معروف',
-              adminEmail: sub.activatedByAdmin?.email,
-              sellerEmail: sub.activatedBySeller?.email
-            } as CompanyWithActivator;
-          } catch (error) {
-            return null;
-          }
-        })
-      );
+        let activatedBy = 'غير معروف';
+        let activatorType = 'غير معروف';
+        let activatedById: string | undefined;
+        let adminEmail: string | undefined;
+        let sellerEmail: string | undefined;
+        let supadminEmail: string | undefined;
 
-      return results.filter((item): item is CompanyWithActivator => item !== null);
-    } catch (error) {
-      return [];
+        if (sub.activatedBySupadmin) {
+          activatedBy = `${sub.activatedBySupadmin.email} (مسؤول أعلى)`;
+          activatorType = 'مسؤول أعلى';
+          activatedById = sub.activatedBySupadmin.id;
+          supadminEmail = sub.activatedBySupadmin.email;
+        } else if (sub.activatedByAdmin) {
+          activatedBy = `${sub.activatedByAdmin.email} (أدمن)`;
+          activatorType = 'أدمن';
+          activatedById = sub.activatedByAdmin.id;
+          adminEmail = sub.activatedByAdmin.email;
+        } else if (sub.activatedBySeller) {
+          activatedBy = `${sub.activatedBySeller.email} (بائع)`;
+          activatorType = 'بائع';
+          activatedById = sub.activatedBySeller.id;
+          sellerEmail = sub.activatedBySeller.email;
+        }
+
+        companyMap.set(companyId, {
+          id: sub.company.id,
+          name: sub.company.name || 'غير معروف',
+          email: sub.company.email || 'غير معروف',
+          phone: sub.company.phone || 'غير معروف',
+          isActive: sub.company.isActive ?? false,
+          isVerified: sub.company.isVerified ?? false,
+          subscriptionStatus: sub.company.subscriptionStatus || 'غير معروف',
+          employeesCount,
+          activatedBy,
+          activatedById,
+          activatorType,
+          subscriptionDate: sub.startDate,
+          planName: sub.plan?.name || 'غير معروف',
+          adminEmail,
+          sellerEmail,
+          supadminEmail    
+        });
+      } catch (error) {
+        console.error(`خطأ في معالجة اشتراك الشركة:`, error);
+        continue;
+      }
     }
+
+    return Array.from(companyMap.values());
+  } catch (error) {
+    console.error('خطأ في جلب الشركات مع المفعّلين:', error);
+    return [];
   }
+}
 
   async toggleCompany(id: string, isActive: boolean): Promise<Company | null> {
     await this.companyRepo.update(id, { isActive });

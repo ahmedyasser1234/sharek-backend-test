@@ -539,7 +539,6 @@ export class AdminController {
     return this.service.changeSubscriptionPlan(id, body.planId, adminId);
   }
 
-  // === ENDPOINT متوافق مع الـ UI القديم ===
   @Patch('subscriptions/company/:companyId/change-plan')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
@@ -572,7 +571,6 @@ export class AdminController {
     return this.service.upgradeCompanySubscription(companyId, planId, adminId);
   }
 
-  // === ENDPOINTS الجديدة والأسهل ===
   @Patch('companies/:companyId/change-plan/:planId')
   @UseGuards(AdminJwtGuard)
   @ApiBearerAuth()
