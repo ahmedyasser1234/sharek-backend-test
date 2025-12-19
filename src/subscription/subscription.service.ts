@@ -1328,41 +1328,11 @@ async subscribe(
       throw error;
     }
   }
-
-  async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChangeValidation> {
-    try {
-      const currentSubscription = await this.getCompanySubscription(companyId);
-      
-      if (!currentSubscription) {
-        const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
-        if (!newPlan) {
-          throw new NotFoundException('الخطة الجديدة غير موجودة');
-        }
-        
-        const currentEmployees = await this.employeeRepo.count({
-          where: { company: { id: companyId } }
-        });
-        
-        const canChange = newPlan.maxEmployees >= currentEmployees;
-        const action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID' = 'UPGRADE';
-        
-        let message = '';
-        if (canChange) {
-          message = `يمكنك الاشتراك في الخطة ${newPlan.name} التي تدعم ${newPlan.maxEmployees} موظف`;
-        } else {
-          message = `لا يمكن الاشتراك في الخطة ${newPlan.name} (${newPlan.maxEmployees} موظف) لأن لديك ${currentEmployees} موظف`;
-        }
-        
-        return {
-          canChange,
-          message,
-          currentPlanMax: 0,
-          newPlanMax: newPlan.maxEmployees,
-          currentEmployees,
-          action
-        };
-      }
-      
+async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChangeValidation> {
+  try {
+    const currentSubscription = await this.getCompanySubscription(companyId);
+    
+    if (!currentSubscription) {
       const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
       if (!newPlan) {
         throw new NotFoundException('الخطة الجديدة غير موجودة');
@@ -1371,37 +1341,75 @@ async subscribe(
       const currentEmployees = await this.employeeRepo.count({
         where: { company: { id: companyId } }
       });
-
-      const currentPlanMax = Number(currentSubscription.plan?.maxEmployees) || 0;
-      const newPlanMax = Number(newPlan.maxEmployees) || 0;
-      const currentPlanPrice = Number(currentSubscription.plan?.price) || 0;
-      const newPlanPrice = Number(newPlan.price) || 0;
-
-      let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
+      
+      const canChange = newPlan.maxEmployees >= currentEmployees;
+      const action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID' = 'UPGRADE';
+      
       let message = '';
+      if (canChange) {
+        message = `يمكنك الاشتراك في الخطة ${newPlan.name} التي تدعم ${newPlan.maxEmployees} موظف`;
+      } else {
+        message = `لا يمكن الاشتراك في الخطة ${newPlan.name} (${newPlan.maxEmployees} موظف) لأن لديك ${currentEmployees} موظف`;
+      }
+      
+      return {
+        canChange,
+        message,
+        currentPlanMax: 0,
+        newPlanMax: newPlan.maxEmployees,
+        currentEmployees,
+        action
+      };
+    }
+    
+    const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
+    if (!newPlan) {
+      throw new NotFoundException('الخطة الجديدة غير موجودة');
+    }
+    
+    const currentEmployees = await this.employeeRepo.count({
+      where: { company: { id: companyId } }
+    });
 
-      const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
-      
-      const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
-                                (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
-      
-      const isSamePlan = newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice;
-      
-      if (isDowngrading) {
+    const currentPlanMax = Number(currentSubscription.plan?.maxEmployees) || 0;
+    const newPlanMax = Number(newPlan.maxEmployees) || 0;
+    const currentPlanPrice = Number(currentSubscription.plan?.price) || 0;
+    const newPlanPrice = Number(newPlan.price) || 0;
+
+    let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
+    let message = '';
+
+    // تحديد نوع الإجراء بشكل صحيح
+    const isSamePlan = newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice;
+    const isUpgrade = newPlanMax > currentPlanMax || newPlanPrice > currentPlanPrice;
+    const isDowngrade = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
+    
+    // الحالة الخاصة: إذا كانت الخطة الجديدة أعلى في أحد المعيارين وتساوي في الآخر
+    const isMixedChange = (newPlanMax >= currentPlanMax && newPlanPrice < currentPlanPrice) ||
+                         (newPlanMax <= currentPlanMax && newPlanPrice > currentPlanPrice);
+
+    if (isSamePlan) {
+      action = 'RENEW';
+      message = `يمكنك التجديد في نفس الخطة ${newPlan.name}`;
+    } else if (isDowngrade) {
+      action = 'DOWNGRADE';
+      message = `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) - غير مسموح بالانتقال لخطة أقل`;
+      return {
+        canChange: false,
+        message,
+        currentPlanMax,
+        newPlanMax,
+        currentEmployees,
+        action
+      };
+    } else if (isUpgrade) {
+      action = 'UPGRADE';
+      message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف بسعر ${newPlanPrice} ريال`;
+    } else if (isMixedChange) {
+      // الحالة المختلطة: نحتاج لفحص إذا كان مسموحًا أم لا
+      if (newPlanMax < currentPlanMax) {
         action = 'DOWNGRADE';
-        message = `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) - غير مسموح بالانتقال لخطة أقل في كلا المعيارين`;
-        return {
-          canChange: false,
-          message,
-          currentPlanMax,
-          newPlanMax,
-          currentEmployees,
-          action
-        };
-      } else if (isPartialDowngrade) {
-        action = 'DOWNGRADE';
-        const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
-        message = `غير مسموح بالانتقال إلى خطة ${newPlan.name} لأنها أقل في ${reason}. ` +
+        message = `غير مسموح بالانتقال إلى خطة ${newPlan.name} لأنها أقل في عدد الموظفين. ` +
                  `(الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال, ` +
                  `الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال)`;
         return {
@@ -1412,35 +1420,46 @@ async subscribe(
           currentEmployees,
           action
         };
-      } else if (isSamePlan) {
-        action = 'RENEW';
-        message = `يمكنك التجديد في نفس الخطة ${newPlan.name}`;
-      } else if (newPlanMax > currentPlanMax || newPlanPrice > currentPlanPrice) {
-        action = 'UPGRADE';
-        message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف بسعر ${newPlanPrice} ريال`;
       } else {
-        action = 'RENEW';
-        message = `يمكنك التغيير إلى الخطة ${newPlan.name}`;
+        // السعر أقل لكن عدد الموظفين مساوي أو أكبر - نعتبره تغييرًا مسموحًا
+        action = 'UPGRADE';
+        message = `يمكنك التغيير إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف`;
       }
+    } else {
+      // الحالة الافتراضية: إذا كانت الخطة الجديدة أقل في السعر لكن أعلى أو تساوي في الموظفين
+      action = 'UPGRADE';
+      message = `يمكنك التغيير إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف`;
+    }
 
-      const canChange = action === 'UPGRADE' || action === 'RENEW';
-      const result: PlanChangeValidation = {
-        canChange,
-        message,
+    // تحقق من عدد الموظفين الحاليين
+    if (currentEmployees > newPlanMax) {
+      return {
+        canChange: false,
+        message: `لا يمكن الانتقال إلى الخطة ${newPlan.name} لأنها تدعم فقط ${newPlanMax} موظف بينما لديك حالياً ${currentEmployees} موظف`,
         currentPlanMax,
         newPlanMax,
         currentEmployees,
         action
       };
-
-      return result;
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`فشل التحقق من تغيير الخطة: ${errorMessage}`);
-      throw error;
     }
-  }
 
+    const canChange = action === 'UPGRADE' || action === 'RENEW';
+    const result: PlanChangeValidation = {
+      canChange,
+      message,
+      currentPlanMax,
+      newPlanMax,
+      currentEmployees,
+      action
+    };
+
+    return result;
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    this.logger.error(`فشل التحقق من تغيير الخطة: ${errorMessage}`);
+    throw error;
+  }
+}
   async canUpgradeToPlan(companyId: string, planId: string): Promise<UpgradeCheckResult> {
     try {
       const currentSubscription = await this.getCompanySubscription(companyId);
