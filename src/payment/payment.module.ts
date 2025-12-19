@@ -18,6 +18,7 @@ import { CloudinaryModule } from '../common/services/cloudinary.module';
 import { NotificationModule } from '../notification/notification.module';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { Plan } from '../plan/entities/plan.entity';
+import { Supadmin } from '../admin/entities/supadmin.entity'; 
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { Plan } from '../plan/entities/plan.entity';
       CompanySubscription, 
       PaymentProof,
       Plan, 
+      Supadmin,
     ]),
     CloudinaryModule,
     PlanModule,
