@@ -329,48 +329,27 @@ export class SubscriptionService {
   }
 
   private isAllowedPlanChange(
-    currentPlanMax: number,
-    currentPlanPrice: number,
-    newPlanMax: number,
-    newPlanPrice: number
-  ): { allowed: boolean; reason?: string } {
-    // تحويل صريح للتأكد من القيم الرقمية
-    const currentMax = Number(currentPlanMax) || 0;
-    const currentPrice = Number(currentPlanPrice) || 0;
-    const newMax = Number(newPlanMax) || 0;
-    const newPrice = Number(newPlanPrice) || 0;
-    
-    this.logger.debug(`[isAllowedPlanChange] مقارنة: ${currentMax} موظف - ${currentPrice} ريال -> ${newMax} موظف - ${newPrice} ريال`);
-    
-    // 1. نفس الخطة
-    if (newMax === currentMax && newPrice === currentPrice) {
-      return { allowed: true };
-    }
-    
-    // 2. تحقق من النزول: إذا كانت الخطة الجديدة أقل في أي من المعيارين
-    const isEmployeeDowngrade = newMax < currentMax;
-    const isPriceDowngrade = newPrice < currentPrice;
-    
-    if (isEmployeeDowngrade || isPriceDowngrade) {
-      let reason = '';
-      if (isEmployeeDowngrade && isPriceDowngrade) {
-        reason = 'النزول محظور في كلا المعيارين (الموظفين والسعر)';
-      } else if (isEmployeeDowngrade) {
-        reason = `النزول محظور في عدد الموظفين (${newMax} < ${currentMax})`;
-      } else {
-        reason = `النزول محظور في السعر (${newPrice} < ${currentPrice})`;
-      }
-      
-      return { 
-        allowed: false, 
-        reason 
-      };
-    }
-    
-    // 3. الترقيصات مسموحة (أعلى أو تساوي في كلا المعيارين)
-    // حالة تساوي في أحد المعيارين وأعلى في الآخر مسموحة
-    return { allowed: true };
+  currentPlanMax: number,
+  newPlanMax: number
+): { allowed: boolean; reason?: string } {
+
+  const currentMax = Number(currentPlanMax) || 0;
+  const newMax = Number(newPlanMax) || 0;
+
+  this.logger.debug(
+    `[isAllowedPlanChange] مقارنة الخطط: ${currentMax} موظف -> ${newMax} موظف`
+  );
+
+  if (newMax < currentMax) {
+    return {
+      allowed: false,
+      reason: `غير مسموح النزول من ${currentMax} موظف إلى ${newMax} موظف`
+    };
   }
+
+  return { allowed: true };
+}
+
 
   private async deactivateOldSubscriptions(companyId: string): Promise<{ deactivatedCount: number }> {
     try {
