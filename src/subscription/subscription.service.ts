@@ -327,23 +327,65 @@ export class SubscriptionService {
       this.logger.error(` فشل إرسال إيميل الإجراء ${action}:`, error);
     }
   }
-private isAllowedPlanChange(
-  currentPlanMax: number,
-  newPlanMax: number
-): { allowed: boolean; reason?: string } {
 
-  const currentMax = Number(currentPlanMax) || 0;
-  const newMax = Number(newPlanMax) || 0;
+  private isAllowedPlanChange(
+    currentPlanMax: number,
+    newPlanMax: number,
+    currentPlanPrice?: number,
+    newPlanPrice?: number
+  ): { allowed: boolean; reason?: string } {
 
-  if (newMax < currentMax) {
-    return {
-      allowed: false,
-      reason: `غير مسموح النزول من ${currentMax} موظف إلى ${newMax} موظف`
-    };
+    const currentMax = Number(currentPlanMax) || 0;
+    const newMax = Number(newPlanMax) || 0;
+    const currentPrice = Number(currentPlanPrice) || 0;
+    const newPrice = Number(newPlanPrice) || 0;
+
+    this.logger.debug(`[isAllowedPlanChange] الفحص الداخلي:`);
+    this.logger.debug(`[isAllowedPlanChange] الحالية: ${currentMax} موظف - ${currentPrice} ريال`);
+    this.logger.debug(`[isAllowedPlanChange] الجديدة: ${newMax} موظف - ${newPrice} ريال`);
+
+    // حالة خاصة: إذا كانت الأسعار غير محددة، نفحص فقط عدد الموظفين
+    if (currentPrice === 0 && newPrice === 0) {
+      this.logger.debug(`[isAllowedPlanChange] الأسعار غير محددة، نفحص فقط عدد الموظفين`);
+      if (newMax < currentMax) {
+        return {
+          allowed: false,
+          reason: `غير مسموح النزول من ${currentMax} موظف إلى ${newMax} موظف`
+        };
+      }
+      return { allowed: true };
+    }
+
+    // إذا كان كل من عدد الموظفين والسعر أقل = نزول ممنوع
+    if (newMax < currentMax && newPrice < currentPrice) {
+      this.logger.debug(`[isAllowedPlanChange] ممنوع: نزول في كلا المعيارين`);
+      return {
+        allowed: false,
+        reason: `غير مسموح النزول من ${currentMax} موظف - ${currentPrice} ريال إلى ${newMax} موظف - ${newPrice} ريال`
+      };
+    }
+
+    // إذا كان أحدهما أقل والآخر أعلى أو متساوي = مسموح (تغيير)
+    if (newMax < currentMax && newPrice >= currentPrice) {
+      this.logger.debug(`[isAllowedPlanChange] مسموح: نزول في الموظفين ولكن استقرار/زيادة في السعر`);
+      return {
+        allowed: true,
+        reason: `مسموح التغيير (نزول في الموظفين ولكن استقرار/زيادة في السعر)`
+      };
+    }
+
+    if (newPrice < currentPrice && newMax >= currentMax) {
+      this.logger.debug(`[isAllowedPlanChange] مسموح: نزول في السعر ولكن استقرار/زيادة في الموظفين`);
+      return {
+        allowed: true,
+        reason: `مسموح التغيير (نزول في السعر ولكن استقرار/زيادة في الموظفين)`
+      };
+    }
+
+    // إذا كان كلاهما أعلى أو متساوي = مسموح (ترقية/تجديد)
+    this.logger.debug(`[isAllowedPlanChange] مسموح: تثبيت/ترقية في كلا المعيارين`);
+    return { allowed: true };
   }
-
-  return { allowed: true };
-}
 
 
   private async deactivateOldSubscriptions(companyId: string): Promise<{ deactivatedCount: number }> {
@@ -452,11 +494,17 @@ private isAllowedPlanChange(
         this.logger.debug(`[subscribe] الخطة الحالية: ${currentPlan.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
         this.logger.debug(`[subscribe] الخطة الجديدة: ${newPlan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
 
-       const check = this.isAllowedPlanChange(
-  currentPlanMax,
-  newPlanMax
-);
+        const check = this.isAllowedPlanChange(
+          currentPlanMax,
+          newPlanMax,
+          currentPlanPrice,
+          newPlanPrice
+        );
 
+        this.logger.debug(`[subscribe] نتيجة الفحص: ${check.allowed ? 'مسموح' : 'ممنوع'}`);
+        if (!check.allowed) {
+          this.logger.error(`[subscribe] سبب المنع: ${check.reason}`);
+        }
         
         if (!check.allowed) {
           this.logger.error(`[subscribe] ممنوع: ${check.reason}`);
@@ -693,7 +741,13 @@ private isAllowedPlanChange(
 
   async changeSubscriptionPlan(companyId: string, newPlanId: string, adminEmail?: string): Promise<PlanChangeResult> {
     try {
+      this.logger.log(`[changeSubscriptionPlan] === بدء تغيير الخطة ===`);
+      this.logger.log(`[changeSubscriptionPlan] companyId: ${companyId}, newPlanId: ${newPlanId}`);
+
       const validation = await this.validatePlanChange(companyId, newPlanId);
+      
+      this.logger.debug(`[changeSubscriptionPlan] نتيجة التحقق: ${validation.canChange ? 'مسموح' : 'ممنوع'}`);
+      this.logger.debug(`[changeSubscriptionPlan] الرسالة: ${validation.message}`);
       
       if (!validation.canChange) {
         throw new BadRequestException(validation.message);
@@ -711,11 +765,17 @@ private isAllowedPlanChange(
       const currentPlanMax = Number(currentSubscription.plan?.maxEmployees) || 0;
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
       
-   const check = this.isAllowedPlanChange(
-  currentPlanMax,
-  newPlanMax
-);
+      this.logger.debug(`[changeSubscriptionPlan] الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
+      this.logger.debug(`[changeSubscriptionPlan] الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال`);
 
+      const check = this.isAllowedPlanChange(
+        currentPlanMax,
+        newPlanMax,
+        currentPlanPrice,
+        newPlanPrice
+      );
+
+      this.logger.debug(`[changeSubscriptionPlan] فحص isAllowedPlanChange: ${check.allowed ? 'مسموح' : 'ممنوع'}`);
       
       if (!check.allowed) {
         throw new BadRequestException(
@@ -799,13 +859,21 @@ private isAllowedPlanChange(
 
   async changePlanDirectly(companyId: string, newPlanId: string, adminOverride = false, adminEmail?: string): Promise<PlanChangeResult> {
     try {
+      this.logger.log(`[changePlanDirectly] === بدء تغيير الخطة مباشرة ===`);
+      this.logger.log(`[changePlanDirectly] companyId: ${companyId}, newPlanId: ${newPlanId}`);
+      this.logger.log(`[changePlanDirectly] adminOverride: ${adminOverride}`);
+
       const currentSubscription = await this.getCompanySubscription(companyId);
       const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
       if (!newPlan) {
         throw new NotFoundException('الخطة غير موجودة');
       }
 
+      this.logger.debug(`[changePlanDirectly] الخطة الجديدة: ${newPlan.name} - ${newPlan.maxEmployees} موظف - ${newPlan.price} ريال`);
+
       if (!currentSubscription) {
+        this.logger.log(`[changePlanDirectly] لا يوجد اشتراك حالي، سيتم إنشاء اشتراك جديد`);
+        
         const subscriptionResult = await this.subscribe(companyId, newPlanId, true, undefined, undefined, undefined, adminEmail);
         
         const newSubscription = subscriptionResult.subscription;
@@ -842,12 +910,20 @@ private isAllowedPlanChange(
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
       const newPlanPrice = Number(newPlan.price) || 0;
 
+      this.logger.debug(`[changePlanDirectly] الخطة الحالية: ${currentPlan?.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
       this.logger.debug(`[changePlanDirectly] مقارنة: ${currentPlanMax} موظف - ${currentPlanPrice} ريال -> ${newPlanMax} موظف - ${newPlanPrice} ريال`);
 
-    const check = this.isAllowedPlanChange(
-  currentPlanMax,
-  newPlanMax
-);
+      const check = this.isAllowedPlanChange(
+        currentPlanMax,
+        newPlanMax,
+        currentPlanPrice,
+        newPlanPrice
+      );
+
+      this.logger.debug(`[changePlanDirectly] نتيجة الفحص: ${check.allowed ? 'مسموح' : 'ممنوع'}`);
+      if (!check.allowed) {
+        this.logger.debug(`[changePlanDirectly] السبب: ${check.reason}`);
+      }
 
       if (!check.allowed && !adminOverride) {
         throw new BadRequestException(
@@ -950,7 +1026,13 @@ private isAllowedPlanChange(
 
   async requestPlanChange(companyId: string, newPlanId: string): Promise<PlanChangeRequestResult> {
     try {
+      this.logger.log(`[requestPlanChange] === بدء طلب تغيير الخطة ===`);
+      this.logger.log(`[requestPlanChange] companyId: ${companyId}, newPlanId: ${newPlanId}`);
+
       const validation = await this.validatePlanChange(companyId, newPlanId);
+      
+      this.logger.debug(`[requestPlanChange] نتيجة التحقق: ${validation.canChange ? 'مسموح' : 'ممنوع'}`);
+      this.logger.debug(`[requestPlanChange] الإجراء: ${validation.action}`);
       
       if (!validation.canChange) {
         return {
@@ -1066,6 +1148,8 @@ private isAllowedPlanChange(
   
   async getCompanySubscription(companyId: string): Promise<CompanySubscription | null> {
     try {
+      this.logger.debug(`[getCompanySubscription] جلب الاشتراك للشركة: ${companyId}`);
+
       const subscription = await this.subscriptionRepo
         .createQueryBuilder('sub')
         .leftJoinAndSelect('sub.plan', 'plan')
@@ -1079,6 +1163,7 @@ private isAllowedPlanChange(
         .getOne();
 
       if (!subscription) {
+        this.logger.debug(`[getCompanySubscription] لا يوجد اشتراك نشط، جارٍ مزامنة الحالة`);
         await this.syncCompanySubscriptionStatus(companyId);
         
         return await this.subscriptionRepo
@@ -1092,6 +1177,11 @@ private isAllowedPlanChange(
           .andWhere('sub.endDate > :now', { now: new Date() })
           .orderBy('sub.startDate', 'DESC')
           .getOne();
+      }
+
+      this.logger.debug(`[getCompanySubscription] تم العثور على اشتراك: ${subscription.id}`);
+      if (subscription.plan) {
+        this.logger.debug(`[getCompanySubscription] تفاصيل الخطة: ${subscription.plan.name} - ${subscription.plan.maxEmployees} موظف - ${subscription.plan.price} ريال`);
       }
 
       return subscription;
@@ -1353,9 +1443,13 @@ private isAllowedPlanChange(
 
   async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChangeValidation> {
     try {
+      this.logger.log(`[validatePlanChange] === بدء التحقق من تغيير الخطة ===`);
+      this.logger.log(`[validatePlanChange] companyId: ${companyId}, newPlanId: ${newPlanId}`);
+
       const currentSubscription = await this.getCompanySubscription(companyId);
       
       if (!currentSubscription) {
+        this.logger.log(`[validatePlanChange] لا يوجد اشتراك حالي للشركة`);
         const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
         if (!newPlan) {
           throw new NotFoundException('الخطة الجديدة غير موجودة');
@@ -1374,6 +1468,9 @@ private isAllowedPlanChange(
         } else {
           message = `لا يمكن الاشتراك في الخطة ${newPlan.name} (${newPlan.maxEmployees} موظف) لأن لديك ${currentEmployees} موظف`;
         }
+        
+        this.logger.debug(`[validatePlanChange] النتيجة: ${canChange ? 'مسموح' : 'ممنوع'}`);
+        this.logger.debug(`[validatePlanChange] الرسالة: ${message}`);
         
         return {
           canChange,
@@ -1399,6 +1496,9 @@ private isAllowedPlanChange(
       const currentPlanPrice = Number(currentSubscription.plan?.price) || 0;
       const newPlanPrice = Number(newPlan.price) || 0;
 
+      this.logger.debug(`[validatePlanChange] الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
+      this.logger.debug(`[validatePlanChange] الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال`);
+
       let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
       let message = '';
 
@@ -1411,6 +1511,7 @@ private isAllowedPlanChange(
       else if (newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice) {
         action = 'DOWNGRADE';
         message = `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) - غير مسموح بالانتقال لخطة أقل`;
+        this.logger.debug(`[validatePlanChange] نزول واضح في كلا المعيارين`);
         return {
           canChange: false,
           message,
@@ -1425,6 +1526,7 @@ private isAllowedPlanChange(
                (newPlanMax >= currentPlanMax && newPlanPrice > currentPlanPrice)) {
         action = 'UPGRADE';
         message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف بسعر ${newPlanPrice} ريال`;
+        this.logger.debug(`[validatePlanChange] ترقية`);
       }
       // 4. نزول جزئي (أقل في أحد المعيارين)
       else if (newPlanMax < currentPlanMax || newPlanPrice < currentPlanPrice) {
@@ -1433,6 +1535,7 @@ private isAllowedPlanChange(
         message = `غير مسموح بالانتقال إلى خطة ${newPlan.name} لأنها أقل في ${reason}. ` +
                  `(الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال, ` +
                  `الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال)`;
+        this.logger.debug(`[validatePlanChange] نزول جزئي في ${reason}`);
         return {
           canChange: false,
           message,
@@ -1446,10 +1549,12 @@ private isAllowedPlanChange(
       else {
         action = 'UPGRADE';
         message = `يمكنك التغيير إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف بسعر ${newPlanPrice} ريال`;
+        this.logger.debug(`[validatePlanChange] تغيير مسموح`);
       }
 
       // تحقق من عدد الموظفين الحاليين
       if (currentEmployees > newPlanMax) {
+        this.logger.debug(`[validatePlanChange] عدد الموظفين الحاليين ${currentEmployees} > الحد المسموح ${newPlanMax}`);
         return {
           canChange: false,
           message: `لا يمكن الانتقال إلى الخطة ${newPlan.name} لأنها تدعم فقط ${newPlanMax} موظف بينما لديك حالياً ${currentEmployees} موظف`,
@@ -1470,6 +1575,9 @@ private isAllowedPlanChange(
         action
       };
 
+      this.logger.debug(`[validatePlanChange] النتيجة النهائية: ${canChange ? 'مسموح' : 'ممنوع'}`);
+      this.logger.debug(`[validatePlanChange] الإجراء: ${action}`);
+
       return result;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1480,6 +1588,9 @@ private isAllowedPlanChange(
 
   async canUpgradeToPlan(companyId: string, planId: string): Promise<UpgradeCheckResult> {
     try {
+      this.logger.log(`[canUpgradeToPlan] === التحقق من إمكانية الترقية ===`);
+      this.logger.log(`[canUpgradeToPlan] companyId: ${companyId}, planId: ${planId}`);
+
       const currentSubscription = await this.getCompanySubscription(companyId);
       const newPlan = await this.planRepo.findOne({ where: { id: planId } });
       
@@ -1488,6 +1599,7 @@ private isAllowedPlanChange(
       }
 
       if (!currentSubscription) {
+        this.logger.debug(`[canUpgradeToPlan] لا يوجد اشتراك حالي، يمكن الاشتراك`);
         return { 
           canUpgrade: true, 
           reason: 'يمكن الاشتراك في هذه الخطة',
@@ -1498,6 +1610,7 @@ private isAllowedPlanChange(
       const currentPlan = currentSubscription.plan;
       
       if (currentPlan.id === newPlan.id) {
+        this.logger.debug(`[canUpgradeToPlan] نفس الخطة، يمكن التجديد`);
         return { 
           canUpgrade: true, 
           isSamePlan: true,
@@ -1509,12 +1622,20 @@ private isAllowedPlanChange(
 
       const currentPlanMax = Number(currentPlan.maxEmployees) || 0;
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
- 
+      const currentPlanPrice = Number(currentPlan.price) || 0;
+      const newPlanPrice = Number(newPlan.price) || 0;
 
-  const check = this.isAllowedPlanChange(
-  currentPlanMax,
-  newPlanMax
-);
+      this.logger.debug(`[canUpgradeToPlan] الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
+      this.logger.debug(`[canUpgradeToPlan] الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال`);
+
+      const check = this.isAllowedPlanChange(
+        currentPlanMax,
+        newPlanMax,
+        currentPlanPrice,
+        newPlanPrice
+      );
+
+      this.logger.debug(`[canUpgradeToPlan] نتيجة الفحص: ${check.allowed ? 'مسموح' : 'ممنوع'}`);
 
       if (!check.allowed) {
         return { 
@@ -1540,26 +1661,46 @@ private isAllowedPlanChange(
 
   async getAvailableUpgrades(companyId: string): Promise<Plan[]> {
     try {
+      this.logger.log(`[getAvailableUpgrades] === جلب الخطط المتاحة ===`);
+      this.logger.log(`[getAvailableUpgrades] companyId: ${companyId}`);
+
       const allPlans = await this.planRepo.find();
       const currentSubscription = await this.getCompanySubscription(companyId);
       
       if (!currentSubscription) {
+        this.logger.debug(`[getAvailableUpgrades] لا يوجد اشتراك حالي، جميع الخطط متاحة`);
         return allPlans.sort((a, b) => a.maxEmployees - b.maxEmployees);
       }
       
       const currentPlan = currentSubscription.plan;
       const currentPlanMax = Number(currentPlan.maxEmployees) || 0;
+      const currentPlanPrice = Number(currentPlan.price) || 0;
       
-const availablePlans = allPlans.filter(plan => {
-  const planMax = Number(plan.maxEmployees) || 0;
+      this.logger.debug(`[getAvailableUpgrades] الخطة الحالية: ${currentPlan.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
+      this.logger.debug(`[getAvailableUpgrades] عدد الخطط الكلي: ${allPlans.length}`);
 
-  const check = this.isAllowedPlanChange(
-    currentPlanMax,
-    planMax
-  );
+      const availablePlans = allPlans.filter(plan => {
+        const planMax = Number(plan.maxEmployees) || 0;
+        const planPrice = Number(plan.price) || 0;
 
-  return check.allowed;
-});
+        const check = this.isAllowedPlanChange(
+          currentPlanMax,
+          planMax,
+          currentPlanPrice,
+          planPrice
+        );
+
+        if (!check.allowed) {
+          this.logger.debug(`[getAvailableUpgrades] الخطة ${plan.name} (${planMax} موظف - ${planPrice} ريال) غير مسموحة: ${check.reason}`);
+        }
+
+        return check.allowed;
+      });
+
+      this.logger.debug(`[getAvailableUpgrades] عدد الخطط المتاحة: ${availablePlans.length}`);
+      availablePlans.forEach(plan => {
+        this.logger.debug(`[getAvailableUpgrades] ✓ ${plan.name} (${plan.maxEmployees} موظف - ${plan.price} ريال)`);
+      });
 
       return availablePlans.sort((a, b) => a.maxEmployees - b.maxEmployees);
     } catch (error) {
@@ -1858,14 +1999,19 @@ const availablePlans = allPlans.filter(plan => {
   // دالة مساعدة للتصحيح فقط
   async debugPlanComparison(companyId: string, newPlanId: string): Promise<any> {
     try {
+      this.logger.log(`[debugPlanComparison] === تصحيح مقارنة الخطط ===`);
+      this.logger.log(`[debugPlanComparison] companyId: ${companyId}, newPlanId: ${newPlanId}`);
+
       const currentSubscription = await this.getCompanySubscription(companyId);
       const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
       
       if (!newPlan) {
+        this.logger.error(`[debugPlanComparison] الخطة الجديدة غير موجودة`);
         return { error: 'الخطة الجديدة غير موجودة' };
       }
       
       if (!currentSubscription) {
+        this.logger.log(`[debugPlanComparison] لا يوجد اشتراك حالي`);
         return { 
           message: 'لا يوجد اشتراك حالي',
           newPlan: {
@@ -1882,10 +2028,20 @@ const availablePlans = allPlans.filter(plan => {
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
       const newPlanPrice = Number(newPlan.price) || 0;
       
-    const check = this.isAllowedPlanChange(
-  currentPlanMax,
-  newPlanMax
-);
+      this.logger.debug(`[debugPlanComparison] الخطة الحالية: ${currentPlan.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
+      this.logger.debug(`[debugPlanComparison] الخطة الجديدة: ${newPlan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
+      
+      const check = this.isAllowedPlanChange(
+        currentPlanMax,
+        newPlanMax,
+        currentPlanPrice,
+        newPlanPrice
+      );
+
+      this.logger.debug(`[debugPlanComparison] نتيجة الفحص: ${check.allowed ? 'مسموح' : 'ممنوع'}`);
+      if (!check.allowed) {
+        this.logger.debug(`[debugPlanComparison] السبب: ${check.reason}`);
+      }
 
       return {
         currentPlan: {
@@ -1909,6 +2065,7 @@ const availablePlans = allPlans.filter(plan => {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`[debugPlanComparison] خطأ: ${errorMessage}`);
       return { error: errorMessage };
     }
   }

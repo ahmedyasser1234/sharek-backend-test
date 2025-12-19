@@ -9,7 +9,8 @@ import {
   NotFoundException,
   UseInterceptors, 
   UploadedFile,
-  BadRequestException
+  BadRequestException,
+  Logger
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CompanyService } from '../company/company.service';
@@ -60,6 +61,8 @@ interface DebugSubscriptionResponse {
 @ApiTags('Subscription')
 @Controller()
 export class SubscriptionController {
+  private readonly logger = new Logger(SubscriptionController.name);
+
   constructor(
     private readonly subscriptionService: SubscriptionService,
     private readonly companyService: CompanyService,
@@ -162,6 +165,9 @@ export class SubscriptionController {
     @UploadedFile() file: Express.Multer.File
   ): Promise<{ message: string }> {
     try {
+      this.logger.log(`[startManualSubscription] === بدء الاشتراك اليدوي ===`);
+      this.logger.log(`[startManualSubscription] companyId: ${companyId}, planId: ${planId}`);
+
       const hasPending = await this.paymentService.hasPendingSubscription(companyId);
       if (hasPending) {
         throw new HttpException(
@@ -187,12 +193,30 @@ export class SubscriptionController {
 
       const currentSubscription = await this.subscriptionService.getCompanySubscription(companyId);
       if (currentSubscription && currentSubscription.plan) {
-        if (plan.maxEmployees < currentSubscription.plan.maxEmployees || 
-            plan.price < currentSubscription.plan.price) {
+        const currentPlan = currentSubscription.plan;
+        const currentPlanMax = currentPlan.maxEmployees;
+        const currentPlanPrice = currentPlan.price;
+        const newPlanMax = plan.maxEmployees;
+        const newPlanPrice = plan.price;
+        
+        this.logger.debug(`[startManualSubscription] التحقق من تغيير الخطة`);
+        this.logger.debug(`[startManualSubscription] الخطة الحالية: ${currentPlan.name} - ${currentPlanMax} موظف - ${currentPlanPrice} ريال`);
+        this.logger.debug(`[startManualSubscription] الخطة الجديدة: ${plan.name} - ${newPlanMax} موظف - ${newPlanPrice} ريال`);
+        
+        const check = this.subscriptionService['isAllowedPlanChange'](
+          currentPlanMax,
+          newPlanMax,
+          currentPlanPrice,
+          newPlanPrice
+        );
+        
+        this.logger.debug(`[startManualSubscription] نتيجة الفحص: ${check.allowed ? 'مسموح' : 'ممنوع'}`);
+        if (!check.allowed) {
+          this.logger.error(`[startManualSubscription] سبب المنع: ${check.reason}`);
           throw new HttpException(
-            `لا يمكن الاشتراك في خطة ${plan.name} (${plan.maxEmployees} موظف - ${plan.price} ريال) ` +
-            `لأنك مشترك حالياً في خطة ${currentSubscription.plan.name} (${currentSubscription.plan.maxEmployees} موظف - ${currentSubscription.plan.price} ريال) - ` +
-            `غير مسموح بالنزول لخطة أقل`,
+            `لا يمكن الاشتراك في خطة ${plan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) ` +
+            `لأنك مشترك حالياً في خطة ${currentPlan.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) - ` +
+            check.reason,
             HttpStatus.BAD_REQUEST
           );
         }
@@ -209,6 +233,8 @@ export class SubscriptionController {
         errorMessage = error;
       }
       
+      this.logger.error(`[startManualSubscription] فشل الاشتراك اليدوي: ${errorMessage}`);
+      
       if (error instanceof HttpException) {
         throw error;
       }
@@ -218,26 +244,44 @@ export class SubscriptionController {
   }
 
   @Get('company/:id/validate-plan-change/:newPlanId')
+  @ApiOperation({ summary: 'التحقق من إمكانية تغيير الخطة' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiParam({ name: 'newPlanId', description: 'معرف الخطة الجديدة' })
+  @ApiResponse({ status: 200, description: 'تم التحقق بنجاح' })
   async validatePlanChange(
     @Param('id') companyId: string,
     @Param('newPlanId') newPlanId: string
   ): Promise<PlanChangeValidation> {
+    this.logger.log(`[validatePlanChange] API طلب`);
+    this.logger.log(`[validatePlanChange] companyId: ${companyId}, newPlanId: ${newPlanId}`);
     return this.subscriptionService.validatePlanChange(companyId, newPlanId);
   }
 
   @Post('company/:id/request-plan-change/:newPlanId')
+  @ApiOperation({ summary: 'طلب تغيير الخطة' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiParam({ name: 'newPlanId', description: 'معرف الخطة الجديدة' })
+  @ApiResponse({ status: 200, description: 'تم طلب تغيير الخطة بنجاح' })
   async requestPlanChange(
     @Param('id') companyId: string,
     @Param('newPlanId') newPlanId: string
   ): Promise<PlanChangeRequestResult> {
+    this.logger.log(`[requestPlanChange] API طلب`);
+    this.logger.log(`[requestPlanChange] companyId: ${companyId}, newPlanId: ${newPlanId}`);
     return this.subscriptionService.requestPlanChange(companyId, newPlanId);
   }
 
-   @Post('company/:id/change-plan/:newPlanId')
+  @Post('company/:id/change-plan/:newPlanId')
+  @ApiOperation({ summary: 'تغيير خطة الشركة' })
+  @ApiParam({ name: 'id', description: 'معرف الشركة' })
+  @ApiParam({ name: 'newPlanId', description: 'معرف الخطة الجديدة' })
+  @ApiResponse({ status: 200, description: 'تم تغيير الخطة بنجاح' })
   async changePlan(
     @Param('id') companyId: string,
     @Param('newPlanId') newPlanId: string
   ): Promise<PlanChangeResult> {
+    this.logger.log(`[changePlan] API طلب`);
+    this.logger.log(`[changePlan] companyId: ${companyId}, newPlanId: ${newPlanId}`);
     return this.subscriptionService.changeSubscriptionPlan(companyId, newPlanId);
   }
 
@@ -252,6 +296,25 @@ export class SubscriptionController {
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       throw new HttpException(`فشل فحص حالة الاشتراك: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  @Get('debug-plan-comparison/:companyId/:newPlanId')
+  @ApiOperation({ summary: 'تصحيح مقارنة الخطط (للتشخيص فقط)' })
+  @ApiParam({ name: 'companyId', description: 'معرف الشركة' })
+  @ApiParam({ name: 'newPlanId', description: 'معرف الخطة الجديدة' })
+  @ApiResponse({ status: 200, description: 'تم التصحيح بنجاح' })
+  async debugPlanComparison(
+    @Param('companyId') companyId: string,
+    @Param('newPlanId') newPlanId: string
+  ): Promise<any> {
+    try {
+      this.logger.log(`[debugPlanComparison] API طلب`);
+      this.logger.log(`[debugPlanComparison] companyId: ${companyId}, newPlanId: ${newPlanId}`);
+      return await this.subscriptionService.debugPlanComparison(companyId, newPlanId);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      throw new HttpException(`فشل تصحيح المقارنة: ${msg}`, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }
