@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';  
 import { JwtModule } from '@nestjs/jwt';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -21,6 +21,8 @@ import { RevokedToken } from './company/entities/revoked-token.entity';
 import { NotificationModule } from './notification/notification.module';
 import { BackupModule } from './backup/backup.module';
 import { SupadminModule } from './admin/supadmin.module';
+
+import { RequestLoggerMiddleware } from './common/middleware/request-logger.middleware';
 
 @Module({
   imports: [
@@ -60,5 +62,11 @@ import { SupadminModule } from './admin/supadmin.module';
     CompanyJwtGuard, 
   ],
 })
-export class AppModule {}
-
+ 
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(RequestLoggerMiddleware)
+      .forRoutes('*'); 
+  }
+}
