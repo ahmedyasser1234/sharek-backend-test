@@ -10,6 +10,8 @@ import { AdminService } from './admin/admin.service';
 import * as bodyParser from 'body-parser';
 import * as https from 'https';
 import * as fs from 'fs';
+import * as tls from 'tls';   
+import type { ServerOptions } from 'https';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -65,15 +67,43 @@ async function bootstrap() {
 
   const adminService = app.get(AdminService);
   await adminService.ensureDefaultAdmin();
-  logger.log('👑 تم التأكد من وجود الأدمن الأساسي');
+  logger.log(' تم التأكد من وجود الأدمن الأساسي');
 
   const port = parseInt(process.env.PORT || '3000', 10);
   
-  const httpsOptions: https.ServerOptions = {
-    key: fs.readFileSync('/etc/letsencrypt/live/sharik-sa.com-0001/privkey.pem'),
-    cert: fs.readFileSync('/etc/letsencrypt/live/sharik-sa.com-0001/fullchain.pem'),
+  const httpsOptions: ServerOptions = {};
+
+  httpsOptions.SNICallback = (servername: string, callback: (err: Error | null, ctx?: tls.SecureContext) => void) => {
+    try {
+      logger.log(` SSL requested for: ${servername}`);
+      
+      let keyPath: string;
+      let certPath: string;
+
+      if (servername === 'localhost' || servername === '127.0.0.1') {
+        keyPath = '/etc/ssl/localhost.key';
+        certPath = '/etc/ssl/localhost.crt';
+        logger.log(` Using localhost certificate`);
+      } else {
+      
+        keyPath = '/etc/letsencrypt/live/sharik-sa.com-0001/privkey.pem';
+        certPath = '/etc/letsencrypt/live/sharik-sa.com-0001/fullchain.pem';
+        logger.log(` Using Let's Encrypt certificate`);
+      }
+
+      const ctx = tls.createSecureContext({
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(certPath),
+      });
+
+      callback(null, ctx);
+    } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(` SSL Error: ${errorMessage}`);
+      callback(error instanceof Error ? error : new Error(String(error)));
+    }
   };
-  
+
   await app.init();
   
   const expressInstance = app.getHttpAdapter().getInstance() as express.Application;
@@ -81,10 +111,11 @@ async function bootstrap() {
   const httpsServer = https.createServer(httpsOptions, expressInstance);
   
   httpsServer.listen(port, '0.0.0.0', () => {
-    logger.log(` Server is running on HTTPS on port ${port}`);
-    logger.log(` Accessible externally at https://89.116.39.168:${port}`);
-    logger.log(` API Accessible at https://sharik-sa.com:${port}/`);
-    logger.log(` HTTPS enabled with Let's Encrypt certificate`);
+    logger.log(`Server is running on HTTPS on port ${port}`);
+    logger.log(`Supports: localhost, 127.0.0.1, sharik-sa.com`);
+    logger.log(`Internal: https://localhost:${port}`);
+    logger.log(`External: https://sharik-sa.com:${port}`);
+    logger.log(`Also: https://89.116.39.168:${port}`);
   });
   
 }
