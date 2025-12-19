@@ -328,6 +328,38 @@ export class SubscriptionService {
     }
   }
 
+  private isAllowedPlanChange(
+    currentPlanMax: number,
+    currentPlanPrice: number,
+    newPlanMax: number,
+    newPlanPrice: number
+  ): { allowed: boolean; reason?: string } {
+    // نفس الخطة
+    if (newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice) {
+      return { allowed: true };
+    }
+    
+    // نزول واضح (أقل في كلا المعيارين)
+    if (newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice) {
+      return { 
+        allowed: false, 
+        reason: 'النزول محظور في كلا المعيارين (الموظفين والسعر)' 
+      };
+    }
+    
+    // نزول جزئي (أقل في أحد المعيارين)
+    if (newPlanMax < currentPlanMax || newPlanPrice < currentPlanPrice) {
+      const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
+      return { 
+        allowed: false, 
+        reason: `النزول محظور في ${reason}` 
+      };
+    }
+    
+    // ترقية أو تساوي في معيار وأعلى في الآخر
+    return { allowed: true };
+  }
+
   private async deactivateOldSubscriptions(companyId: string): Promise<{ deactivatedCount: number }> {
     try {
       const oldActiveSubscriptions = await this.subscriptionRepo.find({
@@ -372,299 +404,293 @@ export class SubscriptionService {
     }
   }
 
-async subscribe(
-  companyId: string, 
-  planId: string, 
-  isAdminOverride = false,
-  activatedBySellerId?: string,
-  activatedByAdminId?: string,
-  activatedBySupadminId?: string,
-  activatorEmail?: string  
-): Promise<SubscriptionResponse> {
-  try {
-    this.logger.log(`[subscribe] === بدء الاشتراك ===`);
-    this.logger.log(`[subscribe] companyId: ${companyId}, planId: ${planId}`);
-    this.logger.log(`[subscribe] isAdminOverride: ${isAdminOverride}`);
-    this.logger.log(`[subscribe] activatorEmail: ${activatorEmail}`);
-    this.logger.log(`[subscribe] activatedBySellerId: ${activatedBySellerId}`);
-    this.logger.log(`[subscribe] activatedByAdminId: ${activatedByAdminId}`);
-    this.logger.log(`[subscribe] activatedBySupadminId: ${activatedBySupadminId}`);
+  async subscribe(
+    companyId: string, 
+    planId: string, 
+    isAdminOverride = false,
+    activatedBySellerId?: string,
+    activatedByAdminId?: string,
+    activatedBySupadminId?: string,
+    activatorEmail?: string  
+  ): Promise<SubscriptionResponse> {
+    try {
+      this.logger.log(`[subscribe] === بدء الاشتراك ===`);
+      this.logger.log(`[subscribe] companyId: ${companyId}, planId: ${planId}`);
+      this.logger.log(`[subscribe] isAdminOverride: ${isAdminOverride}`);
+      this.logger.log(`[subscribe] activatorEmail: ${activatorEmail}`);
+      this.logger.log(`[subscribe] activatedBySellerId: ${activatedBySellerId}`);
+      this.logger.log(`[subscribe] activatedByAdminId: ${activatedByAdminId}`);
+      this.logger.log(`[subscribe] activatedBySupadminId: ${activatedBySupadminId}`);
 
-    const company = await this.companyRepo.findOne({ 
-      where: { id: companyId },
-      relations: ['subscriptions'] 
-    });
-    if (!company) throw new NotFoundException('الشركة غير موجودة');
-
-    const newPlan = await this.planRepo.findOne({ where: { id: planId } });
-    if (!newPlan) throw new NotFoundException('الخطة غير موجودة');
-
-    const planPrice = parseFloat(String(newPlan.price));
-    if (isNaN(planPrice)) throw new BadRequestException('السعر غير صالح للخطة');
-
-    if (newPlan.isTrial) {
-      const previousTrial = await this.subscriptionRepo.findOne({
-        where: {
-          company: { id: companyId },
-          plan: { isTrial: true },
-          status: SubscriptionStatus.ACTIVE
-        },
-        relations: ['plan'],
+      const company = await this.companyRepo.findOne({ 
+        where: { id: companyId },
+        relations: ['subscriptions'] 
       });
-      if (previousTrial) {
-        throw new BadRequestException('لا يمكن استخدام الخطة التجريبية أكثر من مرة');
-      }
-    }
+      if (!company) throw new NotFoundException('الشركة غير موجودة');
 
-    const existingActiveSubscription = await this.subscriptionRepo.findOne({
-      where: {
-        company: { id: companyId },
-        status: SubscriptionStatus.ACTIVE,
-        endDate: MoreThanOrEqual(new Date())
-      },
-      relations: ['plan']
-    });
+      const newPlan = await this.planRepo.findOne({ where: { id: planId } });
+      if (!newPlan) throw new NotFoundException('الخطة غير موجودة');
 
-    if (existingActiveSubscription && existingActiveSubscription.plan && !isAdminOverride) {
-      const currentPlan = existingActiveSubscription.plan;
-      const currentPlanMax = Number(currentPlan.maxEmployees) || 0;
-      const currentPlanPrice = Number(currentPlan.price) || 0;
-      const newPlanMax = Number(newPlan.maxEmployees) || 0;
-      const newPlanPrice = Number(newPlan.price) || 0;
+      const planPrice = parseFloat(String(newPlan.price));
+      if (isNaN(planPrice)) throw new BadRequestException('السعر غير صالح للخطة');
 
-      const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
-      const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
-                                (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
-      
-      if (isDowngrading) {
-        throw new BadRequestException(
-          `لا يمكن الاشتراك في خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) ` +
-          `لأنك مشترك حالياً في خطة ${currentPlan.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) - ` +
-          `غير مسموح بالنزول لخطة أقل في كلا المعيارين`
-        );
-      }
-      
-      if (isPartialDowngrade) {
-        const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
-        throw new BadRequestException(
-          `لا يمكن الاشتراك في خطة ${newPlan.name} لأنها أقل في ${reason}. ` +
-          `(الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال, ` +
-          `الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال)`
-        );
-      }
-    }
-
-    let isNewSubscription = false;
-    let action: 'created' | 'renewed' | 'changed' = 'created';
-    let savedSubscription: CompanySubscription;
-    let finalMessage = '';
-
-    if (existingActiveSubscription) {
-      const isSamePlan = existingActiveSubscription.plan?.id === newPlan.id;
-      
-      if (isSamePlan) {
-        action = 'renewed';
-        finalMessage = 'تم تجديد الاشتراك بنجاح';
-      } else {
-        action = 'changed';
-        finalMessage = 'تم تحديث الاشتراك بنجاح';
-      }
-      
-      if (!isSamePlan) {
-        existingActiveSubscription.plan = newPlan;
-        existingActiveSubscription.customMaxEmployees = newPlan.maxEmployees;
-      }
-      
-      existingActiveSubscription.price = planPrice;
-      
-      const newEndDate = new Date(existingActiveSubscription.endDate);
-      newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
-      existingActiveSubscription.endDate = newEndDate;
-      
-      if (activatedBySellerId) {
-        existingActiveSubscription.activatedBySellerId = activatedBySellerId;
-        this.logger.log(`[subscribe] تم تعيين activatedBySellerId: ${activatedBySellerId}`);
-      }
-      
-      if (activatedByAdminId) {
-        existingActiveSubscription.activatedByAdminId = activatedByAdminId;
-        this.logger.log(`[subscribe] تم تعيين activatedByAdminId: ${activatedByAdminId}`);
-      }
-
-      if (activatedBySupadminId) {
-        existingActiveSubscription.activatedBySupadminId = activatedBySupadminId;
-        this.logger.log(`[subscribe] تم تعيين activatedBySupadminId: ${activatedBySupadminId}`);
-      }
-
-      savedSubscription = await this.subscriptionRepo.save(existingActiveSubscription);
-
-      await this.companyRepo
-        .createQueryBuilder()
-        .update(Company)
-        .set({
-          subscriptionStatus: 'active',
-          planId: newPlan.id,
-          paymentProvider: newPlan.paymentProvider?.toString() ?? '',
-          subscribedAt: () => 'CURRENT_TIMESTAMP'
-        })
-        .where('id = :id', { id: companyId })
-        .execute();
-
-      if (isAdminOverride) {
-        await this.updateRelatedPaymentProof(companyId, planId);
-      }
-
-      if (planPrice === 0) {
-        finalMessage = 'تم تحديث الاشتراك إلى الخطة المجانية بنجاح';
-      } else if (newPlan.isTrial) {
-        finalMessage = 'تم تحديث الاشتراك إلى الخطة التجريبية بنجاح';
-      } else if (isAdminOverride) {
-        finalMessage = 'تم تحديث الاشتراك يدويًا بواسطة الإدارة';
-      }
-
-    } else {
-      isNewSubscription = true;
-      const startDate = new Date();
-      const endDate = new Date();
-      endDate.setDate(startDate.getDate() + newPlan.durationInDays);
-
-      const subscriptionData: Partial<CompanySubscription> = {
-        company,
-        plan: newPlan,
-        startDate,
-        endDate,
-        price: planPrice,
-        status: SubscriptionStatus.ACTIVE,
-        customMaxEmployees: newPlan.maxEmployees,
-      };
-
-      if (activatedBySellerId) {
-        subscriptionData.activatedBySellerId = activatedBySellerId;
-        this.logger.log(`[subscribe] New subscription - تم تعيين activatedBySellerId: ${activatedBySellerId}`);
-        
-        try {
-          const seller = await this.sellerRepo.findOne({ 
-            where: { id: activatedBySellerId } 
-          });
-          if (seller) {
-            subscriptionData.activatedBySeller = seller;
-          }
-        } catch (error) {
-          this.logger.warn(`[subscribe] لم يتم العثور على البائع ${activatedBySellerId}: ${error}`);
+      if (newPlan.isTrial) {
+        const previousTrial = await this.subscriptionRepo.findOne({
+          where: {
+            company: { id: companyId },
+            plan: { isTrial: true },
+            status: SubscriptionStatus.ACTIVE
+          },
+          relations: ['plan'],
+        });
+        if (previousTrial) {
+          throw new BadRequestException('لا يمكن استخدام الخطة التجريبية أكثر من مرة');
         }
       }
-      
-      if (activatedByAdminId) {
-        subscriptionData.activatedByAdminId = activatedByAdminId;
-        this.logger.log(`[subscribe] New subscription - تم تعيين activatedByAdminId: ${activatedByAdminId}`);
+
+      const existingActiveSubscription = await this.subscriptionRepo.findOne({
+        where: {
+          company: { id: companyId },
+          status: SubscriptionStatus.ACTIVE,
+          endDate: MoreThanOrEqual(new Date())
+        },
+        relations: ['plan']
+      });
+
+      if (existingActiveSubscription && existingActiveSubscription.plan && !isAdminOverride) {
+        const currentPlan = existingActiveSubscription.plan;
+        const currentPlanMax = Number(currentPlan.maxEmployees) || 0;
+        const currentPlanPrice = Number(currentPlan.price) || 0;
+        const newPlanMax = Number(newPlan.maxEmployees) || 0;
+        const newPlanPrice = Number(newPlan.price) || 0;
+
+        const check = this.isAllowedPlanChange(
+          currentPlanMax,
+          currentPlanPrice,
+          newPlanMax,
+          newPlanPrice
+        );
+        
+        if (!check.allowed) {
+          throw new BadRequestException(
+            `لا يمكن الاشتراك في خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) ` +
+            `لأنك مشترك حالياً في خطة ${currentPlan.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) - ` +
+            check.reason
+          );
+        }
       }
 
-      if (activatedBySupadminId) {
-        subscriptionData.activatedBySupadminId = activatedBySupadminId;
-        this.logger.log(`[subscribe] New subscription - تم تعيين activatedBySupadminId: ${activatedBySupadminId}`);
-      }
+      let isNewSubscription = false;
+      let action: 'created' | 'renewed' | 'changed' = 'created';
+      let savedSubscription: CompanySubscription;
+      let finalMessage = '';
 
-      const subscription = this.subscriptionRepo.create(subscriptionData);
-      savedSubscription = await this.subscriptionRepo.save(subscription);
+      if (existingActiveSubscription) {
+        const isSamePlan = existingActiveSubscription.plan?.id === newPlan.id;
+        
+        if (isSamePlan) {
+          action = 'renewed';
+          finalMessage = 'تم تجديد الاشتراك بنجاح';
+        } else {
+          action = 'changed';
+          finalMessage = 'تم تحديث الاشتراك بنجاح';
+        }
+        
+        if (!isSamePlan) {
+          existingActiveSubscription.plan = newPlan;
+          existingActiveSubscription.customMaxEmployees = newPlan.maxEmployees;
+        }
+        
+        existingActiveSubscription.price = planPrice;
+        
+        const newEndDate = new Date(existingActiveSubscription.endDate);
+        newEndDate.setDate(newEndDate.getDate() + newPlan.durationInDays);
+        existingActiveSubscription.endDate = newEndDate;
+        
+        if (activatedBySellerId) {
+          existingActiveSubscription.activatedBySellerId = activatedBySellerId;
+          this.logger.log(`[subscribe] تم تعيين activatedBySellerId: ${activatedBySellerId}`);
+        }
+        
+        if (activatedByAdminId) {
+          existingActiveSubscription.activatedByAdminId = activatedByAdminId;
+          this.logger.log(`[subscribe] تم تعيين activatedByAdminId: ${activatedByAdminId}`);
+        }
 
-      await this.companyRepo
-        .createQueryBuilder()
-        .update(Company)
-        .set({
-          subscriptionStatus: 'active',
-          planId: newPlan.id,
-          paymentProvider: newPlan.paymentProvider?.toString() ?? '',
-          subscribedAt: () => 'CURRENT_TIMESTAMP'
-        })
-        .where('id = :id', { id: companyId })
-        .execute();
+        if (activatedBySupadminId) {
+          existingActiveSubscription.activatedBySupadminId = activatedBySupadminId;
+          this.logger.log(`[subscribe] تم تعيين activatedBySupadminId: ${activatedBySupadminId}`);
+        }
 
-      if (isAdminOverride) {
-        await this.updateRelatedPaymentProof(companyId, planId);
-      }
+        savedSubscription = await this.subscriptionRepo.save(existingActiveSubscription);
 
-      if (planPrice === 0) {
-        finalMessage = 'تم الاشتراك في الخطة المجانية بنجاح';
-      } else if (newPlan.isTrial) {
-        finalMessage = 'تم الاشتراك في الخطة التجريبية بنجاح';
-      } else if (isAdminOverride) {
-        finalMessage = 'تم تفعيل الاشتراك يدويًا بواسطة الإدارة';
-      }
-    }
+        await this.companyRepo
+          .createQueryBuilder()
+          .update(Company)
+          .set({
+            subscriptionStatus: 'active',
+            planId: newPlan.id,
+            paymentProvider: newPlan.paymentProvider?.toString() ?? '',
+            subscribedAt: () => 'CURRENT_TIMESTAMP'
+          })
+          .where('id = :id', { id: companyId })
+          .execute();
 
-    if (isAdminOverride && activatorEmail) {
-      this.logger.log(`[subscribe] سأرسل إيميل: isAdminOverride=${isAdminOverride}, activatorEmail=${activatorEmail}`);
-      
-      const endDateStr = savedSubscription.endDate.toLocaleDateString('ar-SA');
-      let details = '';
-      let emailAction = action;
-      
-      if (isNewSubscription) {
-        details = `تم إنشاء اشتراك جديد في خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء: ${endDateStr}.`;
-        emailAction = 'created';
-      } else if (action === 'renewed') {
-        details = `تم تجديد اشتراكك في خطة "${newPlan.name}" لمدة ${newPlan.durationInDays} يوم إضافية. تاريخ الانتهاء الجديد: ${endDateStr}.`;
-        emailAction = 'renewed';
+        if (isAdminOverride) {
+          await this.updateRelatedPaymentProof(companyId, planId);
+        }
+
+        if (planPrice === 0) {
+          finalMessage = 'تم تحديث الاشتراك إلى الخطة المجانية بنجاح';
+        } else if (newPlan.isTrial) {
+          finalMessage = 'تم تحديث الاشتراك إلى الخطة التجريبية بنجاح';
+        } else if (isAdminOverride) {
+          finalMessage = 'تم تحديث الاشتراك يدويًا بواسطة الإدارة';
+        }
+
       } else {
-        const oldPlanName = existingActiveSubscription?.plan?.name || 'غير معروفة';
-        details = `تم تغيير اشتراكك من خطة "${oldPlanName}" إلى خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء الجديد: ${endDateStr}.`;
-        emailAction = 'changed';
-      }
-      
-      this.logger.log(`[subscribe] إرسال إيميل إلى ${company.email}`);
-      this.logger.log(`[subscribe] من: ${activatorEmail}`);
-      this.logger.log(`[subscribe] الإجراء: ${emailAction}`);
-      
-      await this.sendSubscriptionActionEmail(
-        company.email,
-        company.name,
-        activatorEmail,
-        newPlan.name,
-        emailAction,
-        details
-      );
-      
-      this.logger.log(`[subscribe] تم إرسال الإيميل بنجاح`);
-    } else {
-      this.logger.warn(`[subscribe] لم يتم إرسال إيميل - isAdminOverride: ${isAdminOverride}, activatorEmail: ${activatorEmail}`);
-    }
+        isNewSubscription = true;
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setDate(startDate.getDate() + newPlan.durationInDays);
 
-    if (planPrice > 0 && !isAdminOverride && isNewSubscription) {
-      const provider = newPlan.paymentProvider;
-      if (!provider) {
-        throw new BadRequestException('مزود الدفع مطلوب للخطط المدفوعة');
+        const subscriptionData: Partial<CompanySubscription> = {
+          company,
+          plan: newPlan,
+          startDate,
+          endDate,
+          price: planPrice,
+          status: SubscriptionStatus.ACTIVE,
+          customMaxEmployees: newPlan.maxEmployees,
+        };
+
+        if (activatedBySellerId) {
+          subscriptionData.activatedBySellerId = activatedBySellerId;
+          this.logger.log(`[subscribe] New subscription - تم تعيين activatedBySellerId: ${activatedBySellerId}`);
+          
+          try {
+            const seller = await this.sellerRepo.findOne({ 
+              where: { id: activatedBySellerId } 
+            });
+            if (seller) {
+              subscriptionData.activatedBySeller = seller;
+            }
+          } catch (error) {
+            this.logger.warn(`[subscribe] لم يتم العثور على البائع ${activatedBySellerId}: ${error}`);
+          }
+        }
+        
+        if (activatedByAdminId) {
+          subscriptionData.activatedByAdminId = activatedByAdminId;
+          this.logger.log(`[subscribe] New subscription - تم تعيين activatedByAdminId: ${activatedByAdminId}`);
+        }
+
+        if (activatedBySupadminId) {
+          subscriptionData.activatedBySupadminId = activatedBySupadminId;
+          this.logger.log(`[subscribe] New subscription - تم تعيين activatedBySupadminId: ${activatedBySupadminId}`);
+        }
+
+        const subscription = this.subscriptionRepo.create(subscriptionData);
+        savedSubscription = await this.subscriptionRepo.save(subscription);
+
+        await this.companyRepo
+          .createQueryBuilder()
+          .update(Company)
+          .set({
+            subscriptionStatus: 'active',
+            planId: newPlan.id,
+            paymentProvider: newPlan.paymentProvider?.toString() ?? '',
+            subscribedAt: () => 'CURRENT_TIMESTAMP'
+          })
+          .where('id = :id', { id: companyId })
+          .execute();
+
+        if (isAdminOverride) {
+          await this.updateRelatedPaymentProof(companyId, planId);
+        }
+
+        if (planPrice === 0) {
+          finalMessage = 'تم الاشتراك في الخطة المجانية بنجاح';
+        } else if (newPlan.isTrial) {
+          finalMessage = 'تم الاشتراك في الخطة التجريبية بنجاح';
+        } else if (isAdminOverride) {
+          finalMessage = 'تم تفعيل الاشتراك يدويًا بواسطة الإدارة';
+        }
       }
 
-      const checkoutUrl = await this.paymentService.generateCheckoutUrl(
-        provider,
-        newPlan,
-        companyId,
-      );
+      if (isAdminOverride && activatorEmail) {
+        this.logger.log(`[subscribe] سأرسل إيميل: isAdminOverride=${isAdminOverride}, activatorEmail=${activatorEmail}`);
+        
+        const endDateStr = savedSubscription.endDate.toLocaleDateString('ar-SA');
+        let details = '';
+        let emailAction = action;
+        
+        if (isNewSubscription) {
+          details = `تم إنشاء اشتراك جديد في خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء: ${endDateStr}.`;
+          emailAction = 'created';
+        } else if (action === 'renewed') {
+          details = `تم تجديد اشتراكك في خطة "${newPlan.name}" لمدة ${newPlan.durationInDays} يوم إضافية. تاريخ الانتهاء الجديد: ${endDateStr}.`;
+          emailAction = 'renewed';
+        } else {
+          const oldPlanName = existingActiveSubscription?.plan?.name || 'غير معروفة';
+          details = `تم تغيير اشتراكك من خطة "${oldPlanName}" إلى خطة "${newPlan.name}". السعر: ${planPrice} ريال. المدة: ${newPlan.durationInDays} يوم. تاريخ الانتهاء الجديد: ${endDateStr}.`;
+          emailAction = 'changed';
+        }
+        
+        this.logger.log(`[subscribe] إرسال إيميل إلى ${company.email}`);
+        this.logger.log(`[subscribe] من: ${activatorEmail}`);
+        this.logger.log(`[subscribe] الإجراء: ${emailAction}`);
+        
+        await this.sendSubscriptionActionEmail(
+          company.email,
+          company.name,
+          activatorEmail,
+          newPlan.name,
+          emailAction,
+          details
+        );
+        
+        this.logger.log(`[subscribe] تم إرسال الإيميل بنجاح`);
+      } else {
+        this.logger.warn(`[subscribe] لم يتم إرسال إيميل - isAdminOverride: ${isAdminOverride}, activatorEmail: ${activatorEmail}`);
+      }
+
+      if (planPrice > 0 && !isAdminOverride && isNewSubscription) {
+        const provider = newPlan.paymentProvider;
+        if (!provider) {
+          throw new BadRequestException('مزود الدفع مطلوب للخطط المدفوعة');
+        }
+
+        const checkoutUrl = await this.paymentService.generateCheckoutUrl(
+          provider,
+          newPlan,
+          companyId,
+        );
+
+        return {
+          message: 'يتطلب إتمام عملية الدفع',
+          redirectToPayment: true,
+          checkoutUrl,
+        };
+      }
 
       return {
-        message: 'يتطلب إتمام عملية الدفع',
-        redirectToPayment: true,
-        checkoutUrl,
+        message: finalMessage,
+        redirectToDashboard: true,
+        subscription: savedSubscription,
       };
-    }
 
-    return {
-      message: finalMessage,
-      redirectToDashboard: true,
-      subscription: savedSubscription,
-    };
-
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : 'خطأ غير معروف';
-    this.logger.error(`فشل الاشتراك للشركة ${companyId}: ${errorMessage}`);
-    
-    if (error instanceof NotFoundException || error instanceof BadRequestException) {
-      throw error;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'خطأ غير معروف';
+      this.logger.error(`فشل الاشتراك للشركة ${companyId}: ${errorMessage}`);
+      
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      throw new InternalServerErrorException('فشل في عملية الاشتراك');
     }
-    
-    throw new InternalServerErrorException('فشل في عملية الاشتراك');
   }
-}
 
   async changeSubscriptionPlan(companyId: string, newPlanId: string, adminEmail?: string): Promise<PlanChangeResult> {
     try {
@@ -686,25 +712,19 @@ async subscribe(
       const currentPlanMax = Number(currentSubscription.plan?.maxEmployees) || 0;
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
       
-      const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
-      const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
-                                (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
+      const check = this.isAllowedPlanChange(
+        currentPlanMax,
+        currentPlanPrice,
+        newPlanMax,
+        newPlanPrice
+      );
       
-      if (isDowngrading) {
+      if (!check.allowed) {
         throw new BadRequestException(
           `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} ` +
           `(${currentPlanMax} موظف - ${currentPlanPrice} ريال) ` +
-          `إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) ` +
-          `- غير مسموح بالانتقال لخطة أقل`
-        );
-      }
-      
-      if (isPartialDowngrade) {
-        const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
-        throw new BadRequestException(
-          `غير مسموح بالانتقال إلى خطة ${newPlan.name} لأنها أقل في ${reason}. ` +
-          `(الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال, ` +
-          `الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال)`
+          `إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) - ` +
+          check.reason
         );
       }
 
@@ -824,15 +844,19 @@ async subscribe(
       const newPlanMax = Number(newPlan.maxEmployees) || 0;
       const newPlanPrice = Number(newPlan.price) || 0;
 
-      const isDowngrading = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
-      const isPartialDowngrade = (newPlanMax < currentPlanMax && newPlanPrice > currentPlanPrice) ||
-                                (newPlanMax > currentPlanMax && newPlanPrice < currentPlanPrice);
+      const check = this.isAllowedPlanChange(
+        currentPlanMax,
+        currentPlanPrice,
+        newPlanMax,
+        newPlanPrice
+      );
       
-      if ((isDowngrading || isPartialDowngrade) && !adminOverride) {
+      if (!check.allowed && !adminOverride) {
         throw new BadRequestException(
           `غير مسموح بالانتقال إلى خطة أقل. ` +
           `الخطة الحالية: ${currentPlan?.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) ` +
-          `الخطة الجديدة: ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال)`
+          `الخطة الجديدة: ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) - ` +
+          check.reason
         );
       }
 
@@ -1328,11 +1352,41 @@ async subscribe(
       throw error;
     }
   }
-async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChangeValidation> {
-  try {
-    const currentSubscription = await this.getCompanySubscription(companyId);
-    
-    if (!currentSubscription) {
+
+  async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChangeValidation> {
+    try {
+      const currentSubscription = await this.getCompanySubscription(companyId);
+      
+      if (!currentSubscription) {
+        const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
+        if (!newPlan) {
+          throw new NotFoundException('الخطة الجديدة غير موجودة');
+        }
+        
+        const currentEmployees = await this.employeeRepo.count({
+          where: { company: { id: companyId } }
+        });
+        
+        const canChange = newPlan.maxEmployees >= currentEmployees;
+        const action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID' = 'UPGRADE';
+        
+        let message = '';
+        if (canChange) {
+          message = `يمكنك الاشتراك في الخطة ${newPlan.name} التي تدعم ${newPlan.maxEmployees} موظف`;
+        } else {
+          message = `لا يمكن الاشتراك في الخطة ${newPlan.name} (${newPlan.maxEmployees} موظف) لأن لديك ${currentEmployees} موظف`;
+        }
+        
+        return {
+          canChange,
+          message,
+          currentPlanMax: 0,
+          newPlanMax: newPlan.maxEmployees,
+          currentEmployees,
+          action
+        };
+      }
+      
       const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
       if (!newPlan) {
         throw new NotFoundException('الخطة الجديدة غير موجودة');
@@ -1341,75 +1395,44 @@ async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChan
       const currentEmployees = await this.employeeRepo.count({
         where: { company: { id: companyId } }
       });
-      
-      const canChange = newPlan.maxEmployees >= currentEmployees;
-      const action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID' = 'UPGRADE';
-      
+
+      const currentPlanMax = Number(currentSubscription.plan?.maxEmployees) || 0;
+      const newPlanMax = Number(newPlan.maxEmployees) || 0;
+      const currentPlanPrice = Number(currentSubscription.plan?.price) || 0;
+      const newPlanPrice = Number(newPlan.price) || 0;
+
+      let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
       let message = '';
-      if (canChange) {
-        message = `يمكنك الاشتراك في الخطة ${newPlan.name} التي تدعم ${newPlan.maxEmployees} موظف`;
-      } else {
-        message = `لا يمكن الاشتراك في الخطة ${newPlan.name} (${newPlan.maxEmployees} موظف) لأن لديك ${currentEmployees} موظف`;
+
+      // 1. نفس الخطة
+      if (newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice) {
+        action = 'RENEW';
+        message = `يمكنك التجديد في نفس الخطة ${newPlan.name}`;
       }
-      
-      return {
-        canChange,
-        message,
-        currentPlanMax: 0,
-        newPlanMax: newPlan.maxEmployees,
-        currentEmployees,
-        action
-      };
-    }
-    
-    const newPlan = await this.planRepo.findOne({ where: { id: newPlanId } });
-    if (!newPlan) {
-      throw new NotFoundException('الخطة الجديدة غير موجودة');
-    }
-    
-    const currentEmployees = await this.employeeRepo.count({
-      where: { company: { id: companyId } }
-    });
-
-    const currentPlanMax = Number(currentSubscription.plan?.maxEmployees) || 0;
-    const newPlanMax = Number(newPlan.maxEmployees) || 0;
-    const currentPlanPrice = Number(currentSubscription.plan?.price) || 0;
-    const newPlanPrice = Number(newPlan.price) || 0;
-
-    let action: 'UPGRADE' | 'RENEW' | 'DOWNGRADE' | 'INVALID';
-    let message = '';
-
-    // تحديد نوع الإجراء بشكل صحيح
-    const isSamePlan = newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice;
-    const isUpgrade = newPlanMax > currentPlanMax || newPlanPrice > currentPlanPrice;
-    const isDowngrade = newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice;
-    
-    // الحالة الخاصة: إذا كانت الخطة الجديدة أعلى في أحد المعيارين وتساوي في الآخر
-    const isMixedChange = (newPlanMax >= currentPlanMax && newPlanPrice < currentPlanPrice) ||
-                         (newPlanMax <= currentPlanMax && newPlanPrice > currentPlanPrice);
-
-    if (isSamePlan) {
-      action = 'RENEW';
-      message = `يمكنك التجديد في نفس الخطة ${newPlan.name}`;
-    } else if (isDowngrade) {
-      action = 'DOWNGRADE';
-      message = `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) - غير مسموح بالانتقال لخطة أقل`;
-      return {
-        canChange: false,
-        message,
-        currentPlanMax,
-        newPlanMax,
-        currentEmployees,
-        action
-      };
-    } else if (isUpgrade) {
-      action = 'UPGRADE';
-      message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف بسعر ${newPlanPrice} ريال`;
-    } else if (isMixedChange) {
-      // الحالة المختلطة: نحتاج لفحص إذا كان مسموحًا أم لا
-      if (newPlanMax < currentPlanMax) {
+      // 2. نزول واضح (أقل في كلا المعيارين)
+      else if (newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice) {
         action = 'DOWNGRADE';
-        message = `غير مسموح بالانتقال إلى خطة ${newPlan.name} لأنها أقل في عدد الموظفين. ` +
+        message = `غير مسموح بالانتقال من خطة ${currentSubscription.plan?.name} (${currentPlanMax} موظف - ${currentPlanPrice} ريال) إلى خطة ${newPlan.name} (${newPlanMax} موظف - ${newPlanPrice} ريال) - غير مسموح بالانتقال لخطة أقل`;
+        return {
+          canChange: false,
+          message,
+          currentPlanMax,
+          newPlanMax,
+          currentEmployees,
+          action
+        };
+      }
+      // 3. ترقية (أعلى في واحد على الأقل من المعيارين ولا أقل في أي معيار)
+      else if ((newPlanMax > currentPlanMax && newPlanPrice >= currentPlanPrice) ||
+               (newPlanMax >= currentPlanMax && newPlanPrice > currentPlanPrice)) {
+        action = 'UPGRADE';
+        message = `يمكنك الترقية إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف بسعر ${newPlanPrice} ريال`;
+      }
+      // 4. نزول جزئي (أقل في أحد المعيارين)
+      else if (newPlanMax < currentPlanMax || newPlanPrice < currentPlanPrice) {
+        action = 'DOWNGRADE';
+        const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
+        message = `غير مسموح بالانتقال إلى خطة ${newPlan.name} لأنها أقل في ${reason}. ` +
                  `(الحالية: ${currentPlanMax} موظف - ${currentPlanPrice} ريال, ` +
                  `الجديدة: ${newPlanMax} موظف - ${newPlanPrice} ريال)`;
         return {
@@ -1420,46 +1443,43 @@ async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChan
           currentEmployees,
           action
         };
-      } else {
-        // السعر أقل لكن عدد الموظفين مساوي أو أكبر - نعتبره تغييرًا مسموحًا
-        action = 'UPGRADE';
-        message = `يمكنك التغيير إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف`;
       }
-    } else {
-      // الحالة الافتراضية: إذا كانت الخطة الجديدة أقل في السعر لكن أعلى أو تساوي في الموظفين
-      action = 'UPGRADE';
-      message = `يمكنك التغيير إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف`;
-    }
+      // 5. حالة متساوية في أحد المعيارين والأعلى في الآخر (مسموح)
+      else {
+        action = 'UPGRADE';
+        message = `يمكنك التغيير إلى الخطة ${newPlan.name} التي تدعم ${newPlanMax} موظف بسعر ${newPlanPrice} ريال`;
+      }
 
-    // تحقق من عدد الموظفين الحاليين
-    if (currentEmployees > newPlanMax) {
-      return {
-        canChange: false,
-        message: `لا يمكن الانتقال إلى الخطة ${newPlan.name} لأنها تدعم فقط ${newPlanMax} موظف بينما لديك حالياً ${currentEmployees} موظف`,
+      // تحقق من عدد الموظفين الحاليين
+      if (currentEmployees > newPlanMax) {
+        return {
+          canChange: false,
+          message: `لا يمكن الانتقال إلى الخطة ${newPlan.name} لأنها تدعم فقط ${newPlanMax} موظف بينما لديك حالياً ${currentEmployees} موظف`,
+          currentPlanMax,
+          newPlanMax,
+          currentEmployees,
+          action: action === 'UPGRADE' ? 'UPGRADE' : action
+        };
+      }
+
+      const canChange = action === 'UPGRADE' || action === 'RENEW';
+      const result: PlanChangeValidation = {
+        canChange,
+        message,
         currentPlanMax,
         newPlanMax,
         currentEmployees,
         action
       };
+
+      return result;
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`فشل التحقق من تغيير الخطة: ${errorMessage}`);
+      throw error;
     }
-
-    const canChange = action === 'UPGRADE' || action === 'RENEW';
-    const result: PlanChangeValidation = {
-      canChange,
-      message,
-      currentPlanMax,
-      newPlanMax,
-      currentEmployees,
-      action
-    };
-
-    return result;
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    this.logger.error(`فشل التحقق من تغيير الخطة: ${errorMessage}`);
-    throw error;
   }
-}
+
   async canUpgradeToPlan(companyId: string, planId: string): Promise<UpgradeCheckResult> {
     try {
       const currentSubscription = await this.getCompanySubscription(companyId);
@@ -1494,10 +1514,14 @@ async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChan
       const currentPlanPrice = Number(currentPlan.price) || 0;
       const newPlanPrice = Number(newPlan.price) || 0;
 
-      const isUpgrade = newPlanMax >= currentPlanMax && 
-                       newPlanPrice >= currentPlanPrice;
+      const check = this.isAllowedPlanChange(
+        currentPlanMax,
+        currentPlanPrice,
+        newPlanMax,
+        newPlanPrice
+      );
       
-      if (!isUpgrade) {
+      if (!check.allowed) {
         return { 
           canUpgrade: false, 
           reason: `لا يمكن النزول إلى خطة أقل. الخطة الحالية: ${currentPlan.name} (${currentPlan.maxEmployees} موظف - ${currentPlan.price} ريال)`,
@@ -1536,8 +1560,14 @@ async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChan
         const planMax = Number(plan.maxEmployees) || 0;
         const planPrice = Number(plan.price) || 0;
         
-        return (planMax >= currentPlanMax && planPrice >= currentPlanPrice) ||
-               plan.id === currentPlan.id;
+        const check = this.isAllowedPlanChange(
+          currentPlanMax,
+          currentPlanPrice,
+          planMax,
+          planPrice
+        );
+        
+        return check.allowed;
       });
       
       return availablePlans.sort((a, b) => a.maxEmployees - b.maxEmployees);
@@ -1680,7 +1710,7 @@ async validatePlanChange(companyId: string, newPlanId: string): Promise<PlanChan
     const newEndDate = new Date(currentEndDate);
     newEndDate.setDate(newEndDate.getDate() + durationInDays);
     const formattedDate = newEndDate.toISOString().split('T')[0];
-    return `http://localhost:3000/renew-subscription?companyId=${companyId}&planId=${planId}&newEndDate=${formattedDate}`;
+    return `https://sharik-sa.com/renew-subscription?companyId=${companyId}&planId=${planId}&newEndDate=${formattedDate}`;
   }
 
   async getCurrentEmployeeCount(companyId: string): Promise<number> {

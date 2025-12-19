@@ -64,11 +64,9 @@ async function bootstrap() {
 
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
-  logger.log(' Swagger جاهز على /docs');
 
   const adminService = app.get(AdminService);
   await adminService.ensureDefaultAdmin();
-  logger.log(' تم التأكد من وجود الأدمن الأساسي');
 
   const port = parseInt(process.env.PORT || '3000', 10);
   
@@ -76,7 +74,6 @@ async function bootstrap() {
 
   httpsOptions.SNICallback = (servername: string, callback: (err: Error | null, ctx?: tls.SecureContext) => void) => {
     try {
-      logger.log(` SSL requested for: ${servername}`);
       
       let keyPath: string;
       let certPath: string;
@@ -84,11 +81,9 @@ async function bootstrap() {
       if (servername === 'localhost' || servername === '127.0.0.1') {
         keyPath = '/etc/ssl/localhost.key';
         certPath = '/etc/ssl/localhost.crt';
-        logger.log(' Using localhost certificate');
       } else {
         keyPath = '/etc/letsencrypt/live/sharik-sa.com/privkey.pem';
         certPath = '/etc/letsencrypt/live/sharik-sa.com/fullchain.pem';
-        logger.log(' Using Let\'s Encrypt certificate');
       }
 
       if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
