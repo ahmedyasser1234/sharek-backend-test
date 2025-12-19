@@ -329,36 +329,36 @@ export class SubscriptionService {
   }
 
   private isAllowedPlanChange(
-    currentPlanMax: number,
-    currentPlanPrice: number,
-    newPlanMax: number,
-    newPlanPrice: number
-  ): { allowed: boolean; reason?: string } {
-    // نفس الخطة
-    if (newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice) {
-      return { allowed: true };
-    }
-    
-    // نزول واضح (أقل في كلا المعيارين)
-    if (newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice) {
-      return { 
-        allowed: false, 
-        reason: 'النزول محظور في كلا المعيارين (الموظفين والسعر)' 
-      };
-    }
-    
-    // نزول جزئي (أقل في أحد المعيارين)
-    if (newPlanMax < currentPlanMax || newPlanPrice < currentPlanPrice) {
-      const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
-      return { 
-        allowed: false, 
-        reason: `النزول محظور في ${reason}` 
-      };
-    }
-    
-    // ترقية أو تساوي في معيار وأعلى في الآخر
+  currentPlanMax: number,
+  currentPlanPrice: number,
+  newPlanMax: number,
+  newPlanPrice: number
+): { allowed: boolean; reason?: string } {
+  if (newPlanMax === currentPlanMax && newPlanPrice === currentPlanPrice) {
     return { allowed: true };
   }
+  
+  if (newPlanMax < currentPlanMax && newPlanPrice < currentPlanPrice) {
+    return { 
+      allowed: false, 
+      reason: 'النزول محظور في كلا المعيارين (الموظفين والسعر)' 
+    };
+  }
+  
+  if (newPlanMax > currentPlanMax && newPlanPrice > currentPlanPrice) {
+    return { allowed: true };
+  }
+  
+  if (newPlanMax < currentPlanMax || newPlanPrice < currentPlanPrice) {
+    const reason = newPlanMax < currentPlanMax ? 'عدد الموظفين' : 'السعر';
+    return { 
+      allowed: false, 
+      reason: `النزول محظور في ${reason}` 
+    };
+  }
+  
+  return { allowed: true };
+}
 
   private async deactivateOldSubscriptions(companyId: string): Promise<{ deactivatedCount: number }> {
     try {
