@@ -308,8 +308,8 @@ export class PaymentService {
 
 async approveProof(
   proofId: string, 
-  approvedById?: string,  // ✅ قد يكون seller أو admin
-  supadminId?: string     // ✅ جديد: لـ supadmin
+  approvedById?: string,  
+  supadminId?: string    
 ): Promise<{ message: string }> {
   const proof = await this.paymentProofRepo.findOne({
     where: { id: proofId },
@@ -410,11 +410,9 @@ async approveProof(
       activatorEmail = supadminEmail || process.env.SUPADMIN_EMAIL || 'supadmin@system.local';
       break;
     default:
-      // حالة النظام أو مستخدم غير معروف
       activatorEmail = process.env.SYSTEM_EMAIL || 'system@system.local';
   }
 
-  // ✅ سجل المعلومات للـ debugging
   this.logger.log(`تفاصيل الموافقة على الطلب ${proofId}:`);
   this.logger.log(`- userType: ${userType}`);
   this.logger.log(`- activatedBySellerId: ${activatedBySellerId}`);
@@ -422,22 +420,20 @@ async approveProof(
   this.logger.log(`- activatedBySupadminId: ${activatedBySupadminId}`);
   this.logger.log(`- activatorEmail: ${activatorEmail}`);
 
-  // ✅ التعديل المهم: مرّر الـ ID الصحيح للدالة subscribe
   const result = await this.subscriptionService.subscribe(
     proof.company.id,       
     proof.plan.id,          
-    true,                   // isAdminOverride
-    activatedBySellerId,    // ✅ إذا كان بائع
-    activatedByAdminId,     // ✅ إذا كان أدمن
-    activatedBySupadminId,  // ✅ إذا كان supadmin
-    activatorEmail          // activatorEmail
+    true,                   
+    activatedBySellerId,     
+    activatedByAdminId,     
+    activatedBySupadminId,  
+    activatorEmail          
   );
 
   proof.status = PaymentProofStatus.APPROVED;
   proof.reviewed = true;
   proof.rejected = false;
   
-  // ✅ تحديث note بناءً على نوع المستخدم
   switch (userType) {
     case 'admin':
       proof.decisionNote = `تم القبول بواسطة الأدمن ${adminEmail || activatorId}`;
@@ -452,10 +448,8 @@ async approveProof(
       proof.decisionNote = 'تم القبول بواسطة النظام';
   }
   
-  // ✅ حفظ الـ ID المناسب
   if (activatorId) {
     proof.approvedById = activatorId;
-    proof.approvedByType = userType; // يمكنك إضافة هذا الحقل إذا أردت
   }
   
   await this.paymentProofRepo.save(proof);
