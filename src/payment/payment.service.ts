@@ -32,6 +32,7 @@ import { NotificationService } from '../notification/notification.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { Manager } from '../admin/entities/manager.entity';  
 import { Admin } from '../admin/entities/admin.entity';  
+import { Supadmin } from '../admin/entities/supadmin.entity';
 
 @Injectable()
 export class PaymentService {
@@ -67,6 +68,8 @@ export class PaymentService {
     private readonly adminRepo: Repository<Admin>,
     @InjectRepository(Manager)  
     private readonly sellerRepo: Repository<Manager>,
+    @InjectRepository(Supadmin) 
+    private readonly supadminRepo: Repository<Supadmin>,
     @InjectRepository(PaymentProof)
     private readonly paymentProofRepo: Repository<PaymentProof>,
     private readonly cloudinaryService: CloudinaryService,
@@ -303,7 +306,11 @@ export class PaymentService {
     return !!pendingProof;
   }
 
-  async approveProof(proofId: string, approvedById?: string, sellerId?: string): Promise<{ message: string }> {
+async approveProof(
+  proofId: string, 
+  approvedById?: string,  // ✅ قد يكون seller أو admin
+  supadminId?: string     // ✅ جديد: لـ supadmin
+): Promise<{ message: string }> {
   const proof = await this.paymentProofRepo.findOne({
     where: { id: proofId },
     relations: ['company', 'plan'],
@@ -316,62 +323,139 @@ export class PaymentService {
 
   let adminEmail: string | undefined;
   let sellerEmail: string | undefined;
-  let isAdmin = false;
+  let supadminEmail: string | undefined;
+  let userType: 'admin' | 'seller' | 'supadmin' | 'unknown' = 'unknown';
+  let activatorId: string | undefined;
   
-  // 🔍 تحقق إذا كان الـ ID لأدمن أم بائع
-  if (approvedById) {
+  // ✅ تحديد نوع المستخدم
+  if (supadminId) {
+    // إذا كان supadmin
+    userType = 'supadmin';
+    activatorId = supadminId;
     try {
-      // تحقق إذا كان أدمن
+      const supadmin = await this.supadminRepo.findOne({ 
+        where: { id: supadminId },
+        select: ['email']
+      });
+      supadminEmail = supadmin?.email || process.env.SUPADMIN_EMAIL || 'supadmin@system.local';
+    } catch (error) {
+      this.logger.warn(`لم يتم العثور على المسؤول الأعلى ${supadminId}: ${error}`);
+      supadminEmail = process.env.SUPADMIN_EMAIL || 'supadmin@system.local';
+    }
+  } else if (approvedById) {
+    // تحقق إذا كان أدمن أم بائع
+    try {
+      // أولاً: تحقق إذا كان أدمن
       const admin = await this.adminRepo.findOne({ 
         where: { id: approvedById },
         select: ['email']
       });
       
       if (admin) {
-        isAdmin = true;
+        userType = 'admin';
+        activatorId = approvedById;
         adminEmail = admin.email || process.env.ADMIN_EMAIL || 'admin@system.local';
       } else {
-        // إذا مش أدمن، شوف إذا كان بائع
+        // ثانياً: تحقق إذا كان بائع
         const seller = await this.sellerRepo.findOne({ 
           where: { id: approvedById },
           select: ['email']
         });
         
         if (seller) {
-          isAdmin = false;
-          sellerEmail = seller.email;
+          userType = 'seller';
+          activatorId = approvedById;
+          sellerEmail = seller.email || process.env.SELLER_EMAIL || 'seller@system.local';
+        } else {
+          // ثالثاً: تحقق إذا كان supadmin (لكن بدون supadminId)
+          const supadmin = await this.supadminRepo.findOne({ 
+            where: { id: approvedById },
+            select: ['email']
+          });
+          
+          if (supadmin) {
+            userType = 'supadmin';
+            activatorId = approvedById;
+            supadminEmail = supadmin.email || process.env.SUPADMIN_EMAIL || 'supadmin@system.local';
+          } else {
+            // إذا لم نجد أي نوع
+            userType = 'unknown';
+            this.logger.warn(`المستخدم ${approvedById} غير موجود كأدمن، بائع، أو مسؤول أعلى`);
+          }
         }
       }
     } catch (error) {
-      this.logger.warn(`فشل التحقق من المستخدم ${approvedById}: ${error}`);
+      this.logger.error(`فشل التحقق من المستخدم ${approvedById}: ${error}`);
+      userType = 'unknown';
     }
   }
+
+  // ✅ تحديد المعلمات بناءً على نوع المستخدم
+  let activatedBySellerId: string | undefined;
+  let activatedByAdminId: string | undefined;
+  let activatedBySupadminId: string | undefined;
+  let activatorEmail: string | undefined;
+
+  switch (userType) {
+    case 'admin':
+      activatedByAdminId = activatorId;
+      activatorEmail = adminEmail || process.env.ADMIN_EMAIL || 'admin@system.local';
+      break;
+    case 'seller':
+      activatedBySellerId = activatorId;
+      activatorEmail = sellerEmail || process.env.SELLER_EMAIL || 'seller@system.local';
+      break;
+    case 'supadmin':
+      activatedBySupadminId = activatorId;
+      activatorEmail = supadminEmail || process.env.SUPADMIN_EMAIL || 'supadmin@system.local';
+      break;
+    default:
+      // حالة النظام أو مستخدم غير معروف
+      activatorEmail = process.env.SYSTEM_EMAIL || 'system@system.local';
+  }
+
+  // ✅ سجل المعلومات للـ debugging
+  this.logger.log(`تفاصيل الموافقة على الطلب ${proofId}:`);
+  this.logger.log(`- userType: ${userType}`);
+  this.logger.log(`- activatedBySellerId: ${activatedBySellerId}`);
+  this.logger.log(`- activatedByAdminId: ${activatedByAdminId}`);
+  this.logger.log(`- activatedBySupadminId: ${activatedBySupadminId}`);
+  this.logger.log(`- activatorEmail: ${activatorEmail}`);
 
   // ✅ التعديل المهم: مرّر الـ ID الصحيح للدالة subscribe
   const result = await this.subscriptionService.subscribe(
     proof.company.id,       
     proof.plan.id,          
     true,                   // isAdminOverride
-    isAdmin ? undefined : approvedById,  // ✅ إذا كان بائع، مرّر كـ activatedBySellerId
-    isAdmin ? approvedById : undefined,  // ✅ إذا كان أدمن، مرّر كـ activatedByAdminId
-    undefined,              // activatedBySupadminId
-    sellerEmail || adminEmail  // activatorEmail
+    activatedBySellerId,    // ✅ إذا كان بائع
+    activatedByAdminId,     // ✅ إذا كان أدمن
+    activatedBySupadminId,  // ✅ إذا كان supadmin
+    activatorEmail          // activatorEmail
   );
 
   proof.status = PaymentProofStatus.APPROVED;
   proof.reviewed = true;
   proof.rejected = false;
   
-  if (isAdmin) {
-    proof.decisionNote = `تم القبول بواسطة الأدمن ${adminEmail || approvedById}`;
-  } else if (approvedById) {
-    proof.decisionNote = `تم القبول بواسطة البائع ${sellerEmail || approvedById}`;
-  } else {
-    proof.decisionNote = 'تم القبول بواسطة النظام';
+  // ✅ تحديث note بناءً على نوع المستخدم
+  switch (userType) {
+    case 'admin':
+      proof.decisionNote = `تم القبول بواسطة الأدمن ${adminEmail || activatorId}`;
+      break;
+    case 'seller':
+      proof.decisionNote = `تم القبول بواسطة البائع ${sellerEmail || activatorId}`;
+      break;
+    case 'supadmin':
+      proof.decisionNote = `تم القبول بواسطة المسؤول الأعلى ${supadminEmail || activatorId}`;
+      break;
+    default:
+      proof.decisionNote = 'تم القبول بواسطة النظام';
   }
   
-  if (approvedById) {
-    proof.approvedById = approvedById;
+  // ✅ حفظ الـ ID المناسب
+  if (activatorId) {
+    proof.approvedById = activatorId;
+    proof.approvedByType = userType; // يمكنك إضافة هذا الحقل إذا أردت
   }
   
   await this.paymentProofRepo.save(proof);
@@ -381,8 +465,9 @@ export class PaymentService {
     proof.company.name,
     proof.plan.name,
     true,
-    isAdmin ? `بواسطة الأدمن: ${adminEmail || approvedById}` :
-    (approvedById ? `بواسطة البائع: ${sellerEmail || approvedById}` : 'بواسطة النظام')
+    userType === 'supadmin' ? `بواسطة المسؤول الأعلى: ${supadminEmail || activatorId}` :
+    (userType === 'admin' ? `بواسطة الأدمن: ${adminEmail || activatorId}` :
+    (userType === 'seller' ? `بواسطة البائع: ${sellerEmail || activatorId}` : 'بواسطة النظام'))
   );
 
   await this.notificationService.notifyCompanySubscriptionApproved({
